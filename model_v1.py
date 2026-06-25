@@ -14,13 +14,23 @@ from supabase import create_client, Client
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIG / CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
-# ── Supabase connection (hardcoded) ──────────────────────────────────────────
-SUPABASE_URL = "https://mvoxhdbcxmmozulenlvh.supabase.co"        # ← replace
-SUPABASE_KEY = "gPve8zmZsgbuCu85KxY9Pg_ohKPKY7M"          # ← replace
+# ── Supabase connection ──────────────────────────────────────────────────────
+# Reads from Streamlit secrets (recommended) OR environment variables.
+# In Streamlit Cloud: Manage app → Secrets → add SUPABASE_URL and SUPABASE_KEY
+# Locally: create .streamlit/secrets.toml with the same keys.
 
 @st.cache_resource
 def get_supabase() -> Client:
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+    try:
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+    except (KeyError, FileNotFoundError):
+        url = os.environ.get("SUPABASE_URL","")
+        key = os.environ.get("SUPABASE_KEY","")
+    if not url or not key or "YOURPROJECT" in url:
+        st.error("⚠️ Supabase credentials not set. Add SUPABASE_URL and SUPABASE_KEY to Streamlit secrets.")
+        st.stop()
+    return create_client(url, key)
 
 STATUSES   = ["New Idea","Assigned","WIP","UAT","Completed","Hold/Park","Rejected"]
 PROJECTS   = ["EFS CA-MRO","EFS BA-MRO","EFS BA-LCE","EFS CA-LCE","EFS Controls","EFS Technical Response","Others"]
@@ -113,24 +123,20 @@ PAGE_SURFACE = "#dbbdbd"   # card surface stays white
 
 def init_db():
     """Seed the default super-user on first run (idempotent)."""
-    sb  = get_supabase()
-    dh  = generate_password_hash(DEFAULT_PW)
+    sb = get_supabase()
+    dh = generate_password_hash(DEFAULT_PW)
     for u in DEFAULT_USERS:
-        existing = sb.table("users").select("email").eq("email", u["email"].lower()).execute()
+        existing = sb.table("users").select("email,password_hash").eq("email", u["email"].lower()).execute()
         if not existing.data:
+            # User does not exist — insert fresh
             sb.table("users").insert({
-                "email": u["email"].lower(),
-                "role":  u["role"],
+                "email":         u["email"].lower(),
+                "role":          u["role"],
                 "password_hash": dh,
             }).execute()
-        else:
-            # backfill password_hash if missing
-            # Before (broken)
-.is_("password_hash", "null").execute()
-
-# After (correct) — check in Python, no server-side null filter
-elif not existing.data[0].get("password_hash"):
-    sb.table("users").update({"password_hash": dh}).eq("email", ...).execute()
+        elif not existing.data[0].get("password_hash"):
+            # User exists but has no password yet — backfill
+            sb.table("users").update({"password_hash": dh})               .eq("email", u["email"].lower()).execute()
 
 def get_all():
     sb   = get_supabase()
