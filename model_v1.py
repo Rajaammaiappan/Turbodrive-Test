@@ -1,4 +1,3 @@
-
 """
 Turbo Drive — Ideation & Automation Workflow Manager
 Streamlit version — Requirement 2 Updates Applied
@@ -551,12 +550,10 @@ def is_org_email(email: str) -> bool:
     return domain not in BLOCKED_DOMAINS
 
 def check_login(email, password):
-    cur = db().cursor()
-    cur.execute("SELECT * FROM Users WHERE email=?", (email.lower(),))
-    row = cur.fetchone()
-    if not row: return None, "Email not found in system."
-    row = dict(row)
-    role = row["role"]
+    resp = get_supabase().table("users").select("*").eq("email", email.lower()).execute()
+    if not resp.data: return None, "Email not found in system."
+    row  = resp.data[0]
+    role = row.get("role","")
     if role in PW_ROLES:
         if not password: return None, "Password required for your role."
         if not row.get("password_hash") or not check_password_hash(row["password_hash"], password):
@@ -760,13 +757,15 @@ def page_register():
             elif len(pw) < 4:
                 st.error("Password must be at least 4 characters.")
             else:
-                cur = db().cursor()
-                cur.execute("SELECT email FROM Users WHERE email=?", (email.lower(),))
-                if cur.fetchone():
+                resp = get_supabase().table("users").select("email").eq("email", email.lower()).execute()
+                if resp.data:
                     st.error("This email is already registered — please log in.")
                 else:
-                    q("INSERT INTO Users (email,role,password_hash) VALUES (?,?,?)",
-                      (email.lower(),"normal user",generate_password_hash(pw)))
+                    get_supabase().table("users").insert({
+                        "email": email.lower(),
+                        "role":  "normal user",
+                        "password_hash": generate_password_hash(pw)
+                    }).execute()
                     st.success("✅ Registered! You can now log in.")
     if st.button("← Back to Login"):
         st.session_state.pop("_page_override",None); st.rerun()
@@ -792,12 +791,10 @@ def page_change_password():
             elif len(new_pw) < 4:
                 st.error("Minimum 4 characters.")
             else:
-                cur = db().cursor()
-                cur.execute("SELECT * FROM Users WHERE email=?", (email.lower(),))
-                row = cur.fetchone()
-                if not row:
+                resp = get_supabase().table("users").select("*").eq("email", email.lower()).execute()
+                if not resp.data:
                     st.error("Email not found.")
-                elif not check_password_hash(dict(row)["password_hash"] or "", cur_pw):
+                elif not check_password_hash(resp.data[0].get("password_hash") or "", cur_pw):
                     st.error("🚫 Current password is incorrect.")
                 else:
                     set_password(email.lower(), new_pw)
