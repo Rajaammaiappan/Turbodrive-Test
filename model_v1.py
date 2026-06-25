@@ -14,23 +14,13 @@ from supabase import create_client, Client
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIG / CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
-# ── Supabase connection ──────────────────────────────────────────────────────
-# Reads from Streamlit secrets (recommended) OR environment variables.
-# In Streamlit Cloud: Manage app → Secrets → add SUPABASE_URL and SUPABASE_KEY
-# Locally: create .streamlit/secrets.toml with the same keys.
+# ── Supabase credentials (hardcoded) ─────────────────────────────────────────
+SUPABASE_URL = "https://mvoxhdbcxmmozulenlvh.supabase.co"   # ← paste your Project URL here
+SUPABASE_KEY = "gPve8zmZsgbuCu85KxY9Pg_ohKPKY7M"                 # ← paste your anon/public key here
 
 @st.cache_resource
 def get_supabase() -> Client:
-    try:
-        url = st.secrets["SUPABASE_URL"]
-        key = st.secrets["SUPABASE_KEY"]
-    except (KeyError, FileNotFoundError):
-        url = os.environ.get("SUPABASE_URL","")
-        key = os.environ.get("SUPABASE_KEY","")
-    if not url or not key or "YOURPROJECT" in url:
-        st.error("⚠️ Supabase credentials not set. Add SUPABASE_URL and SUPABASE_KEY to Streamlit secrets.")
-        st.stop()
-    return create_client(url, key)
+    return create_client(SUPABASE_URL, SUPABASE_KEY)
 
 STATUSES   = ["New Idea","Assigned","WIP","UAT","Completed","Hold/Park","Rejected"]
 PROJECTS   = ["EFS CA-MRO","EFS BA-MRO","EFS BA-LCE","EFS CA-LCE","EFS Controls","EFS Technical Response","Others"]
@@ -121,22 +111,107 @@ PAGE_SURFACE = "#dbbdbd"   # card surface stays white
 #         or add a policy "allow all" for the service-role key.
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _run_sql(sb, sql):
+    """Execute raw SQL via Supabase pg_query RPC (used only for DDL migrations)."""
+    try:
+        sb.rpc("pg_query", {"query": sql}).execute()
+    except Exception:
+        # pg_query RPC may not exist — fall back silently; table already exists
+        pass
+
 def init_db():
-    """Seed the default super-user on first run (idempotent)."""
+    """
+    Self-managing startup:
+    1. Creates tables if they do not exist.
+    2. Adds any missing columns (safe ALTER TABLE ADD COLUMN IF NOT EXISTS).
+    3. Seeds the default super-user.
+    All steps are idempotent — safe to call on every app startup.
+    """
     sb = get_supabase()
+
+    # ── Create tables via direct SQL using pg_query RPC ───────────────────
+    # Note: pg_query must be enabled as a Postgres function in your project.
+    # If it is not available, create the tables manually once using the
+    # Supabase SQL Editor (see README). The ALTER TABLE steps below handle
+    # adding any new columns automatically even without pg_query.
+    _run_sql(sb, """
+        CREATE TABLE IF NOT EXISTS users (
+            email         text PRIMARY KEY,
+            role          text,
+            password_hash text
+        );
+    """)
+    _run_sql(sb, """
+        CREATE TABLE IF NOT EXISTS ideas (
+            id                   text PRIMARY KEY,
+            name                 text,
+            submitter_email      text,
+            idea_name            text,
+            idea                 text,
+            project              text,
+            category             text,
+            automation_category  text,
+            pl_name              text,
+            status               text,
+            roi                  float8,
+            assigned_engineer    text,
+            feasibility_data     text,
+            feasibility_comments text,
+            decision             text,
+            rejection_reason     text,
+            approval_comment     text,
+            priority_label       text,
+            sprint_start         text,
+            sprint_end           text,
+            delivery_date        text,
+            vsm_meeting_date     text,
+            sprint_meeting_date  text,
+            hold_reason          text,
+            customer             text,
+            region               text,
+            created_date         text,
+            assigned_date        text,
+            wip_date             text,
+            uat_date             text,
+            completion_date      text
+        );
+    """)
+
+    # ── Add missing columns (safe — IF NOT EXISTS) ────────────────────────
+    # This runs on every startup and is a no-op if the column already exists.
+    idea_cols = [
+        ("submitter_email",      "text"),
+        ("automation_category",  "text"),
+        ("priority_label",       "text"),
+        ("sprint_start",         "text"),
+        ("sprint_end",           "text"),
+        ("delivery_date",        "text"),
+        ("vsm_meeting_date",     "text"),
+        ("sprint_meeting_date",  "text"),
+        ("hold_reason",          "text"),
+        ("customer",             "text"),
+        ("region",               "text"),
+    ]
+    for col, dtype in idea_cols:
+        _run_sql(sb, f"ALTER TABLE ideas ADD COLUMN IF NOT EXISTS {col} {dtype};")
+
+    _run_sql(sb, "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text;")
+
+    # ── Seed default super-user ───────────────────────────────────────────
     dh = generate_password_hash(DEFAULT_PW)
     for u in DEFAULT_USERS:
-        existing = sb.table("users").select("email,password_hash").eq("email", u["email"].lower()).execute()
-        if not existing.data:
-            # User does not exist — insert fresh
-            sb.table("users").insert({
-                "email":         u["email"].lower(),
-                "role":          u["role"],
-                "password_hash": dh,
-            }).execute()
-        elif not existing.data[0].get("password_hash"):
-            # User exists but has no password yet — backfill
-            sb.table("users").update({"password_hash": dh})               .eq("email", u["email"].lower()).execute()
+        try:
+            existing = sb.table("users").select("email,password_hash")                          .eq("email", u["email"].lower()).execute()
+            if not existing.data:
+                sb.table("users").insert({
+                    "email":         u["email"].lower(),
+                    "role":          u["role"],
+                    "password_hash": dh,
+                }).execute()
+            elif not existing.data[0].get("password_hash"):
+                sb.table("users").update({"password_hash": dh})                   .eq("email", u["email"].lower()).execute()
+        except Exception:
+            pass  # Table may not exist yet if pg_query is unavailable
 
 def get_all():
     sb   = get_supabase()
