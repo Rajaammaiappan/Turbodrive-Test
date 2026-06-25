@@ -15,8 +15,8 @@ from supabase import create_client, Client
 #  CONFIG / CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
 # ── Supabase connection (hardcoded) ──────────────────────────────────────────
-SUPABASE_URL = "https://mvoxhdbcxmmozulenlvh.supabase.co"        # ← replace
-SUPABASE_KEY = "sb_publishable_gPve8zmZsgbuCu85KxY9Pg_ohKPKY7M"          # ← replace
+SUPABASE_URL = "https://ftjjsgafypnnsacxxoxy.supabase.co"        # ← replace
+SUPABASE_KEY = "sb_publishable_2RW9qT0lu35KMTscy98psQ_UrlKQUX0"          # ← replace
 
 @st.cache_resource
 def get_supabase() -> Client:
