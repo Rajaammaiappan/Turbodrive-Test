@@ -15,8 +15,8 @@ from supabase import create_client, Client
 #  CONFIG / CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
 # ── Supabase credentials (hardcoded) ─────────────────────────────────────────
-SUPABASE_URL = "https://ftjjsgafypnnsacxxoxy.supabase.co"   # ← paste your Project URL here
-SUPABASE_KEY = "sbp_0ed74b41962d5913a53fbf546ad80a54fb348246"                 # ← paste your anon/public key here
+SUPABASE_URL = "https://weqxfwelvihoutdjxigk.supabase.co"   # ← paste your Project URL here
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndlcXhmd2Vsdmlob3V0ZGp4aWdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzNzU4MTMsImV4cCI6MjA5Nzk1MTgxM30.eDJ0nCils5X1FI9Zrv7C6HLj2GKXmmpCx5gzU1TKQ5Y"                 # ← paste your anon/public key here
 
 @st.cache_resource
 def get_supabase() -> Client:
