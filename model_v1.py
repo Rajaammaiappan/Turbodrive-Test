@@ -125,7 +125,12 @@ def init_db():
             }).execute()
         else:
             # backfill password_hash if missing
-            sb.table("users").update({"password_hash": dh})               .eq("email", u["email"].lower())               .is_("password_hash", "null").execute()
+            # Before (broken)
+.is_("password_hash", "null").execute()
+
+# After (correct) — check in Python, no server-side null filter
+elif not existing.data[0].get("password_hash"):
+    sb.table("users").update({"password_hash": dh}).eq("email", ...).execute()
 
 def get_all():
     sb   = get_supabase()
