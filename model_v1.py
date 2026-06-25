@@ -16,7 +16,7 @@ from supabase import create_client, Client
 # ══════════════════════════════════════════════════════════════════════════════
 # ── Supabase connection (hardcoded) ──────────────────────────────────────────
 SUPABASE_URL = "https://mvoxhdbcxmmozulenlvh.supabase.co"        # ← replace
-SUPABASE_KEY = "sb_publishable_gPve8zmZsgbuCu85KxY9Pg_ohKPKY7M"          # ← replace
+SUPABASE_KEY = "gPve8zmZsgbuCu85KxY9Pg_ohKPKY7M"          # ← replace
 
 @st.cache_resource
 def get_supabase() -> Client:
