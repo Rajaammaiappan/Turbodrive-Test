@@ -3,24 +3,17 @@ Turbo Drive — Ideation & Automation Workflow Manager
 Streamlit version — Requirement 2 Updates Applied
 """
 
-import os, json, uuid, re, csv, io
+import os, sqlite3, json, uuid, re, csv, io
 from datetime import datetime, date, timedelta
 from urllib.parse import quote
 import streamlit as st
 from streamlit_echarts import st_echarts
 from werkzeug.security import generate_password_hash, check_password_hash
-from supabase import create_client, Client
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIG / CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
-# ── Supabase connection (hardcoded) ──────────────────────────────────────────
-SUPABASE_URL = "https://YOURPROJECT.supabase.co"        # ← replace
-SUPABASE_KEY = "YOUR_ANON_OR_SERVICE_ROLE_KEY"          # ← replace
-
-@st.cache_resource
-def get_supabase() -> Client:
-    return create_client(SUPABASE_URL, SUPABASE_KEY)
+DB_FILE   = os.environ.get("DB_FILE", "turbodrive1.db")
 
 STATUSES   = ["New Idea","Assigned","WIP","UAT","Completed","Hold/Park","Rejected"]
 PROJECTS   = ["EFS CA-MRO","EFS BA-MRO","EFS BA-LCE","EFS CA-LCE","EFS Controls","EFS Technical Response","Others"]
@@ -92,120 +85,122 @@ PAGE_BG = "#e8f4fd"        # very light ocean blue tint
 PAGE_SURFACE = "#dbbdbd"   # card surface stays white
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  DATABASE  (Supabase backend)
-#  Tables required in your Supabase project:
-#
-#  ideas  — columns: id(text pk), name, submitter_email, idea_name, idea,
-#            project, category, automation_category, pl_name, status,
-#            roi(float8), assigned_engineer, feasibility_data(text/json),
-#            feasibility_comments, decision, rejection_reason, approval_comment,
-#            priority_label, sprint_start, sprint_end, delivery_date,
-#            vsm_meeting_date, sprint_meeting_date, hold_reason,
-#            created_date, assigned_date, wip_date, uat_date, completion_date,
-#            customer, region
-#
-#  users  — columns: email(text pk), role(text), password_hash(text)
-#
-#  RLS:   For a private internal tool the simplest setup is to disable RLS on
-#         both tables in Supabase (Authentication → Policies → disable RLS),
-#         or add a policy "allow all" for the service-role key.
+#  DATABASE
 # ══════════════════════════════════════════════════════════════════════════════
+def get_conn():
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 def init_db():
-    """Seed the default super-user on first run (idempotent)."""
-    sb  = get_supabase()
-    dh  = generate_password_hash(DEFAULT_PW)
+    conn = get_conn(); c = conn.cursor()
+    c.executescript("""
+    CREATE TABLE IF NOT EXISTS Ideas (
+        id TEXT PRIMARY KEY, name TEXT, submitter_email TEXT,
+        idea_name TEXT, idea TEXT, project TEXT, category TEXT,
+        automation_category TEXT, pl_name TEXT, status TEXT,
+        roi REAL DEFAULT 0, assigned_engineer TEXT,
+        feasibility_data TEXT, feasibility_comments TEXT,
+        decision TEXT, rejection_reason TEXT, approval_comment TEXT,
+        priority_label TEXT, sprint_start TEXT, sprint_end TEXT,
+        delivery_date TEXT, vsm_meeting_date TEXT, sprint_meeting_date TEXT,
+        hold_reason TEXT,
+        created_date TEXT, assigned_date TEXT, wip_date TEXT,
+        uat_date TEXT, completion_date TEXT,
+        customer TEXT, region TEXT
+    );
+    CREATE TABLE IF NOT EXISTS Users (
+        email TEXT PRIMARY KEY, role TEXT, password_hash TEXT
+    );
+    """)
+    for col in ("automation_category","hold_reason","priority_label","sprint_start",
+                "sprint_end","delivery_date","vsm_meeting_date","sprint_meeting_date",
+                "customer","region"):
+        try: c.execute(f"ALTER TABLE Ideas ADD COLUMN {col} TEXT")
+        except: pass
+    try: c.execute("ALTER TABLE Users ADD COLUMN password_hash TEXT")
+    except: pass
+    dh = generate_password_hash(DEFAULT_PW)
     for u in DEFAULT_USERS:
-        existing = sb.table("users").select("email").eq("email", u["email"].lower()).execute()
-        if not existing.data:
-            sb.table("users").insert({
-                "email": u["email"].lower(),
-                "role":  u["role"],
-                "password_hash": dh,
-            }).execute()
-        else:
-            # backfill password_hash if missing
-            sb.table("users").update({"password_hash": dh})               .eq("email", u["email"].lower())               .is_("password_hash", "null").execute()
+        c.execute("INSERT OR IGNORE INTO Users (email,role,password_hash) VALUES (?,?,?)",
+                  (u["email"].lower(), u["role"], dh))
+    c.execute("UPDATE Users SET password_hash=? WHERE password_hash IS NULL OR password_hash=''", (dh,))
+    conn.commit(); conn.close()
+
+@st.cache_resource
+def _shared_conn():
+    init_db()
+    return sqlite3.connect(DB_FILE, check_same_thread=False)
+
+def db():
+    c = _shared_conn()
+    c.row_factory = sqlite3.Row
+    return c
+
+def q(sql, params=()):
+    conn = db(); cur = conn.cursor(); cur.execute(sql, params); conn.commit(); return cur
 
 def get_all():
-    sb   = get_supabase()
-    resp = sb.table("ideas").select("*").order("created_date", desc=True).execute()
+    cur = db().cursor()
+    cur.execute("SELECT * FROM Ideas ORDER BY created_date DESC")
     rows = []
-    for r in (resp.data or []):
-        try: r["feasibility_data"] = json.loads(r.get("feasibility_data") or "{}")
-        except: r["feasibility_data"] = {}
-        rows.append(r)
+    for r in cur.fetchall():
+        d = dict(r)
+        try: d["feasibility_data"] = json.loads(d.get("feasibility_data") or "{}")
+        except: d["feasibility_data"] = {}
+        rows.append(d)
     return rows
 
 def add_idea(idea):
-    sb = get_supabase()
-    row = {
-        "id":                  idea["id"],
-        "name":                idea.get("name",""),
-        "submitter_email":     idea.get("submitter_email",""),
-        "idea_name":           idea.get("idea_name",""),
-        "idea":                idea.get("idea",""),
-        "project":             idea.get("project",""),
-        "category":            idea.get("category",""),
-        "automation_category": idea.get("automation_category",""),
-        "pl_name":             idea.get("pl_name",""),
-        "status":              idea.get("status","New Idea"),
-        "roi":                 idea.get("roi", 0),
-        "assigned_engineer":   idea.get("assigned_engineer",""),
-        "feasibility_data":    json.dumps(idea.get("feasibility_data",{})),
-        "feasibility_comments":idea.get("feasibility_comments",""),
-        "decision":            idea.get("decision",""),
-        "rejection_reason":    idea.get("rejection_reason",""),
-        "approval_comment":    idea.get("approval_comment",""),
-        "priority_label":      idea.get("priority_label",""),
-        "sprint_start":        idea.get("sprint_start",""),
-        "sprint_end":          idea.get("sprint_end",""),
-        "delivery_date":       idea.get("delivery_date",""),
-        "vsm_meeting_date":    idea.get("vsm_meeting_date",""),
-        "sprint_meeting_date": idea.get("sprint_meeting_date",""),
-        "hold_reason":         idea.get("hold_reason",""),
-        "created_date":        datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "assigned_date":       "",
-        "wip_date":            "",
-        "uat_date":            "",
-        "completion_date":     "",
-        "customer":            idea.get("customer",""),
-        "region":              idea.get("region",""),
-    }
-    get_supabase().table("ideas").insert(row).execute()
+    q("""INSERT INTO Ideas (id,name,submitter_email,idea_name,idea,project,category,
+        automation_category,pl_name,status,roi,assigned_engineer,feasibility_data,
+        feasibility_comments,decision,rejection_reason,approval_comment,priority_label,
+        sprint_start,sprint_end,delivery_date,vsm_meeting_date,sprint_meeting_date,
+        hold_reason,created_date,assigned_date,wip_date,uat_date,completion_date,
+        customer,region)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (idea["id"], idea.get("name",""), idea.get("submitter_email",""),
+         idea.get("idea_name",""), idea.get("idea",""), idea.get("project",""),
+         idea.get("category",""), idea.get("automation_category",""),
+         idea.get("pl_name",""), idea.get("status","New Idea"),
+         idea.get("roi",0), idea.get("assigned_engineer",""),
+         json.dumps(idea.get("feasibility_data",{})),
+         idea.get("feasibility_comments",""), idea.get("decision",""),
+         idea.get("rejection_reason",""), idea.get("approval_comment",""),
+         idea.get("priority_label",""), idea.get("sprint_start",""),
+         idea.get("sprint_end",""), idea.get("delivery_date",""),
+         idea.get("vsm_meeting_date",""), idea.get("sprint_meeting_date",""),
+         idea.get("hold_reason",""),
+         datetime.now().strftime("%Y-%m-%d %H:%M"), "","","","",
+         idea.get("customer",""), idea.get("region","")))
 
 def update_idea(iid, fields):
-    payload = {}
-    for k, v in fields.items():
-        payload[k] = json.dumps(v) if k == "feasibility_data" else v
-    get_supabase().table("ideas").update(payload).eq("id", iid).execute()
+    sets,vals = [],[]
+    for k,v in fields.items():
+        if k=="feasibility_data": v=json.dumps(v)
+        sets.append(f"{k}=?"); vals.append(v)
+    vals.append(iid)
+    q(f"UPDATE Ideas SET {','.join(sets)} WHERE id=?", vals)
 
 def get_users():
-    resp = get_supabase().table("users").select("*").order("email").execute()
-    return resp.data or []
+    cur = db().cursor()
+    cur.execute("SELECT * FROM Users ORDER BY email")
+    return [dict(r) for r in cur.fetchall()]
 
 def add_user(email, role):
-    sb  = get_supabase()
-    dh  = generate_password_hash(DEFAULT_PW)
-    existing = sb.table("users").select("password_hash").eq("email", email.lower()).execute()
-    if existing.data:
-        # keep existing password_hash; only update role
-        sb.table("users").update({"role": role}).eq("email", email.lower()).execute()
-    else:
-        sb.table("users").insert({
-            "email": email.lower(), "role": role, "password_hash": dh
-        }).execute()
+    dh = generate_password_hash(DEFAULT_PW)
+    q("INSERT OR REPLACE INTO Users (email,role,password_hash) VALUES (?,?,COALESCE((SELECT password_hash FROM Users WHERE email=?),?))",
+      (email.lower(), role, email.lower(), dh))
 
 def delete_user(email):
-    get_supabase().table("users").delete().eq("email", email.lower()).execute()
+    q("DELETE FROM Users WHERE email=?", (email.lower(),))
 
 def update_role(email, role):
-    get_supabase().table("users").update({"role": role}).eq("email", email.lower()).execute()
+    q("UPDATE Users SET role=? WHERE email=?", (role, email.lower()))
 
 def set_password(email, new_pw):
-    get_supabase().table("users").update(
-        {"password_hash": generate_password_hash(new_pw)}
-    ).eq("email", email.lower()).execute()
+    q("UPDATE Users SET password_hash=? WHERE email=?",
+      (generate_password_hash(new_pw), email.lower()))
 
 def reset_password(email):
     set_password(email, DEFAULT_PW)
@@ -550,10 +545,12 @@ def is_org_email(email: str) -> bool:
     return domain not in BLOCKED_DOMAINS
 
 def check_login(email, password):
-    resp = get_supabase().table("users").select("*").eq("email", email.lower()).execute()
-    if not resp.data: return None, "Email not found in system."
-    row  = resp.data[0]
-    role = row.get("role","")
+    cur = db().cursor()
+    cur.execute("SELECT * FROM Users WHERE email=?", (email.lower(),))
+    row = cur.fetchone()
+    if not row: return None, "Email not found in system."
+    row = dict(row)
+    role = row["role"]
     if role in PW_ROLES:
         if not password: return None, "Password required for your role."
         if not row.get("password_hash") or not check_password_hash(row["password_hash"], password):
@@ -666,7 +663,7 @@ def render_kanban_board(ideas):
                                 upd["completion_date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                             upd["hold_reason"] = hold_input if new_status == "Hold/Park" else ""
                             update_idea(idea["id"], upd)
-                            st.rerun()
+                            _shared_conn.clear(); st.rerun()
 
                     st.divider()
 
@@ -757,15 +754,13 @@ def page_register():
             elif len(pw) < 4:
                 st.error("Password must be at least 4 characters.")
             else:
-                resp = get_supabase().table("users").select("email").eq("email", email.lower()).execute()
-                if resp.data:
+                cur = db().cursor()
+                cur.execute("SELECT email FROM Users WHERE email=?", (email.lower(),))
+                if cur.fetchone():
                     st.error("This email is already registered — please log in.")
                 else:
-                    get_supabase().table("users").insert({
-                        "email": email.lower(),
-                        "role":  "normal user",
-                        "password_hash": generate_password_hash(pw)
-                    }).execute()
+                    q("INSERT INTO Users (email,role,password_hash) VALUES (?,?,?)",
+                      (email.lower(),"normal user",generate_password_hash(pw)))
                     st.success("✅ Registered! You can now log in.")
     if st.button("← Back to Login"):
         st.session_state.pop("_page_override",None); st.rerun()
@@ -791,10 +786,12 @@ def page_change_password():
             elif len(new_pw) < 4:
                 st.error("Minimum 4 characters.")
             else:
-                resp = get_supabase().table("users").select("*").eq("email", email.lower()).execute()
-                if not resp.data:
+                cur = db().cursor()
+                cur.execute("SELECT * FROM Users WHERE email=?", (email.lower(),))
+                row = cur.fetchone()
+                if not row:
                     st.error("Email not found.")
-                elif not check_password_hash(resp.data[0].get("password_hash") or "", cur_pw):
+                elif not check_password_hash(dict(row)["password_hash"] or "", cur_pw):
                     st.error("🚫 Current password is incorrect.")
                 else:
                     set_password(email.lower(), new_pw)
@@ -834,7 +831,7 @@ def page_submit():
                           "category":category,"pl_name":pl_name,"status":"New Idea",
                           "customer":customer,"region":region})
                 st.success("✅ Idea Submitted Successfully")
-                pass  # no local cache to clear
+                _shared_conn.clear()
     render_copyright()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -897,7 +894,7 @@ def page_pl_assignment():
                     st.session_state["_assign_outlook_url"]   = url
                     st.session_state["_assign_outlook_label"] = f"Notify {eng} — {idea.get('idea_name','')}"
                     st.success(f"Assigned to {eng}. Click 📤 Open in Outlook above to notify them.")
-                    st.rerun()
+                    _shared_conn.clear(); st.rerun()
     render_copyright()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -967,7 +964,7 @@ def page_feasibility():
                     st.session_state["_feas_outlook_label"] = (
                         f"Notify PL/SPL ({idea.get('pl_name','')}) — Feasibility complete for {idea.get('idea_name','')}")
                     st.success(f"✅ Submitted. ROI: {roi} | VSM: {fmt_d(vsm_date)}. Click Outlook above to notify PL/SPL.")
-                    st.rerun()
+                    _shared_conn.clear(); st.rerun()
     render_copyright()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1035,7 +1032,7 @@ def page_approval():
                             "rejection_reason":reason,"approval_comment":comment,
                         })
                         st.warning(f"❌ NO-GO — Idea rejected. Reason: {reason}")
-                    st.rerun()
+                    _shared_conn.clear(); st.rerun()
     render_copyright()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1319,11 +1316,11 @@ def page_admin():
                 with col2:
                     if st.button("💾 Update Role", key=f"upd_{u['email']}"):
                         update_role(u["email"], new_role)
-                        st.success("Role updated."); pass  # no local cache to clear; st.rerun()
+                        st.success("Role updated."); _shared_conn.clear(); st.rerun()
                 with col3:
                     if st.button("🗑 Delete", key=f"del_{u['email']}"):
                         delete_user(u["email"])
-                        st.warning("User deleted."); pass  # no local cache to clear; st.rerun()
+                        st.warning("User deleted."); _shared_conn.clear(); st.rerun()
 
     with tab2:
         with st.form("add_user_form", clear_on_submit=True):
@@ -1333,7 +1330,7 @@ def page_admin():
                 if new_email:
                     add_user(new_email.strip().lower(), new_role)
                     st.success(f"Added {new_email} as {new_role} (default pw: {DEFAULT_PW})")
-                    st.rerun()
+                    _shared_conn.clear(); st.rerun()
 
     with tab3:
         st.caption(f"Reset any user's password back to default: **{DEFAULT_PW}**")
