@@ -15,8 +15,8 @@ from supabase import create_client, Client
 #  CONFIG / CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
 # ── Supabase credentials (hardcoded) ─────────────────────────────────────────
-SUPABASE_URL = "https://mvoxhdbcxmmozulenlvh.supabase.co"   # ← paste your Project URL here
-SUPABASE_KEY = "gPve8zmZsgbuCu85KxY9Pg_ohKPKY7M"                 # ← paste your anon/public key here
+SUPABASE_URL = "https://ftjjsgafypnnsacxxoxy.supabase.co"   # ← paste your Project URL here
+SUPABASE_KEY = "2RW9qT0lu35KMTscy98psQ_UrlKQUX0"                 # ← paste your anon/public key here
 
 @st.cache_resource
 def get_supabase() -> Client:
@@ -984,6 +984,38 @@ def page_pl_assignment():
                     st.session_state["_assign_outlook_label"] = f"Notify {eng} — {idea.get('idea_name','')}"
                     st.success(f"Assigned to {eng}. Click 📤 Open in Outlook above to notify them.")
                     st.rerun()
+
+    # ── Engineer Workload & Sprint Schedule ───────────────────────────────
+    st.divider()
+    st.markdown("#### 📅 Engineer Workload & Sprint Schedule")
+    st.caption("Active tasks per engineer ordered by auto-priority (Customer → ROI → FIFO), with rolling 2-week sprint dates.")
+    all_eng = [u["email"] for u in users if u["role"] == "automation engineer"]
+    if not all_eng:
+        st.info("No automation engineers configured — add them in Admin.")
+    else:
+        sel_engs = st.multiselect(
+            "Select Engineer(s) to view",
+            all_eng,
+            default=None,
+            placeholder="Choose one or more engineers…",
+        )
+        import pandas as pd
+        for eng in (sel_engs or []):
+            queue = engineer_queue(all_ideas, eng)
+            with st.expander(f"👷 {eng}  —  {len(queue)} active task(s)", expanded=True):
+                if not queue:
+                    st.caption("No active tasks — fully available.")
+                else:
+                    df = pd.DataFrame([{
+                        "Queue #":              i["priority_rank"],
+                        "Idea":                 i.get("idea_name",""),
+                        "Category":             i.get("category",""),
+                        "Priority":             i.get("priority_label",""),
+                        "Sprint Start":         fmt_d(i["sprint_start"]),
+                        "Delivery (Sprint End)":fmt_d(i["sprint_end"]),
+                    } for i in queue])
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+
     render_copyright()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1271,29 +1303,56 @@ def page_dashboard():
         }, height="400px")
 
     with wl_col:
-        st.markdown("##### 📅 Engineer Workload")
-        users   = get_users()
-        all_eng = [u["email"] for u in users if u["role"]=="automation engineer"]
-        if not all_eng:
-            st.info("No engineers configured.")
+        st.markdown("##### 🌍 Ideas by Region")
+        # Build region → {count, roi} aggregation
+        region_data = {}
+        for i in ideas:
+            r = i.get("region","") or "Unknown"
+            if r not in region_data:
+                region_data[r] = {"count": 0, "roi": 0.0}
+            region_data[r]["count"] += 1
+            region_data[r]["roi"]   += float(i.get("roi",0) or 0)
+
+        if not region_data:
+            st.info("No region data yet.")
         else:
-            sel_engs = st.multiselect("Select Engineer(s)", all_eng,
-                                      default=None, placeholder="Choose engineers…",
-                                      label_visibility="collapsed")
-            for eng in (sel_engs or []):
-                queue = engineer_queue(ideas, eng)
-                with st.expander(f"👷 {eng.split('@')[0]}  ({len(queue)} tasks)"):
-                    if not queue:
-                        st.caption("No active tasks.")
-                    else:
-                        import pandas as pd
-                        df = pd.DataFrame([{
-                            "#": i["priority_rank"],
-                            "Idea": i.get("idea_name","")[:22],
-                            "Start": fmt_d(i["sprint_start"]),
-                            "End": fmt_d(i["sprint_end"]),
-                        } for i in queue])
-                        st.dataframe(df, use_container_width=True, hide_index=True)
+            import pandas as pd
+            region_df = pd.DataFrame([
+                {"Region": k, "Ideas": v["count"], "ROI": round(v["roi"],2)}
+                for k,v in sorted(region_data.items(), key=lambda x: -x[1]["count"])
+            ])
+            # Bar chart — ideas count per region
+            bar_data = [{"value": v["count"], "name": k} for k,v in
+                        sorted(region_data.items(), key=lambda x: -x[1]["count"])]
+            st_echarts({
+                "tooltip": {"trigger":"axis"},
+                "grid": {"left":"3%","right":"4%","bottom":"25%","containLabel":True},
+                "xAxis": {"type":"category",
+                           "data":[d["name"] for d in bar_data],
+                           "axisLabel":{"rotate":35,"fontSize":9}},
+                "yAxis": [
+                    {"type":"value","name":"Ideas","nameTextStyle":{"fontSize":9},
+                     "axisLabel":{"fontSize":9}},
+                    {"type":"value","name":"ROI","nameTextStyle":{"fontSize":9},
+                     "axisLabel":{"fontSize":9}},
+                ],
+                "series": [
+                    {"name":"Ideas","type":"bar","data":[d["value"] for d in bar_data],
+                     "itemStyle":{"color":"#1a4fad"},"barMaxWidth":28},
+                    {"name":"ROI","type":"line","yAxisIndex":1,
+                     "data":[round(region_data[d["name"]]["roi"],1) for d in bar_data],
+                     "itemStyle":{"color":"#E30613"},"lineStyle":{"width":2},
+                     "symbol":"circle","symbolSize":6},
+                ],
+                "legend":{"data":["Ideas","ROI"],"bottom":0,"textStyle":{"fontSize":9}},
+            }, height="320px")
+            # Summary table below chart
+            st.dataframe(region_df, use_container_width=True, hide_index=True,
+                         column_config={
+                             "Region": st.column_config.TextColumn(width="medium"),
+                             "Ideas":  st.column_config.NumberColumn(width="small"),
+                             "ROI":    st.column_config.NumberColumn(format="%.2f", width="small"),
+                         })
 
     # ── Planner-style Kanban board ────────────────────────────────────────
     st.markdown("##### 📋 Kanban Board")
