@@ -491,10 +491,6 @@ def apply_theme(theme_name):
         font-size:clamp(14px,1.3vw,18px);font-weight:800;margin-bottom:4px;
         display:flex;align-items:center;gap:8px;
     }}
-    .glass-robot-stage{{
-        position:relative;height:110px;display:flex;align-items:center;justify-content:center;
-        margin:6px 0 10px;
-    }}
     .cat-pill{{
         display:block;width:100%;text-align:left;
         background:rgba(255,255,255,.5);border:1.5px solid rgba(255,255,255,.6);
@@ -522,24 +518,6 @@ def apply_theme(theme_name):
     .cat-insight-stat{{text-align:center;}}
     .cat-insight-stat .v{{font-size:clamp(13px,1.3vw,17px);font-weight:800;}}
     .cat-insight-stat .l{{font-size:clamp(7.5px,0.7vw,9px);color:#64748b;font-weight:600;margin-top:1px;}}
-
-    @keyframes pulse-glow{{
-        0%,100%{{ filter:drop-shadow(0 0 4px currentColor); }}
-        50%{{ filter:drop-shadow(0 0 14px currentColor); }}
-    }}
-    .robot-glow{{ animation:pulse-glow 2.2s ease-in-out infinite; }}
-
-    @keyframes arm-sway{{
-        0%,100%{{ transform:rotate(-3deg); }}
-        50%{{ transform:rotate(3deg); }}
-    }}
-    .robot-arm-svg{{ animation:arm-sway 3s ease-in-out infinite; transform-origin:50% 90%; }}
-
-    @keyframes ai-blink{{
-        0%,90%,100%{{ opacity:1; }}
-        95%{{ opacity:.3; }}
-    }}
-    .ai-eye{{ animation:ai-blink 3.4s ease-in-out infinite; }}
     </style>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -731,92 +709,46 @@ def premium_kpi_card(value, label, color, sub="", illustration="total_ideas", tr
     </div>""", unsafe_allow_html=True)
 
 # ── Robotic arm SVG (Automation panel) — arm rotates/points per category idx
-def render_robot_arm(selected_idx, n_categories, color):
-    """Industrial robotic arm; the forearm angle shifts based on which
-    category (0..n-1) is selected, visually 'pointing' toward it."""
-    # Map category index to an arm angle between -50deg and +50deg
-    if n_categories <= 1:
-        angle = 0
-    else:
-        angle = -50 + (100 * selected_idx / (n_categories - 1))
-    svg = f"""
-    <svg viewBox="0 0 220 130" width="100%" height="100%" style="overflow:visible;">
-      <ellipse cx="110" cy="118" rx="70" ry="8" fill="{color}" opacity=".12"/>
-      <rect x="92" y="95" width="36" height="22" rx="4" fill="{color}" opacity=".9"/>
-      <rect x="100" y="60" width="20" height="40" rx="6" fill="{color}"/>
-      <g class="robot-arm-svg robot-glow" style="color:{color};
-         transform-origin:110px 70px; transform:rotate({angle}deg);">
-        <rect x="105" y="20" width="10" height="50" rx="5" fill="{color}"/>
-        <circle cx="110" cy="70" r="9" fill="{color}"/>
-        <rect x="108" y="-12" width="6" height="35" rx="3" fill="{color}" opacity=".85"
-              transform="rotate(25 110 20)"/>
-        <circle cx="125" cy="-8" r="7" fill="{color}" opacity=".75"/>
-        <path d="M120 -10 l14 -6 l3 5 l-12 7 z" fill="{color}"/>
-      </g>
-      <circle cx="110" cy="70" r="4" fill="#fff" opacity=".8"/>
-    </svg>"""
-    st.markdown(f'<div class="glass-robot-stage">{svg}</div>', unsafe_allow_html=True)
-
-# ── Futuristic humanoid AI robot SVG (AI panel) — head/eye-beam rotates per category idx
-def render_ai_robot(selected_idx, n_categories, color):
-    """Futuristic AI robot head; eye-beam direction shifts based on the
-    selected category, visually 'pointing' toward it."""
-    if n_categories <= 1:
-        angle = 0
-    else:
-        angle = -35 + (70 * selected_idx / (n_categories - 1))
-    svg = f"""
-    <svg viewBox="0 0 220 130" width="100%" height="100%" style="overflow:visible;">
-      <ellipse cx="110" cy="118" rx="55" ry="8" fill="{color}" opacity=".12"/>
-      <rect x="85" y="80" width="50" height="34" rx="10" fill="{color}" opacity=".88"/>
-      <rect x="70" y="86" width="10" height="20" rx="5" fill="{color}" opacity=".7"/>
-      <rect x="140" y="86" width="10" height="20" rx="5" fill="{color}" opacity=".7"/>
-      <g class="robot-glow" style="color:{color};
-         transform-origin:110px 60px; transform:rotate({angle}deg);">
-        <circle cx="110" cy="50" r="28" fill="{color}"/>
-        <circle class="ai-eye" cx="99" cy="48" r="5" fill="#ffffff"/>
-        <circle class="ai-eye" cx="121" cy="48" r="5" fill="#ffffff"/>
-        <rect x="98" y="60" width="24" height="3.5" rx="1.75" fill="#fff" opacity=".85"/>
-        <line x1="110" y1="22" x2="110" y2="8" stroke="{color}" stroke-width="3"/>
-        <circle cx="110" cy="6" r="5" fill="{color}"/>
-        <path d="M138 50 L165 50" stroke="{color}" stroke-width="2" opacity=".55" stroke-dasharray="2 3"/>
-        <circle cx="167" cy="50" r="3" fill="{color}" opacity=".7"/>
-      </g>
-    </svg>"""
-    st.markdown(f'<div class="glass-robot-stage">{svg}</div>', unsafe_allow_html=True)
-
 def cnt_cat_status(cat, st_, ideas):
     return len([i for i in ideas if i.get("category")==cat and i.get("status")==st_])
 
 def cnt_cat_wip(ideas, cat):
     return len([i for i in ideas if i.get("category")==cat and i.get("status") in ("WIP","UAT")])
 
-def render_category_panel(panel_title, panel_icon, categories, ideas, state_key, robot_fn, accent_color):
-    """Shared renderer for the Automation panel and the AI panel.
-    Shows: glass panel -> animated character -> clickable category pills ->
-    insight card (Total/Completed/WIP/UAT/Hours/ROI/Success%) for whichever
-    category is selected (defaults to the first one)."""
+CATEGORY_ICONS = {
+    "Automation-Personal Productivity":     "⚙️",
+    "Automation-Process Improvement":       "🔧",
+    "Automation-Defined Product and Sales": "📦",
+    "Automation-Quality Enhancement":       "✅",
+    "AI-Personal Productivity":             "🧠",
+    "AI-Process Improvement":               "🔄",
+    "AI-Defined Product and Sales":         "📊",
+}
+
+def render_category_panel(panel_title, panel_icon, categories, ideas, state_key, accent_color):
+    """Simple, easy-to-read panel: small icon top-left, category list with
+    counts, and an insight card (Total/Completed/WIP/UAT/Hours/ROI/Success%)
+    for whichever category is selected. No animated character — plain and
+    clear."""
     if state_key not in st.session_state:
         st.session_state[state_key] = categories[0]
     selected = st.session_state[state_key]
     if selected not in categories:
         selected = categories[0]
         st.session_state[state_key] = selected
-    sel_idx = categories.index(selected)
 
     st.markdown(f"""
     <div class="glass-panel">
       <div class="glass-panel-title" style="color:{accent_color};">{panel_icon} {panel_title}</div>
     """, unsafe_allow_html=True)
 
-    robot_fn(sel_idx, len(categories), accent_color)
-
     for cat in categories:
         is_sel = (cat == selected)
         color  = AUTO_CAT_COLORS.get(cat, accent_color)
+        cat_icon  = CATEGORY_ICONS.get(cat, "•")
         cnt_total = len([i for i in ideas if i.get("automation_category")==cat])
         if st.button(
-            f"{'●' if is_sel else '○'}  {cat.split('-',1)[-1]}   ({cnt_total})",
+            f"{cat_icon}  {cat.split('-',1)[-1]}   ({cnt_total}) {'●' if is_sel else ''}",
             key=f"{state_key}_btn_{cat}",
             use_container_width=True,
         ):
@@ -824,9 +756,10 @@ def render_category_panel(panel_title, panel_icon, categories, ideas, state_key,
             touch_activity()
             st.rerun()
 
-    # ── Insight card for selected category ────────────────────────────────
+    # ── Insight card for selected category — icon left, details right ─────
     cat = selected
     color = AUTO_CAT_COLORS.get(cat, accent_color)
+    cat_icon    = CATEGORY_ICONS.get(cat, "•")
     total_c     = len([i for i in ideas if i.get("automation_category")==cat])
     completed_c = len([i for i in ideas if i.get("automation_category")==cat and i.get("status")=="Completed"])
     wip_c       = len([i for i in ideas if i.get("automation_category")==cat and i.get("status")=="WIP"])
@@ -836,20 +769,23 @@ def render_category_panel(panel_title, panel_icon, categories, ideas, state_key,
     success_pct = round(completed_c/total_c*100, 1) if total_c else 0.0
 
     st.markdown(f"""
-      <div class="cat-insight-card" style="border-left:4px solid {color};">
-        <div style="font-size:clamp(11px,1vw,13px);font-weight:700;color:{color};">
-          {cat}
-        </div>
-        <div class="cat-insight-grid">
-          <div class="cat-insight-stat"><div class="v" style="color:{color};">{total_c}</div><div class="l">TOTAL</div></div>
-          <div class="cat-insight-stat"><div class="v" style="color:#059669;">{completed_c}</div><div class="l">COMPLETED</div></div>
-          <div class="cat-insight-stat"><div class="v" style="color:#0d9488;">{wip_c}</div><div class="l">WIP</div></div>
-          <div class="cat-insight-stat"><div class="v" style="color:#0ea5e9;">{uat_c}</div><div class="l">UAT</div></div>
-        </div>
-        <div class="cat-insight-grid" style="margin-top:10px;">
-          <div class="cat-insight-stat"><div class="v" style="color:#7c3aed;">{hours_c:,.0f}</div><div class="l">HRS SAVED</div></div>
-          <div class="cat-insight-stat"><div class="v" style="color:#b45309;">{roi_c}</div><div class="l">ROI</div></div>
-          <div class="cat-insight-stat" style="grid-column:span 2;"><div class="v" style="color:{color};">{success_pct}%</div><div class="l">SUCCESS RATE</div></div>
+      <div class="cat-insight-card" style="border-left:4px solid {color};display:flex;gap:14px;align-items:flex-start;">
+        <div style="flex:0 0 auto;font-size:34px;line-height:1;padding-top:2px;">{cat_icon}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:clamp(11px,1vw,13px);font-weight:700;color:{color};margin-bottom:6px;">
+            {cat}
+          </div>
+          <div class="cat-insight-grid">
+            <div class="cat-insight-stat"><div class="v" style="color:{color};">{total_c}</div><div class="l">TOTAL</div></div>
+            <div class="cat-insight-stat"><div class="v" style="color:#059669;">{completed_c}</div><div class="l">COMPLETED</div></div>
+            <div class="cat-insight-stat"><div class="v" style="color:#0d9488;">{wip_c}</div><div class="l">WIP</div></div>
+            <div class="cat-insight-stat"><div class="v" style="color:#0ea5e9;">{uat_c}</div><div class="l">UAT</div></div>
+          </div>
+          <div class="cat-insight-grid" style="margin-top:10px;">
+            <div class="cat-insight-stat"><div class="v" style="color:#7c3aed;">{hours_c:,.0f}</div><div class="l">HRS SAVED</div></div>
+            <div class="cat-insight-stat"><div class="v" style="color:#b45309;">{roi_c}</div><div class="l">ROI</div></div>
+            <div class="cat-insight-stat" style="grid-column:span 2;"><div class="v" style="color:{color};">{success_pct}%</div><div class="l">SUCCESS RATE</div></div>
+          </div>
         </div>
       </div>
     </div>""", unsafe_allow_html=True)
@@ -1537,15 +1473,15 @@ def page_dashboard():
         premium_kpi_card(f"{cust_hrs:,.0f} hrs", "Customer Hrs Saved / yr", "#00498F",
                           f"ROI {cust_roi} · {cust_cnt} ideas", "clock")
 
-    # ── ROW 2: Automation & AI Breakdown — two glass panels with animated robots ──
+    # ── ROW 2: Automation & AI Breakdown — simple icon + details panels ────
     st.markdown("##### 🤖 Automation &amp; AI Category Breakdown")
     pa, pb = st.columns(2)
     with pa:
-        render_category_panel("Automation", "🦾", AUTOMATION_CATS, ideas,
-                              "_sel_automation_cat", render_robot_arm, "#1a4fad")
+        render_category_panel("Automation", "⚙️", AUTOMATION_CATS, ideas,
+                              "_sel_automation_cat", "#1a4fad")
     with pb:
-        render_category_panel("AI", "🤖", AI_CATS, ideas,
-                              "_sel_ai_cat", render_ai_robot, "#0369a1")
+        render_category_panel("AI", "🧠", AI_CATS, ideas,
+                              "_sel_ai_cat", "#0369a1")
 
     # ── ROW 3: Charts row (Status BAR chart + Customer pie + clean Hours/Project) ─
     st.markdown("##### 📈 Charts")
