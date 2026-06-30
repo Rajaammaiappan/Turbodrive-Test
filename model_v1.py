@@ -764,7 +764,7 @@ def cnt_cat_wip(ideas, cat):
     return len([i for i in ideas if i.get("category")==cat and i.get("status") in ("WIP","UAT")])
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  AUTOMATION & AI BREAKDOWN — animated robot panels
+#  AUTOMATION & AI BREAKDOWN — glowing gradient cards + animated pointer
 # ══════════════════════════════════════════════════════════════════════════════
 def _cat_insights(ideas, ac):
     sub = [i for i in ideas if i.get("automation_category")==ac]
@@ -778,68 +778,48 @@ def _cat_insights(ideas, ac):
     return {"total":total,"completed":completed,"wip":wip,"uat":uat,
             "hrs":hrs,"roi":roi,"success":success}
 
-def _robot_arm_svg(angle, color, secondary):
-    """Industrial robotic arm; rotates its forearm toward the selected category via `angle` (deg)."""
-    return f"""
-    <svg viewBox="0 0 220 220" width="100%" height="190" style="overflow:visible;">
-      <defs>
-        <linearGradient id="armGrad" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="{color}"/><stop offset="100%" stop-color="{secondary}"/>
-        </linearGradient>
-        <filter id="armGlow"><feGaussianBlur stdDeviation="3" result="b"/>
-          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      </defs>
-      <!-- base -->
-      <rect x="80" y="178" width="60" height="18" rx="5" fill="url(#armGrad)" opacity="0.9"/>
-      <circle cx="110" cy="178" r="14" fill="{color}" filter="url(#armGlow)"/>
-      <!-- rotating shoulder group -->
-      <g style="transform-origin:110px 178px; transform:rotate({angle}deg); transition:transform 0.9s cubic-bezier(.4,1.4,.4,1);">
-        <line x1="110" y1="178" x2="110" y2="110" stroke="url(#armGrad)" stroke-width="11" stroke-linecap="round"/>
-        <circle cx="110" cy="110" r="9" fill="{secondary}" filter="url(#armGlow)"/>
-        <g style="transform-origin:110px 110px; transform:rotate(-28deg);">
-          <line x1="110" y1="110" x2="168" y2="78" stroke="url(#armGrad)" stroke-width="9" stroke-linecap="round"/>
-          <circle cx="168" cy="78" r="7" fill="{color}"/>
-          <!-- gripper -->
-          <line x1="168" y1="78" x2="184" y2="64" stroke="{secondary}" stroke-width="5" stroke-linecap="round"/>
-          <line x1="168" y1="78" x2="184" y2="90" stroke="{secondary}" stroke-width="5" stroke-linecap="round"/>
-        </g>
-      </g>
-      <ellipse cx="110" cy="200" rx="58" ry="7" fill="{color}" opacity="0.12"/>
-    </svg>"""
+def _glow_pointer_track(cats, sel, color, secondary, axis_label):
+    """Animated gradient-glow pointer track: a horizontal rail with one
+    node per category; the glowing pointer dot smoothly slides to the
+    selected node, and the active node pulses."""
+    n = max(len(cats), 1)
+    sel_idx = cats.index(sel) if sel in cats else 0
+    # position pointer as a % across the track (centered on each node)
+    pct = (sel_idx + 0.5) / n * 100
 
-def _ai_robot_svg(tilt, color, secondary):
-    """Futuristic humanoid AI robot whose head tilts toward the selected AI category."""
+    nodes_html = ""
+    for idx, ac in enumerate(cats):
+        node_pct = (idx + 0.5) / n * 100
+        active = (ac == sel)
+        node_color = color if active else "#cbd5e1"
+        node_scale = "1.35" if active else "1"
+        nodes_html += f"""
+        <div style="position:absolute;left:{node_pct}%;top:50%;transform:translate(-50%,-50%) scale({node_scale});
+             width:14px;height:14px;border-radius:50%;
+             background:{node_color};
+             box-shadow:{'0 0 14px ' + color + ', 0 0 26px ' + secondary if active else 'none'};
+             transition:all .5s cubic-bezier(.4,1.4,.4,1);"></div>"""
+
     return f"""
-    <svg viewBox="0 0 220 220" width="100%" height="190" style="overflow:visible;">
-      <defs>
-        <linearGradient id="aiGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="{secondary}"/><stop offset="100%" stop-color="{color}"/>
-        </linearGradient>
-        <filter id="aiGlow"><feGaussianBlur stdDeviation="3" result="b"/>
-          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      </defs>
-      <!-- torso -->
-      <rect x="78" y="120" width="64" height="64" rx="16" fill="none" stroke="url(#aiGrad)" stroke-width="3"/>
-      <circle cx="110" cy="152" r="14" fill="{color}" opacity="0.18"/>
-      <circle cx="110" cy="152" r="6" fill="{secondary}" filter="url(#aiGlow)"/>
-      <line x1="78" y1="140" x2="58" y2="155" stroke="url(#aiGrad)" stroke-width="6" stroke-linecap="round"/>
-      <line x1="142" y1="140" x2="162" y2="155" stroke="url(#aiGrad)" stroke-width="6" stroke-linecap="round"/>
-      <line x1="92" y1="184" x2="88" y2="206" stroke="url(#aiGrad)" stroke-width="7" stroke-linecap="round"/>
-      <line x1="128" y1="184" x2="132" y2="206" stroke="url(#aiGrad)" stroke-width="7" stroke-linecap="round"/>
-      <!-- head (tilts) -->
-      <g style="transform-origin:110px 112px; transform:rotate({tilt}deg); transition:transform 0.9s cubic-bezier(.4,1.4,.4,1);">
-        <rect x="86" y="78" width="48" height="38" rx="14" fill="none" stroke="url(#aiGrad)" stroke-width="3"/>
-        <circle cx="100" cy="96" r="4.5" fill="{secondary}" filter="url(#aiGlow)"/>
-        <circle cx="120" cy="96" r="4.5" fill="{secondary}" filter="url(#aiGlow)"/>
-        <line x1="110" y1="78" x2="110" y2="66" stroke="url(#aiGrad)" stroke-width="2.4"/>
-        <circle cx="110" cy="62" r="4" fill="{color}" filter="url(#aiGlow)"/>
-      </g>
-      <ellipse cx="110" cy="212" rx="50" ry="6" fill="{color}" opacity="0.12"/>
-    </svg>"""
+    <div style="position:relative;height:64px;margin:8px 4px 2px;">
+      <div style="position:absolute;left:0;right:0;top:50%;height:3px;transform:translateY(-50%);
+           background:linear-gradient(90deg, rgba(0,0,0,.06), {color}33, rgba(0,0,0,.06));
+           border-radius:3px;"></div>
+      {nodes_html}
+      <div style="position:absolute;left:{pct}%;top:50%;transform:translate(-50%,-50%);
+           width:26px;height:26px;border-radius:50%;
+           background:radial-gradient(circle, {secondary} 0%, {color} 70%, transparent 100%);
+           box-shadow:0 0 18px {color}, 0 0 34px {secondary}77;
+           transition:left .55s cubic-bezier(.4,1.4,.4,1);
+           animation:td-glow-pulse 1.8s ease-in-out infinite;"></div>
+    </div>
+    <div style="text-align:center;font-size:9px;color:#94a3b8;margin-top:-2px;">{axis_label}</div>
+    """
 
 def render_automation_ai_panels(ideas, t):
-    """Two glassmorphism panels — Automation (robotic arm) & AI (humanoid robot) —
-    with click-to-select category insights."""
+    """Two glassmorphism panels — Automation & AI — with glowing gradient
+    category cards and an animated pointer/glow track that shifts to
+    whichever category is selected."""
     st.markdown("##### 🤖 Automation &amp; AI Breakdown")
 
     if "_auto_sel" not in st.session_state:
@@ -861,14 +841,12 @@ def render_automation_ai_panels(ideas, t):
         """, unsafe_allow_html=True)
 
         sel = st.session_state["_auto_sel"]
-        sel_idx = AUTOMATION_CATS.index(sel) if sel in AUTOMATION_CATS else 0
-        angle = -55 + sel_idx * (110 / max(len(AUTOMATION_CATS)-1,1))
-        st.markdown(_robot_arm_svg(angle, t['primary'], t['secondary']), unsafe_allow_html=True)
+        st.markdown(_glow_pointer_track(AUTOMATION_CATS, sel, t['primary'], t['secondary'],
+                                        "Selected category indicator"), unsafe_allow_html=True)
 
         btn_cols = st.columns(len(AUTOMATION_CATS))
         for idx, ac in enumerate(AUTOMATION_CATS):
             with btn_cols[idx]:
-                short = ac.replace("Automation-","").replace(" ","\n")
                 is_sel = (ac == sel)
                 if st.button(ac.replace("Automation-",""), key=f"auto_btn_{idx}",
                             use_container_width=True,
@@ -911,9 +889,8 @@ def render_automation_ai_panels(ideas, t):
         """, unsafe_allow_html=True)
 
         sel_ai = st.session_state["_ai_sel"]
-        sel_ai_idx = AI_CATS.index(sel_ai) if sel_ai in AI_CATS else 0
-        tilt = -18 + sel_ai_idx * (36 / max(len(AI_CATS)-1,1))
-        st.markdown(_ai_robot_svg(tilt, t['secondary'], t['primary']), unsafe_allow_html=True)
+        st.markdown(_glow_pointer_track(AI_CATS, sel_ai, t['secondary'], t['primary'],
+                                        "Selected category indicator"), unsafe_allow_html=True)
 
         btn_cols2 = st.columns(len(AI_CATS))
         for idx, ac in enumerate(AI_CATS):
@@ -948,11 +925,9 @@ def render_automation_ai_panels(ideas, t):
           </div>
         </div>""", unsafe_allow_html=True)
 
+
 # ══════════════════════════════════════════════════════════════════════════════
-#  KANBAN: NATIVE STREAMLIT COLUMN + EXPANDER BOARD
-# ══════════════════════════════════════════════════════════════════════════════
-# ══════════════════════════════════════════════════════════════════════════════
-#  KANBAN: PARENT/CHILD HIERARCHY BOARD (drag-and-drop + explicit linking)
+#  KANBAN: PARENT/CHILD HIERARCHY BOARD (dropdown-based linking)
 # ══════════════════════════════════════════════════════════════════════════════
 def _parent_summary(ideas, parent_id):
     children = [i for i in ideas if i.get("parent_id")==parent_id]
@@ -967,29 +942,9 @@ def _parent_summary(ideas, parent_id):
         status_summary[s] = status_summary.get(s,0)+1
     return {"children":children,"n":n,"pct":pct,"hrs":hrs,"roi":roi,"status_summary":status_summary}
 
-def _handle_dragdrop_query_params():
-    """Pick up a drag-and-drop link request encoded in the URL query string
-    by the JS layer (?link_child=<id>&link_parent=<id>) and apply it,
-    then clear the params so it only fires once."""
-    qp = st.query_params
-    child_id  = qp.get("link_child")
-    parent_id = qp.get("link_parent")
-    if child_id and parent_id and child_id != parent_id:
-        update_idea(child_id, {"parent_id": parent_id})
-        st.query_params.clear()
-        st.success("🔗 Parent–child relationship created.")
-        st.rerun()
-    elif qp.get("unlink_child"):
-        update_idea(qp.get("unlink_child"), {"parent_id": ""})
-        st.query_params.clear()
-        st.rerun()
-
 def render_kanban_board(ideas):
-    _handle_dragdrop_query_params()
-
     # Top-level cards = those without a parent (standalone OR parents themselves)
     top_level = [i for i in ideas if not i.get("parent_id")]
-    all_ids   = {i["id"] for i in ideas}
 
     cols = st.columns(len(STATUSES))
     for col, status in zip(cols, STATUSES):
@@ -1007,8 +962,7 @@ def render_kanban_board(ideas):
 
     st.markdown(
         '<div style="font-size:10px;color:#94a3b8;margin:-2px 0 8px;">'
-        '💡 Drag a card onto another card to create a Parent–Child relationship '
-        '(or use <b>Link as Child</b> in the card menu below).</div>',
+        '💡 Use <b>Set Parent</b> on a card to group it under another card as a Child.</div>',
         unsafe_allow_html=True,
     )
 
@@ -1020,9 +974,9 @@ def render_kanban_board(ideas):
             if not bucket:
                 st.caption("_Empty_")
             for idea in bucket:
-                _render_kanban_card(idea, ideas, color, all_ids, depth=0)
+                _render_kanban_card(idea, ideas, color, depth=0)
 
-def _render_kanban_card(idea, all_ideas, color, all_ids, depth=0):
+def _render_kanban_card(idea, all_ideas, color, depth=0):
     eng      = idea.get("assigned_engineer") or ""
     proj     = idea.get("project") or "-"
     delivery = idea.get("delivery_date") or ""
@@ -1034,28 +988,14 @@ def _render_kanban_card(idea, all_ideas, color, all_ids, depth=0):
     label = (idea.get("idea_name") or "No Name")[:26]
     badge = f" 📁 ({summary['n']})" if is_parent else ""
 
-    # Draggable wrapper — HTML5 drag/drop; on drop, JS rewrites the URL
-    # query string with link_child/link_parent and reloads the parent
-    # frame, which Streamlit picks up via _handle_dragdrop_query_params().
-    drag_html = f"""
-    <div class="td-kanban-card" draggable="true" data-id="{idea['id']}"
-         ondragstart="window.__tdDragId='{idea['id']}';"
-         ondragover="event.preventDefault(); this.style.boxShadow='0 0 0 2px {color}, 0 0 14px {color}';"
-         ondragleave="this.style.boxShadow='';"
-         ondrop="event.preventDefault(); this.style.boxShadow='';
-                 if(window.__tdDragId && window.__tdDragId!=='{idea['id']}'){{
-                   const url = new URL(window.parent.location.href);
-                   url.searchParams.set('link_child', window.__tdDragId);
-                   url.searchParams.set('link_parent', '{idea['id']}');
-                   window.parent.location.href = url.toString();
-                 }}"
-         style="border-left:3px solid {color};padding:6px 8px;margin-bottom:4px;
-                border-radius:8px;background:rgba(0,0,0,0.015);cursor:grab;
-                font-size:11px;transition:box-shadow .15s;">
+    card_html = f"""
+    <div class="td-kanban-card" style="border-left:3px solid {color};padding:6px 8px;margin-bottom:4px;
+                border-radius:8px;background:rgba(0,0,0,0.015);
+                font-size:11px;">
       <b>{label}{badge}</b><br>
       <span style="font-size:9.5px;color:#94a3b8;">📌 {proj} &nbsp;👤 {name} &nbsp;👷 {eng_name}</span>
     </div>"""
-    st.markdown(drag_html, unsafe_allow_html=True)
+    st.markdown(card_html, unsafe_allow_html=True)
 
     with st.expander(f"{'└─ ' if depth>0 else ''}{label}{badge}", expanded=False):
         st.markdown(
@@ -1079,7 +1019,7 @@ def _render_kanban_card(idea, all_ideas, color, all_ids, depth=0):
             with st.expander(f"▼ {summary['n']} Child Card(s)", expanded=False):
                 for child in summary["children"]:
                     _render_kanban_card(child, all_ideas, STATUS_COLORS.get(child.get("status"),"#888"),
-                                        all_ids, depth=depth+1)
+                                        depth=depth+1)
                     cc1, cc2 = st.columns(2)
                     with cc1:
                         if st.button("✂️ Make Standalone", key=f"unlink_{child['id']}", use_container_width=True):
@@ -1094,11 +1034,11 @@ def _render_kanban_card(idea, all_ideas, color, all_ids, depth=0):
                             if st.button("↪ Move", key=f"movebtn_{child['id']}", use_container_width=True):
                                 update_idea(child["id"], {"parent_id":new_p}); st.rerun()
 
-        # ── Link-as-child control (reliable fallback to drag-and-drop) ────
+        # ── Set-parent control ─────────────────────────────────────────
         if not idea.get("parent_id"):
             candidates = [i for i in all_ideas if i["id"] != idea["id"] and i.get("parent_id") != idea["id"]]
             if candidates:
-                with st.popover("🔗 Link as Child of…", use_container_width=True):
+                with st.popover("🔗 Set Parent…", use_container_width=True):
                     target = st.selectbox("Parent card", [c["id"] for c in candidates],
                                           format_func=lambda cid: next((c.get("idea_name","?")[:30] for c in candidates if c["id"]==cid),cid),
                                           key=f"linkparent_{idea['id']}")
@@ -1644,7 +1584,7 @@ def page_dashboard():
         kpi_card2(f"{int_hrs:,.0f} hrs","Internal Hrs Saved / yr","#0ea5e9","growth",
                   f"ROI {int_roi} · {int_cnt} ideas · UAT {cnt('UAT')}")
 
-    # ── ROW 2: Automation & AI Breakdown (animated robot panels) ──────────
+    # ── ROW 2: Automation & AI Breakdown (glowing pointer panels) ──────────
     t_cur = THEMES.get(ss("theme"), THEMES["ALTEN Red & Blue"])
     render_automation_ai_panels(ideas, t_cur)
 
