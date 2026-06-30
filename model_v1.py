@@ -2,6 +2,7 @@ import os, json, uuid, re, csv, io
 from datetime import datetime, date, timedelta
 from urllib.parse import quote
 import streamlit as st
+import streamlit.components.v1 as components
 from streamlit_echarts import st_echarts
 from werkzeug.security import generate_password_hash, check_password_hash
 from supabase import create_client, Client
@@ -764,7 +765,7 @@ def cnt_cat_wip(ideas, cat):
     return len([i for i in ideas if i.get("category")==cat and i.get("status") in ("WIP","UAT")])
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  AUTOMATION & AI BREAKDOWN — glowing gradient cards + animated pointer
+#  AUTOMATION & AI BREAKDOWN — interactive auto-rotating 3D robots (Three.js)
 # ══════════════════════════════════════════════════════════════════════════════
 def _cat_insights(ideas, ac):
     sub = [i for i in ideas if i.get("automation_category")==ac]
@@ -778,48 +779,238 @@ def _cat_insights(ideas, ac):
     return {"total":total,"completed":completed,"wip":wip,"uat":uat,
             "hrs":hrs,"roi":roi,"success":success}
 
-def _glow_pointer_track(cats, sel, color, secondary, axis_label):
-    """Animated gradient-glow pointer track: a horizontal rail with one
-    node per category; the glowing pointer dot smoothly slides to the
-    selected node, and the active node pulses."""
+def _three_robot_component(cats, sel, color, secondary, kind, height=230):
+    """Renders an auto-rotating, lightweight Three.js 3D robot inside an
+    iframe component. `kind` is 'arm' (industrial robotic arm, built from
+    primitives) or 'humanoid' (AI robot). The robot's pose animates toward
+    the index of `sel` within `cats` whenever the selection changes.
+    No orbit-controls — slow auto-rotation only, per spec."""
     n = max(len(cats), 1)
     sel_idx = cats.index(sel) if sel in cats else 0
-    # position pointer as a % across the track (centered on each node)
-    pct = (sel_idx + 0.5) / n * 100
+    target_t = (sel_idx / max(n - 1, 1))  # 0..1 across the category range
+    color_hex = color.lstrip("#")
+    secondary_hex = secondary.lstrip("#")
+    cats_json = json.dumps(cats)
 
-    nodes_html = ""
-    for idx, ac in enumerate(cats):
-        node_pct = (idx + 0.5) / n * 100
-        active = (ac == sel)
-        node_color = color if active else "#cbd5e1"
-        node_scale = "1.35" if active else "1"
-        nodes_html += f"""
-        <div style="position:absolute;left:{node_pct}%;top:50%;transform:translate(-50%,-50%) scale({node_scale});
-             width:14px;height:14px;border-radius:50%;
-             background:{node_color};
-             box-shadow:{'0 0 14px ' + color + ', 0 0 26px ' + secondary if active else 'none'};
-             transition:all .5s cubic-bezier(.4,1.4,.4,1);"></div>"""
-
-    return f"""
-    <div style="position:relative;height:64px;margin:8px 4px 2px;">
-      <div style="position:absolute;left:0;right:0;top:50%;height:3px;transform:translateY(-50%);
-           background:linear-gradient(90deg, rgba(0,0,0,.06), {color}33, rgba(0,0,0,.06));
-           border-radius:3px;"></div>
-      {nodes_html}
-      <div style="position:absolute;left:{pct}%;top:50%;transform:translate(-50%,-50%);
-           width:26px;height:26px;border-radius:50%;
-           background:radial-gradient(circle, {secondary} 0%, {color} 70%, transparent 100%);
-           box-shadow:0 0 18px {color}, 0 0 34px {secondary}77;
-           transition:left .55s cubic-bezier(.4,1.4,.4,1);
-           animation:td-glow-pulse 1.8s ease-in-out infinite;"></div>
+    html = f"""
+    <div id="robot-wrap" style="width:100%;height:{height}px;position:relative;border-radius:14px;overflow:hidden;
+         background:radial-gradient(ellipse at center, rgba({_hex_to_rgb(color)},.08) 0%, rgba(0,0,0,0) 70%);">
+      <div id="robot-canvas" style="width:100%;height:100%;"></div>
+      <div id="robot-label" style="position:absolute;bottom:6px;left:0;right:0;text-align:center;
+           font-family:'Inter',sans-serif;font-size:10px;color:#94a3b8;pointer-events:none;">
+      </div>
     </div>
-    <div style="text-align:center;font-size:9px;color:#94a3b8;margin-top:-2px;">{axis_label}</div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+    (function() {{
+      const CATS = {cats_json};
+      let targetT = {target_t};
+      const COLOR = 0x{color_hex};
+      const SECONDARY = 0x{secondary_hex};
+      const KIND = "{kind}";
+
+      const wrap = document.getElementById('robot-wrap');
+      const mount = document.getElementById('robot-canvas');
+      const labelEl = document.getElementById('robot-label');
+      labelEl.textContent = CATS[{sel_idx}] || '';
+
+      const W = wrap.clientWidth || 320, H = {height};
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(40, W / H, 0.1, 100);
+      camera.position.set(0, 1.6, 7.5);
+      camera.lookAt(0, 1.2, 0);
+
+      const renderer = new THREE.WebGLRenderer({{ antialias: true, alpha: true }});
+      renderer.setSize(W, H);
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      mount.appendChild(renderer.domElement);
+
+      // lighting
+      scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+      const key = new THREE.DirectionalLight(0xffffff, 0.9);
+      key.position.set(3, 6, 4);
+      scene.add(key);
+      const rim = new THREE.PointLight(COLOR, 1.1, 12);
+      rim.position.set(-3, 2, 3);
+      scene.add(rim);
+
+      const matBody = new THREE.MeshStandardMaterial({{ color: COLOR, metalness: 0.55, roughness: 0.32 }});
+      const matAccent = new THREE.MeshStandardMaterial({{ color: SECONDARY, metalness: 0.7, roughness: 0.22, emissive: SECONDARY, emissiveIntensity: 0.35 }});
+      const matDark = new THREE.MeshStandardMaterial({{ color: 0x16181d, metalness: 0.6, roughness: 0.4 }});
+
+      const rig = new THREE.Group();
+      scene.add(rig);
+
+      // subtle ground glow disc
+      const disc = new THREE.Mesh(
+        new THREE.CircleGeometry(2.6, 48),
+        new THREE.MeshBasicMaterial({{ color: COLOR, transparent: true, opacity: 0.10 }})
+      );
+      disc.rotation.x = -Math.PI / 2;
+      disc.position.y = 0.02;
+      rig.add(disc);
+
+      let shoulderPivot, elbowPivot, headPivot;
+
+      if (KIND === 'arm') {{
+        // ── Industrial robotic arm built from primitives ──────────────
+        const base = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.05, 0.5, 24), matDark);
+        base.position.y = 0.25;
+        rig.add(base);
+
+        const baseRing = new THREE.Mesh(new THREE.TorusGeometry(0.95, 0.06, 12, 32), matAccent);
+        baseRing.rotation.x = Math.PI / 2;
+        baseRing.position.y = 0.5;
+        rig.add(baseRing);
+
+        shoulderPivot = new THREE.Group();
+        shoulderPivot.position.set(0, 0.55, 0);
+        rig.add(shoulderPivot);
+
+        const shoulderJoint = new THREE.Mesh(new THREE.SphereGeometry(0.42, 20, 20), matAccent);
+        shoulderPivot.add(shoulderJoint);
+
+        const upperArm = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.26, 2.2, 16), matBody);
+        upperArm.position.y = 1.1;
+        shoulderPivot.add(upperArm);
+
+        elbowPivot = new THREE.Group();
+        elbowPivot.position.set(0, 2.2, 0);
+        shoulderPivot.add(elbowPivot);
+
+        const elbowJoint = new THREE.Mesh(new THREE.SphereGeometry(0.3, 18, 18), matAccent);
+        elbowPivot.add(elbowJoint);
+
+        const forearm = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.2, 1.7, 16), matBody);
+        forearm.rotation.z = Math.PI / 2;
+        forearm.position.x = 0.85;
+        elbowPivot.add(forearm);
+
+        const gripperBase = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.34, 0.34), matDark);
+        gripperBase.position.x = 1.7;
+        elbowPivot.add(gripperBase);
+
+        const fingerGeo = new THREE.BoxGeometry(0.08, 0.4, 0.1);
+        const finger1 = new THREE.Mesh(fingerGeo, matAccent);
+        finger1.position.set(1.95, 0.16, 0);
+        elbowPivot.add(finger1);
+        const finger2 = new THREE.Mesh(fingerGeo, matAccent);
+        finger2.position.set(1.95, -0.16, 0);
+        elbowPivot.add(finger2);
+
+        shoulderPivot.rotation.z = -0.5;
+        elbowPivot.rotation.z = 0.6;
+      }} else {{
+        // ── Humanoid AI robot ──────────────────────────────────────────
+        const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.62, 1.3, 6, 16), matBody);
+        torso.position.y = 1.55;
+        rig.add(torso);
+
+        const chestPanel = new THREE.Mesh(new THREE.CircleGeometry(0.26, 24), matAccent);
+        chestPanel.position.set(0, 1.65, 0.62);
+        rig.add(chestPanel);
+
+        headPivot = new THREE.Group();
+        headPivot.position.set(0, 2.55, 0);
+        rig.add(headPivot);
+
+        const head = new THREE.Mesh(new THREE.SphereGeometry(0.46, 24, 24), matBody);
+        headPivot.add(head);
+
+        const eyeGeo = new THREE.SphereGeometry(0.08, 12, 12);
+        const eye1 = new THREE.Mesh(eyeGeo, matAccent);
+        eye1.position.set(-0.17, 0.04, 0.4);
+        headPivot.add(eye1);
+        const eye2 = new THREE.Mesh(eyeGeo, matAccent);
+        eye2.position.set(0.17, 0.04, 0.4);
+        headPivot.add(eye2);
+
+        const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.35, 8), matDark);
+        antenna.position.set(0, 0.55, 0);
+        headPivot.add(antenna);
+        const antennaTip = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 10), matAccent);
+        antennaTip.position.set(0, 0.74, 0);
+        headPivot.add(antennaTip);
+
+        const armGeo = new THREE.CapsuleGeometry(0.13, 0.9, 4, 10);
+        const armL = new THREE.Mesh(armGeo, matBody);
+        armL.position.set(-0.85, 1.5, 0);
+        armL.rotation.z = 0.25;
+        rig.add(armL);
+        const armR = new THREE.Mesh(armGeo, matBody);
+        armR.position.set(0.85, 1.5, 0);
+        armR.rotation.z = -0.25;
+        rig.add(armR);
+
+        const legGeo = new THREE.CapsuleGeometry(0.16, 0.9, 4, 10);
+        const legL = new THREE.Mesh(legGeo, matDark);
+        legL.position.set(-0.3, 0.45, 0);
+        rig.add(legL);
+        const legR = new THREE.Mesh(legGeo, matDark);
+        legR.position.set(0.3, 0.45, 0);
+        rig.add(legR);
+
+        headPivot.rotation.y = -0.55;
+      }}
+
+      // ── pose targeting: arm sweeps / head turns toward target_t (0..1) ─
+      function applyPose(t, animate) {{
+        const dur = animate ? 900 : 0;
+        const ease = (x) => 1 - Math.pow(1 - x, 3);
+        const start = performance.now();
+        const from = {{
+          shoulder: shoulderPivot ? shoulderPivot.rotation.y : 0,
+          elbow: elbowPivot ? elbowPivot.rotation.x : 0,
+          head: headPivot ? headPivot.rotation.y : 0,
+        }};
+        const toShoulder = (t - 0.5) * 1.7;
+        const toElbow = (t - 0.5) * 0.5;
+        const toHead = -0.9 + t * 1.8;
+
+        function step(now) {{
+          const p = dur === 0 ? 1 : Math.min(1, (now - start) / dur);
+          const e = ease(p);
+          if (shoulderPivot) shoulderPivot.rotation.y = from.shoulder + (toShoulder - from.shoulder) * e;
+          if (elbowPivot)    elbowPivot.rotation.x    = from.elbow    + (toElbow - from.elbow) * e;
+          if (headPivot)     headPivot.rotation.y     = from.head     + (toHead - from.head) * e;
+          if (p < 1) requestAnimationFrame(step);
+        }}
+        requestAnimationFrame(step);
+      }}
+      applyPose(targetT, false);
+
+      // ── slow ambient auto-rotation (whole rig), independent of pose ───
+      let lastTime = performance.now();
+      function animateLoop(now) {{
+        const dt = (now - lastTime) / 1000;
+        lastTime = now;
+        rig.rotation.y += dt * 0.18;
+        renderer.render(scene, camera);
+        requestAnimationFrame(animateLoop);
+      }}
+      requestAnimationFrame(animateLoop);
+
+      // expose a hook so a future selection-change can retarget the pose
+      window['__tdRobotRetarget_' + KIND + '_{sel_idx}'] = function(newT) {{
+        applyPose(newT, true);
+      }};
+
+      window.addEventListener('resize', function() {{
+        const w = wrap.clientWidth || 320;
+        renderer.setSize(w, H);
+        camera.aspect = w / H;
+        camera.updateProjectionMatrix();
+      }});
+    }})();
+    </script>
     """
+    components.html(html, height=height, scrolling=False)
 
 def render_automation_ai_panels(ideas, t):
-    """Two glassmorphism panels — Automation & AI — with glowing gradient
-    category cards and an animated pointer/glow track that shifts to
-    whichever category is selected."""
+    """Two glassmorphism panels — Automation & AI — each containing an
+    interactive, auto-rotating 3D robot (industrial arm for Automation,
+    humanoid for AI) whose pose animates toward whichever category is
+    selected via the buttons below it."""
     st.markdown("##### 🤖 Automation &amp; AI Breakdown")
 
     if "_auto_sel" not in st.session_state:
@@ -841,8 +1032,7 @@ def render_automation_ai_panels(ideas, t):
         """, unsafe_allow_html=True)
 
         sel = st.session_state["_auto_sel"]
-        st.markdown(_glow_pointer_track(AUTOMATION_CATS, sel, t['primary'], t['secondary'],
-                                        "Selected category indicator"), unsafe_allow_html=True)
+        _three_robot_component(AUTOMATION_CATS, sel, t['primary'], t['secondary'], kind="arm", height=220)
 
         btn_cols = st.columns(len(AUTOMATION_CATS))
         for idx, ac in enumerate(AUTOMATION_CATS):
@@ -889,8 +1079,7 @@ def render_automation_ai_panels(ideas, t):
         """, unsafe_allow_html=True)
 
         sel_ai = st.session_state["_ai_sel"]
-        st.markdown(_glow_pointer_track(AI_CATS, sel_ai, t['secondary'], t['primary'],
-                                        "Selected category indicator"), unsafe_allow_html=True)
+        _three_robot_component(AI_CATS, sel_ai, t['secondary'], t['primary'], kind="humanoid", height=220)
 
         btn_cols2 = st.columns(len(AI_CATS))
         for idx, ac in enumerate(AI_CATS):
