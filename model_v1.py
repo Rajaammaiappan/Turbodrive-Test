@@ -1,8 +1,3 @@
-"""
-Turbo Drive — Ideation & Automation Workflow Manager
-Streamlit version — Requirement 2 Updates Applied
-"""
-
 import os, json, uuid, re, csv, io
 from datetime import datetime, date, timedelta
 from urllib.parse import quote
@@ -14,42 +9,35 @@ from supabase import create_client, Client
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIG / CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
-# ── Supabase credentials ─────────────────────────────────────────────────────
-# Use the SERVICE ROLE key (not anon) — it bypasses RLS completely.
-# Supabase dashboard → Project Settings → API → service_role (secret) key.
-# Keep this file private / in a private GitHub repo.
-SUPABASE_URL = "https://weqxfwelvihoutdjxigk.supabase.co"   # ← paste your Project URL
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndlcXhmd2Vsdmlob3V0ZGp4aWdrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzNzU4MTMsImV4cCI6MjA5Nzk1MTgxM30.eDJ0nCils5X1FI9Zrv7C6HLj2GKXmmpCx5gzU1TKQ5Y"         # ← paste service_role key (not anon)
+SUPABASE_URL = "https://mvoxhdbcxmmozulenlvh.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12b3hoZGJjeG1tb3p1bGVubHZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MTczNDIsImV4cCI6MjA5NDQ5MzM0Mn0.6Fhrqo6sfMnO3KklN5dwLup0BVbp0_ga8k5hi3LgXQU"
 
 @st.cache_resource
 def get_supabase() -> Client:
     try:
         sb = create_client(SUPABASE_URL, SUPABASE_KEY)
-        # Quick connectivity check — will raise if URL/key are wrong
         sb.table("users").select("email").limit(1).execute()
         return sb
     except Exception as e:
         st.error(f"❌ Supabase connection failed: {e}")
-        st.info("Check SUPABASE_URL and SUPABASE_KEY in the code (lines 18-19). Use the **service_role** key, not the anon key.")
         st.stop()
 
 STATUSES   = ["New Idea","Assigned","WIP","UAT","Completed","Hold/Park","Rejected"]
 PROJECTS   = ["EFS CA-MRO","EFS BA-MRO","EFS BA-LCE","EFS CA-LCE","EFS Controls","EFS Technical Response","Others"]
 CATEGORIES = ["Customer Requirement","Internal"]
-AUTO_CATS  = ["Automation-Process Existing Enhancement","Automation-Process Elimination","Automation-E2E","Automation-Quality Enhancement","AI-Personal Productivity","AI-Process Improvement","AI-Defined Product and Sales"]
+AUTO_CATS  = ["Automation-Personal Productivity","Automation-Process Improvement","Automation-Defined Product and Sales","Automation-Quality Enhancement","AI-Personal Productivity","AI-Process Improvement","AI-Defined Product and Sales"]
 FREQ_MULT  = {"Daily":260,"Weekly":52,"Monthly":12,"Yearly":1}
 REJ_REASONS= ["Technical Rejection","Business Rejection"]
 ROLES_LIST = ["super user","normal user","automation engineer","automation pl","pl/spl"]
 DEFAULT_PW = "admin123"
 
-SUPPORT_NAME  = "Manoj JAGADEESH","Raja AMMAIAPPAN","Naveen KONNUR"
+SUPPORT_NAME  = "Manoj JAGADEESH, Raja AMMAIAPPAN, Naveen KONNUR"
 SUPPORT_EMAIL = "manoj.jagadeesh@alten-india.com"
 
 ALTEN_LOGO_URL = "https://www.alten.com/wp-content/uploads/2019/01/favicon-alten.png"
 
 CUSTOMERS = ["Rolls-Royce"]
-
-REGIONS = ["INDIA", "UK", "USA", "Germany"]
+REGIONS   = ["INDIA", "UK", "USA", "Germany"]
 
 BLOCKED_DOMAINS = {
     "gmail.com","yahoo.com","hotmail.com","rediff.com","outlook.com",
@@ -69,14 +57,22 @@ PW_ROLES = {"super user","automation engineer","automation pl","pl/spl"}
 DEFAULT_USERS = [{"email":"ravi.manoharan@alten-india.com","role":"super user"}]
 
 AUTO_CAT_COLORS = {
-    "Automation-Process Existing Enhancement":"#1a4fad",
-    "Automation-Process Elimination":"#7c3aed",
-    "Automation-E2E":"#059669",
+    "Automation-Personal Productivity":"#1a4fad",
+    "Automation-Process Improvement":"#7c3aed",
+    "Automation-Defined Product and Sales":"#059669",
     "Automation-Quality Enhancement":"#0d9488",
     "AI-Personal Productivity":"#0369a1",
     "AI-Process Improvement":"#9333ea",
     "AI-Defined Product and Sales":"#0891b2",
 }
+
+# Split for the two-panel Automation / AI breakdown
+AUTOMATION_CATS = [c for c in AUTO_CATS if c.startswith("Automation-")]
+AI_CATS         = [c for c in AUTO_CATS if c.startswith("AI-")]
+
+# Session inactivity timeout (seconds)
+SESSION_TIMEOUT_SECONDS = 300   # 5 minutes
+SESSION_WARNING_AT      = 240   # show warning at 4 minutes (60s left)
 CAT_COLORS = {"Customer Requirement":"#0623E3","Internal":"#0ee95e"}
 
 STATUS_COLORS = {
@@ -84,7 +80,6 @@ STATUS_COLORS = {
     "UAT":"#0ea5e9","Completed":"#059669","Hold/Park":"#b45309","Rejected":"#dc2626"
 }
 
-# Status icons for the planner board (Teams-style)
 STATUS_ICONS = {
     "New Idea":"💡","Assigned":"📋","WIP":"⚙️",
     "UAT":"🧪","Completed":"✅","Hold/Park":"⏸","Rejected":"❌"
@@ -98,53 +93,17 @@ THEMES = {
     "Midnight Dark":      {"primary":"#e2e8f0","secondary":"#94a3b8","bg":"#0f172a","sidebar":"#020617"},
 }
 
-# Ocean-blue background used on all non-dashboard pages
-PAGE_BG = "#e8f4fd"        # very light ocean blue tint
-PAGE_SURFACE = "#dbbdbd"   # card surface stays white
-
 # ══════════════════════════════════════════════════════════════════════════════
 #  DATABASE  (Supabase backend)
-#  Tables required in your Supabase project:
-#
-#  ideas  — columns: id(text pk), name, submitter_email, idea_name, idea,
-#            project, category, automation_category, pl_name, status,
-#            roi(float8), assigned_engineer, feasibility_data(text/json),
-#            feasibility_comments, decision, rejection_reason, approval_comment,
-#            priority_label, sprint_start, sprint_end, delivery_date,
-#            vsm_meeting_date, sprint_meeting_date, hold_reason,
-#            created_date, assigned_date, wip_date, uat_date, completion_date,
-#            customer, region
-#
-#  users  — columns: email(text pk), role(text), password_hash(text)
-#
-#  RLS:   For a private internal tool the simplest setup is to disable RLS on
-#         both tables in Supabase (Authentication → Policies → disable RLS),
-#         or add a policy "allow all" for the service-role key.
 # ══════════════════════════════════════════════════════════════════════════════
-
 def _run_sql(sb, sql):
-    """Execute raw SQL via Supabase pg_query RPC (used only for DDL migrations)."""
     try:
         sb.rpc("pg_query", {"query": sql}).execute()
     except Exception:
-        # pg_query RPC may not exist — fall back silently; table already exists
         pass
 
 def init_db():
-    """
-    Self-managing startup:
-    1. Creates tables if they do not exist.
-    2. Adds any missing columns (safe ALTER TABLE ADD COLUMN IF NOT EXISTS).
-    3. Seeds the default super-user.
-    All steps are idempotent — safe to call on every app startup.
-    """
     sb = get_supabase()
-
-    # ── Create tables via direct SQL using pg_query RPC ───────────────────
-    # Note: pg_query must be enabled as a Postgres function in your project.
-    # If it is not available, create the tables manually once using the
-    # Supabase SQL Editor (see README). The ALTER TABLE steps below handle
-    # adding any new columns automatically even without pg_query.
     _run_sql(sb, """
         CREATE TABLE IF NOT EXISTS users (
             email         text PRIMARY KEY,
@@ -180,6 +139,7 @@ def init_db():
             hold_reason          text,
             customer             text,
             region               text,
+            parent_id            text,
             created_date         text,
             assigned_date        text,
             wip_date             text,
@@ -187,42 +147,27 @@ def init_db():
             completion_date      text
         );
     """)
-
-    # ── Add missing columns (safe — IF NOT EXISTS) ────────────────────────
-    # This runs on every startup and is a no-op if the column already exists.
     idea_cols = [
-        ("submitter_email",      "text"),
-        ("automation_category",  "text"),
-        ("priority_label",       "text"),
-        ("sprint_start",         "text"),
-        ("sprint_end",           "text"),
-        ("delivery_date",        "text"),
-        ("vsm_meeting_date",     "text"),
-        ("sprint_meeting_date",  "text"),
-        ("hold_reason",          "text"),
-        ("customer",             "text"),
-        ("region",               "text"),
+        ("submitter_email","text"),("automation_category","text"),
+        ("priority_label","text"),("sprint_start","text"),("sprint_end","text"),
+        ("delivery_date","text"),("vsm_meeting_date","text"),
+        ("sprint_meeting_date","text"),("hold_reason","text"),
+        ("customer","text"),("region","text"),("parent_id","text"),
     ]
     for col, dtype in idea_cols:
         _run_sql(sb, f"ALTER TABLE ideas ADD COLUMN IF NOT EXISTS {col} {dtype};")
-
     _run_sql(sb, "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text;")
 
-    # ── Seed default super-user ───────────────────────────────────────────
     dh = generate_password_hash(DEFAULT_PW)
     for u in DEFAULT_USERS:
         try:
-            existing = sb.table("users").select("email,password_hash")                          .eq("email", u["email"].lower()).execute()
+            existing = sb.table("users").select("email,password_hash").eq("email", u["email"].lower()).execute()
             if not existing.data:
-                sb.table("users").insert({
-                    "email":         u["email"].lower(),
-                    "role":          u["role"],
-                    "password_hash": dh,
-                }).execute()
+                sb.table("users").insert({"email":u["email"].lower(),"role":u["role"],"password_hash":dh}).execute()
             elif not existing.data[0].get("password_hash"):
-                sb.table("users").update({"password_hash": dh})                   .eq("email", u["email"].lower()).execute()
+                sb.table("users").update({"password_hash":dh}).eq("email",u["email"].lower()).execute()
         except Exception:
-            pass  # Table may not exist yet if pg_query is unavailable
+            pass
 
 def get_all():
     sb   = get_supabase()
@@ -235,47 +180,30 @@ def get_all():
     return rows
 
 def add_idea(idea):
-    sb = get_supabase()
     row = {
-        "id":                  idea["id"],
-        "name":                idea.get("name",""),
-        "submitter_email":     idea.get("submitter_email",""),
-        "idea_name":           idea.get("idea_name",""),
-        "idea":                idea.get("idea",""),
-        "project":             idea.get("project",""),
-        "category":            idea.get("category",""),
-        "automation_category": idea.get("automation_category",""),
-        "pl_name":             idea.get("pl_name",""),
-        "status":              idea.get("status","New Idea"),
-        "roi":                 idea.get("roi", 0),
-        "assigned_engineer":   idea.get("assigned_engineer",""),
-        "feasibility_data":    json.dumps(idea.get("feasibility_data",{})),
-        "feasibility_comments":idea.get("feasibility_comments",""),
-        "decision":            idea.get("decision",""),
-        "rejection_reason":    idea.get("rejection_reason",""),
-        "approval_comment":    idea.get("approval_comment",""),
-        "priority_label":      idea.get("priority_label",""),
-        "sprint_start":        idea.get("sprint_start",""),
-        "sprint_end":          idea.get("sprint_end",""),
-        "delivery_date":       idea.get("delivery_date",""),
-        "vsm_meeting_date":    idea.get("vsm_meeting_date",""),
-        "sprint_meeting_date": idea.get("sprint_meeting_date",""),
-        "hold_reason":         idea.get("hold_reason",""),
-        "created_date":        datetime.now().strftime("%Y-%m-%d %H:%M"),
-        "assigned_date":       "",
-        "wip_date":            "",
-        "uat_date":            "",
-        "completion_date":     "",
-        "customer":            idea.get("customer",""),
-        "region":              idea.get("region",""),
+        "id":idea["id"],"name":idea.get("name",""),"submitter_email":idea.get("submitter_email",""),
+        "idea_name":idea.get("idea_name",""),"idea":idea.get("idea",""),"project":idea.get("project",""),
+        "category":idea.get("category",""),"automation_category":idea.get("automation_category",""),
+        "pl_name":idea.get("pl_name",""),"status":idea.get("status","New Idea"),"roi":idea.get("roi",0),
+        "assigned_engineer":idea.get("assigned_engineer",""),
+        "feasibility_data":json.dumps(idea.get("feasibility_data",{})),
+        "feasibility_comments":idea.get("feasibility_comments",""),"decision":idea.get("decision",""),
+        "rejection_reason":idea.get("rejection_reason",""),"approval_comment":idea.get("approval_comment",""),
+        "priority_label":idea.get("priority_label",""),"sprint_start":idea.get("sprint_start",""),
+        "sprint_end":idea.get("sprint_end",""),"delivery_date":idea.get("delivery_date",""),
+        "vsm_meeting_date":idea.get("vsm_meeting_date",""),"sprint_meeting_date":idea.get("sprint_meeting_date",""),
+        "hold_reason":idea.get("hold_reason",""),"created_date":datetime.now().strftime("%Y-%m-%d %H:%M"),
+        "assigned_date":"","wip_date":"","uat_date":"","completion_date":"",
+        "customer":idea.get("customer",""),"region":idea.get("region",""),
+        "parent_id":idea.get("parent_id",""),
     }
     get_supabase().table("ideas").insert(row).execute()
 
 def update_idea(iid, fields):
     payload = {}
-    for k, v in fields.items():
-        payload[k] = json.dumps(v) if k == "feasibility_data" else v
-    get_supabase().table("ideas").update(payload).eq("id", iid).execute()
+    for k,v in fields.items():
+        payload[k] = json.dumps(v) if k=="feasibility_data" else v
+    get_supabase().table("ideas").update(payload).eq("id",iid).execute()
 
 def get_users():
     resp = get_supabase().table("users").select("*").order("email").execute()
@@ -284,25 +212,20 @@ def get_users():
 def add_user(email, role):
     sb  = get_supabase()
     dh  = generate_password_hash(DEFAULT_PW)
-    existing = sb.table("users").select("password_hash").eq("email", email.lower()).execute()
+    existing = sb.table("users").select("password_hash").eq("email",email.lower()).execute()
     if existing.data:
-        # keep existing password_hash; only update role
-        sb.table("users").update({"role": role}).eq("email", email.lower()).execute()
+        sb.table("users").update({"role":role}).eq("email",email.lower()).execute()
     else:
-        sb.table("users").insert({
-            "email": email.lower(), "role": role, "password_hash": dh
-        }).execute()
+        sb.table("users").insert({"email":email.lower(),"role":role,"password_hash":dh}).execute()
 
 def delete_user(email):
-    get_supabase().table("users").delete().eq("email", email.lower()).execute()
+    get_supabase().table("users").delete().eq("email",email.lower()).execute()
 
 def update_role(email, role):
-    get_supabase().table("users").update({"role": role}).eq("email", email.lower()).execute()
+    get_supabase().table("users").update({"role":role}).eq("email",email.lower()).execute()
 
 def set_password(email, new_pw):
-    get_supabase().table("users").update(
-        {"password_hash": generate_password_hash(new_pw)}
-    ).eq("email", email.lower()).execute()
+    get_supabase().table("users").update({"password_hash":generate_password_hash(new_pw)}).eq("email",email.lower()).execute()
 
 def reset_password(email):
     set_password(email, DEFAULT_PW)
@@ -400,8 +323,7 @@ Priority    : {queue_info.get('priority_label','') if queue_info else ''}"""
     if queue_info:
         body += f"\nSprint Start: {fmt_d(queue_info['sprint_start'])}\nDelivery    : {fmt_d(queue_info['sprint_end'])}"
     body += "\n\nPlease begin Feasibility Study and update status in Turbo Drive."
-    return outlook_link([eng],
-        f"[Turbo Drive] New Idea Assigned: {idea.get('idea_name','')}", body)
+    return outlook_link([eng], f"[Turbo Drive] New Idea Assigned: {idea.get('idea_name','')}", body)
 
 def build_feasibility_outlook(idea, roi, vsm_date, queue_info):
     body = f"""Feasibility Study is complete — please review and provide GO / NO-GO decision.
@@ -416,8 +338,7 @@ VSM Date    : {fmt_d(vsm_date)} at 11:00 AM"""
     if queue_info:
         body += f"\nDelivery    : {fmt_d(queue_info['sprint_end'])}"
     body += "\n\nPlease log in to Turbo Drive to approve or reject."
-    return outlook_link([idea.get("pl_name","")],
-        f"[Turbo Drive] Feasibility Complete — Action Needed: {idea.get('idea_name','')}", body)
+    return outlook_link([idea.get("pl_name","")], f"[Turbo Drive] Feasibility Complete — Action Needed: {idea.get('idea_name','')}", body)
 
 def build_meeting_outlook(mtype, idea, mdate, recipients):
     times  = {"vsm":"11:00 AM","sprint":"10:00 AM","delivery":"03:00 PM"}
@@ -435,8 +356,7 @@ Category    : {idea.get('category','')}
 Date        : {fmt_d(mdate)} at {times.get(mtype,'')}
 Engineer    : {idea.get('assigned_engineer','-')}
 PL / SPL    : {idea.get('pl_name','-')}"""
-    return outlook_link(recipients,
-        f"[Turbo Drive] {titles.get(mtype,'Meeting')}: {idea.get('idea_name','')} — {fmt_d(mdate)}", body)
+    return outlook_link(recipients, f"[Turbo Drive] {titles.get(mtype,'Meeting')}: {idea.get('idea_name','')} — {fmt_d(mdate)}", body)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  SHARED UI COMPONENTS
@@ -460,35 +380,26 @@ def render_copyright():
     )
 
 def page_header(title: str):
-    t = THEMES.get(ss("theme","ALTEN Red & Blue"), THEMES["ALTEN Red & Blue"])
     st.markdown(f"""
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;">
       <img src="{ALTEN_LOGO_URL}" style="height:28px;object-fit:contain;" alt="ALTEN"/>
-      <span style="font-size:24px;font-weight:800;
-            background:linear-gradient(135deg,{t['primary']},{t['secondary']});
-            -webkit-background-clip:text;background-clip:text;color:transparent;">
+      <span style="font-size:24px;font-weight:800;color:#E30613;letter-spacing:0.5px;">
          {title}
       </span>
     </div>""", unsafe_allow_html=True)
     render_support_bar()
 
-def inject_page_bg():
-    """Inject ocean-blue background for non-dashboard pages."""
-    st.markdown(f"""
-    <style>
-    html,body,[data-testid="stApp"] {{
-        background: {PAGE_BG} !important;
-    }}
-    div[data-testid="stForm"],
-    .element-container .stExpander {{
-        background: {PAGE_SURFACE} !important;
-        border-radius: 12px;
-    }}
-    </style>""", unsafe_allow_html=True)
+# ══════════════════════════════════════════════════════════════════════════════
+#  THEME / CSS INJECTION  (no forced page-bg override on any page)
+# ══════════════════════════════════════════════════════════════════════════════
+def _hex_to_rgb(hexcol):
+    h = hexcol.lstrip("#")
+    if len(h) == 3: h = "".join(c*2 for c in h)
+    try:
+        return f"{int(h[0:2],16)},{int(h[2:4],16)},{int(h[4:6],16)}"
+    except Exception:
+        return "227,6,19"
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  THEME / CSS INJECTION
-# ══════════════════════════════════════════════════════════════════════════════
 def apply_theme(theme_name):
     t = THEMES.get(theme_name, THEMES["ALTEN Red & Blue"])
     dark_bg = theme_name == "Midnight Dark"
@@ -501,133 +412,122 @@ def apply_theme(theme_name):
         font-family:'Inter',sans-serif;
         background:{t['bg']} !important;
         color:{text_color};
+        font-size:clamp(12px,1.1vw,15px);
     }}
-    [data-testid="stSidebar"]{{
-        background:{t['sidebar']} !important;
-    }}
+    [data-testid="stSidebar"]{{background:{t['sidebar']} !important;}}
     [data-testid="stSidebar"] *{{color:#e2e8f0 !important;}}
     [data-testid="stSidebar"] .stRadio label{{
-        font-size:14px;padding:6px 10px;border-radius:8px;
+        font-size:clamp(11px,1vw,14px);padding:6px 10px;border-radius:8px;
         transition:background .15s;cursor:pointer;
     }}
     [data-testid="stSidebar"] .stRadio label:hover{{background:rgba(255,255,255,.1);}}
     h1{{
         background:linear-gradient(135deg,{t['primary']},{t['secondary']});
         -webkit-background-clip:text;background-clip:text;color:transparent;
-        font-size:28px;font-weight:800;margin-bottom:4px;
+        font-size:clamp(20px,2vw,28px);font-weight:800;margin-bottom:4px;
     }}
-    h2{{color:{t['primary']};font-size:20px;font-weight:700;}}
-    h3{{color:{t['secondary']};font-size:16px;font-weight:600;}}
+    h2{{color:{t['primary']};font-size:clamp(15px,1.5vw,20px);font-weight:700;}}
+    h3{{color:{t['secondary']};font-size:clamp(13px,1.2vw,16px);font-weight:600;}}
     .kpi-card{{
         background:{surface};border-radius:14px;padding:14px 16px;
         border-left:5px solid {t['primary']};
-        box-shadow:0 2px 12px rgba(0,0,0,.08);
-        margin-bottom:6px;
+        box-shadow:0 2px 12px rgba(0,0,0,.08);margin-bottom:6px;
     }}
-    .kpi-val{{font-size:22px;font-weight:800;}}
-    .kpi-lbl{{font-size:11px;color:#64748b;font-weight:500;margin-top:2px;}}
-    .kpi-sub{{font-size:10px;color:#94a3b8;margin-top:3px;}}
+    .kpi-val{{font-size:clamp(16px,1.6vw,22px);font-weight:800;}}
+    .kpi-lbl{{font-size:clamp(9px,0.85vw,11px);color:#64748b;font-weight:500;margin-top:2px;}}
+    .kpi-sub{{font-size:clamp(8px,0.75vw,10px);color:#94a3b8;margin-top:3px;}}
     .idea-card{{
         background:{surface};border-radius:12px;padding:14px 16px;
-        border:1px solid #e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,.06);
-        margin-bottom:10px;
+        border:1px solid #e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,.06);margin-bottom:10px;
+        transition:transform .2s ease, box-shadow .2s ease;
     }}
-    /* ── MS Teams / Planner-style Kanban ── */
-    .teams-board {{
-        display: flex;
-        flex-direction: row;
-        gap: 12px;
-        overflow-x: auto;
-        padding: 4px 0 12px 0;
-        align-items: flex-start;
-    }}
-    .teams-col {{
-        flex: 0 0 190px;
-        min-width: 190px;
-        background: #f0f6ff;
-        border-radius: 10px;
-        overflow: hidden;
-        box-shadow: 0 2px 8px rgba(0,0,0,.07);
-    }}
-    .teams-col-header {{
-        padding: 10px 12px 8px;
-        font-size: 12px;
-        font-weight: 700;
-        color: #fff;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        letter-spacing: 0.3px;
-    }}
-    .teams-col-body {{
-        padding: 8px;
-        min-height: 60px;
-    }}
-    .teams-card {{
-        background: #ffffff;
-        border-radius: 8px;
-        padding: 9px 11px;
-        margin-bottom: 7px;
-        border-left: 4px solid transparent;
-        box-shadow: 0 1px 4px rgba(0,0,0,.07);
-        transition: box-shadow .15s;
-    }}
-    .teams-card:hover {{ box-shadow: 0 3px 10px rgba(0,0,0,.12); }}
-    .teams-card-title {{
-        font-size: 12px;
-        font-weight: 600;
-        color: #1e293b;
-        margin-bottom: 5px;
-        line-height: 1.3;
-    }}
-    .teams-card-meta {{
-        font-size: 10px;
-        color: #64748b;
-        line-height: 1.6;
-    }}
-    .teams-card-tag {{
-        display: inline-block;
-        font-size: 9px;
-        font-weight: 600;
-        padding: 2px 6px;
-        border-radius: 10px;
-        margin-top: 4px;
-        color: #fff;
-    }}
-    .teams-empty {{
-        font-size: 10px;
-        color: #94a3b8;
-        text-align: center;
-        padding: 14px 6px;
-        font-style: italic;
-    }}
-    .teams-badge {{
-        background: rgba(255,255,255,0.25);
-        border-radius: 10px;
-        padding: 2px 7px;
-        font-size: 11px;
-        font-weight: 700;
-    }}
-    /* ─────────────────────────────────── */
+    .idea-card:hover{{transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,.12);}}
     .outlook-btn{{
         display:inline-block;background:{t['primary']};color:#fff;
         padding:8px 18px;border-radius:8px;text-decoration:none;
-        font-weight:600;font-size:13px;margin-top:8px;
+        font-weight:600;font-size:clamp(11px,1vw,13px);margin-top:8px;
     }}
     .stButton>button{{
         background:linear-gradient(135deg,{t['primary']},{t['secondary']});
-        color:#fff;border:none;border-radius:8px;
-        font-weight:600;padding:8px 20px;
+        color:#fff;border:none;border-radius:8px;font-weight:600;padding:8px 20px;
     }}
     .stButton>button:hover{{opacity:.88;}}
     div[data-testid="stForm"]{{background:{surface};border-radius:12px;padding:12px;}}
     .login-box{{
         max-width:440px;margin:40px auto;
-        background:{surface};border-radius:16px;
-        padding:32px 36px;
-        box-shadow:0 8px 32px rgba(0,0,0,.12);
-        border:1px solid rgba(255,255,255,.08);
+        background:linear-gradient(145deg, rgba(255,255,255,.7), rgba(255,255,255,.3));
+        backdrop-filter:blur(16px) saturate(160%);
+        -webkit-backdrop-filter:blur(16px) saturate(160%);
+        border-radius:18px;padding:32px 36px;
+        box-shadow:0 10px 38px rgba(0,0,0,.14);
+        border:1px solid rgba(255,255,255,.45);
+        animation:td-fade-in .5s ease both;
     }}
+    /* filter bar */
+    .filter-bar{{
+        background:{surface};border-radius:10px;padding:10px 14px;
+        border:1px solid #e2e8f0;margin-bottom:10px;
+        box-shadow:0 1px 4px rgba(0,0,0,.05);
+    }}
+
+    /* ── Premium SaaS / Glassmorphism layer ─────────────────────────── */
+    @keyframes td-fade-in {{
+        from {{opacity:0;transform:translateY(6px);}}
+        to   {{opacity:1;transform:translateY(0);}}
+    }}
+    @keyframes td-glow-pulse {{
+        0%,100%{{box-shadow:0 0 14px rgba({_hex_to_rgb(t['primary'])},.35);}}
+        50%    {{box-shadow:0 0 26px rgba({_hex_to_rgb(t['primary'])},.6);}}
+    }}
+    .td-glass{{
+        background:linear-gradient(145deg, rgba(255,255,255,.65), rgba(255,255,255,.25));
+        backdrop-filter:blur(14px) saturate(160%);
+        -webkit-backdrop-filter:blur(14px) saturate(160%);
+        border:1px solid rgba(255,255,255,.4);
+        border-radius:18px;
+        box-shadow:0 8px 32px rgba(0,0,0,.10);
+        animation:td-fade-in .4s ease both;
+    }}
+    {("" if not dark_bg else """
+    .td-glass{
+        background:linear-gradient(145deg, rgba(30,41,59,.65), rgba(30,41,59,.35));
+        border:1px solid rgba(255,255,255,.08);
+    }
+    """)}
+    .td-gradient-border{{
+        position:relative;border-radius:18px;padding:1.5px;
+        background:linear-gradient(135deg,{t['primary']},{t['secondary']},{t['primary']});
+        background-size:200% 200%;
+        animation:td-border-flow 6s ease infinite;
+    }}
+    @keyframes td-border-flow{{
+        0%{{background-position:0% 50%;}}
+        50%{{background-position:100% 50%;}}
+        100%{{background-position:0% 50%;}}
+    }}
+    .td-gradient-border-inner{{
+        background:{surface};border-radius:16.5px;height:100%;width:100%;
+    }}
+    .td-hover-lift{{transition:transform .22s ease, box-shadow .22s ease;}}
+    .td-hover-lift:hover{{transform:translateY(-3px);box-shadow:0 12px 28px rgba(0,0,0,.16);}}
+    .td-kpi2{{
+        display:flex;align-items:center;gap:10px;
+        background:{surface};border-radius:16px;padding:12px 14px;
+        border:1px solid rgba(0,0,0,.06);
+        box-shadow:0 4px 16px rgba(0,0,0,.07);
+        transition:transform .2s ease, box-shadow .2s ease;
+        animation:td-fade-in .4s ease both;
+    }}
+    .td-kpi2:hover{{transform:translateY(-2px);box-shadow:0 10px 24px rgba(0,0,0,.14);}}
+    .td-kpi2-icon{{
+        flex:0 0 44%;display:flex;align-items:center;justify-content:center;
+    }}
+    .td-kpi2-body{{flex:1;min-width:0;}}
+    .td-kpi2-val{{font-size:clamp(17px,1.7vw,24px);font-weight:800;line-height:1.1;}}
+    .td-kpi2-lbl{{font-size:clamp(10px,0.9vw,12px);color:#64748b;font-weight:600;margin-top:2px;}}
+    .td-kpi2-sub{{font-size:clamp(9px,0.8vw,10.5px);color:#94a3b8;margin-top:3px;}}
+    .td-trend-up{{color:#059669;font-weight:700;}}
+    .td-trend-down{{color:#dc2626;font-weight:700;}}
     </style>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -647,7 +547,7 @@ def is_org_email(email: str) -> bool:
     return domain not in BLOCKED_DOMAINS
 
 def check_login(email, password):
-    resp = get_supabase().table("users").select("*").eq("email", email.lower()).execute()
+    resp = get_supabase().table("users").select("*").eq("email",email.lower()).execute()
     if not resp.data: return None, "Email not found in system."
     row  = resp.data[0]
     role = row.get("role","")
@@ -658,21 +558,203 @@ def check_login(email, password):
     return row, None
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  AUTO-LOGOUT / SESSION TIMEOUT (5 min inactivity)
+# ══════════════════════════════════════════════════════════════════════════════
+def touch_activity():
+    """Call on every rerun once a user interacts — stamps last-activity time."""
+    st.session_state["_last_activity"] = datetime.now().timestamp()
+
+def seconds_since_activity():
+    last = st.session_state.get("_last_activity")
+    if last is None:
+        return 0
+    return datetime.now().timestamp() - last
+
+def enforce_session_timeout():
+    """Server-side guard: logs the user out if the gap between Streamlit
+    reruns (i.e. real inactivity, since any interaction triggers a rerun)
+    exceeds SESSION_TIMEOUT_SECONDS."""
+    if not logged_in():
+        return
+    if "_last_activity" not in st.session_state:
+        touch_activity()
+        return
+    elapsed = seconds_since_activity()
+    if elapsed >= SESSION_TIMEOUT_SECONDS:
+        for k in ["email","role","name"]:
+            st.session_state.pop(k, None)
+        st.session_state["_session_expired"] = True
+        st.rerun()
+    else:
+        # Any rerun this function reaches means the user did something
+        # (clicked / typed / navigated) — refresh the activity stamp.
+        touch_activity()
+
+def render_session_timer_widget():
+    """Live countdown + inactivity warning, rendered in the sidebar.
+    Pure front-end JS for the visible ticking clock + warning modal;
+    actual logout enforcement is the server-side guard above (a click on
+    'Continue Session' / any control triggers a Streamlit rerun, which
+    resets the server-side timer via touch_activity())."""
+    remaining = max(0, int(SESSION_TIMEOUT_SECONDS - seconds_since_activity()))
+    mins, secs = divmod(remaining, 60)
+    warn = remaining <= (SESSION_TIMEOUT_SECONDS - SESSION_WARNING_AT)
+    color = "#dc2626" if warn else "#94a3b8"
+    st.markdown(f"""
+    <div style="font-size:10px;color:#94a3b8;margin-top:4px;">
+      <b style="color:#cbd5e1;">⏱ Session Timeout</b><br>
+      <span id="td-session-clock" style="font-family:monospace;font-size:14px;
+            font-weight:700;color:{color};">{mins:02d}:{secs:02d}</span>
+    </div>
+    <script>
+    (function(){{
+        let remaining = {remaining};
+        const el = document.getElementById('td-session-clock');
+        if (!el) return;
+        const tick = () => {{
+            if (remaining <= 0) {{ return; }}
+            remaining -= 1;
+            const m = String(Math.floor(remaining/60)).padStart(2,'0');
+            const s = String(remaining%60).padStart(2,'0');
+            el.textContent = m+':'+s;
+            el.style.color = remaining <= 60 ? '#dc2626' : '#94a3b8';
+            setTimeout(tick, 1000);
+        }};
+        setTimeout(tick, 1000);
+    }})();
+    </script>
+    """, unsafe_allow_html=True)
+    if warn and remaining > 0:
+        wmins, wsecs = divmod(remaining, 60)
+        st.warning(f"⚠️ Your session will expire in {remaining} seconds due to inactivity.")
+        wc1, wc2 = st.columns(2)
+        with wc1:
+            if st.button("✅ Continue Session", use_container_width=True, key="_continue_session_btn"):
+                touch_activity(); st.rerun()
+        with wc2:
+            if st.button("🚪 Logout Now", use_container_width=True, key="_logout_now_btn"):
+                for k in ["email","role","name","_last_activity"]: st.session_state.pop(k, None)
+                st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  DASHBOARD HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 def idea_hours(i):
     fd = i.get("feasibility_data",{}) or {}
     try:
-        return float(fd.get("manual",0) or 0) * float(fd.get("fte",0) or 0) * FREQ_MULT.get(fd.get("freq","Daily"),1)
+        return float(fd.get("manual",0) or 0)*float(fd.get("fte",0) or 0)*FREQ_MULT.get(fd.get("freq","Daily"),1)
     except: return 0
 
 def kpi_card(value, label, color, sub="", icon=""):
     st.markdown(f"""
     <div class="kpi-card" style="border-left-color:{color}">
-      <div style="font-size:18px;margin-bottom:2px;">{icon}</div>
+      <div style="font-size:clamp(14px,1.4vw,18px);margin-bottom:2px;">{icon}</div>
       <div class="kpi-val" style="color:{color}">{value}</div>
       <div class="kpi-lbl">{label}</div>
       {"<div class='kpi-sub'>"+sub+"</div>" if sub else ""}
+    </div>""", unsafe_allow_html=True)
+
+# ── Inline SVG illustration library for premium KPI cards ──────────────────
+def _svg_lightbulb(color):
+    return f"""<svg viewBox="0 0 64 64" width="100%" height="56" xmlns="http://www.w3.org/2000/svg">
+      <defs><radialGradient id="bulbGlow" cx="50%" cy="40%" r="60%">
+        <stop offset="0%" stop-color="{color}" stop-opacity="0.55"/>
+        <stop offset="100%" stop-color="{color}" stop-opacity="0"/>
+      </radialGradient></defs>
+      <circle cx="32" cy="26" r="22" fill="url(#bulbGlow)"/>
+      <path d="M32 6c-9.4 0-17 7.6-17 17 0 6.2 3.3 10.4 6.4 13.6 1.6 1.7 2.6 3.5 2.6 5.4v2h16v-2c0-1.9 1-3.7 2.6-5.4 3.1-3.2 6.4-7.4 6.4-13.6 0-9.4-7.6-17-17-17z"
+        fill="none" stroke="{color}" stroke-width="2.5"/>
+      <line x1="26" y1="50" x2="38" y2="50" stroke="{color}" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="27" y1="55" x2="37" y2="55" stroke="{color}" stroke-width="2.5" stroke-linecap="round"/>
+      <path d="M27 20l5 8 5-8" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>"""
+
+def _svg_trophy(color):
+    return f"""<svg viewBox="0 0 64 64" width="100%" height="56" xmlns="http://www.w3.org/2000/svg">
+      <path d="M20 10h24v14c0 8-5.4 13-12 13s-12-5-12-13V10z" fill="none" stroke="{color}" stroke-width="2.5"/>
+      <path d="M20 13h-6c0 7 3 11 8 11.5" fill="none" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M44 13h6c0 7-3 11-8 11.5" fill="none" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
+      <line x1="32" y1="37" x2="32" y2="46" stroke="{color}" stroke-width="2.5"/>
+      <path d="M22 54h20l-3-8H25l-3 8z" fill="none" stroke="{color}" stroke-width="2.5" stroke-linejoin="round"/>
+      <circle cx="32" cy="17" r="5" fill="{color}" opacity="0.18"/>
+    </svg>"""
+
+def _svg_clock(color):
+    return f"""<svg viewBox="0 0 64 64" width="100%" height="56" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="32" cy="34" r="20" fill="none" stroke="{color}" stroke-width="2.5"/>
+      <line x1="32" y1="34" x2="32" y2="21" stroke="{color}" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="32" y1="34" x2="41" y2="38" stroke="{color}" stroke-width="2.5" stroke-linecap="round"/>
+      <line x1="24" y1="8" x2="29" y2="13" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
+      <line x1="40" y1="8" x2="35" y2="13" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
+      <circle cx="32" cy="34" r="2" fill="{color}"/>
+    </svg>"""
+
+def _svg_growth(color):
+    return f"""<svg viewBox="0 0 64 64" width="100%" height="56" xmlns="http://www.w3.org/2000/svg">
+      <polyline points="8,48 22,34 32,42 56,14" fill="none" stroke="{color}" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <polyline points="44,14 56,14 56,26" fill="none" stroke="{color}" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
+      <line x1="8" y1="54" x2="56" y2="54" stroke="{color}" stroke-width="2" opacity="0.4"/>
+      <circle cx="22" cy="34" r="2.4" fill="{color}"/>
+      <circle cx="32" cy="42" r="2.4" fill="{color}"/>
+      <circle cx="8" cy="48" r="2.4" fill="{color}"/>
+    </svg>"""
+
+def _svg_folder(color):
+    return f"""<svg viewBox="0 0 64 64" width="100%" height="56" xmlns="http://www.w3.org/2000/svg">
+      <path d="M8 18h16l5 6h27v28a3 3 0 0 1-3 3H11a3 3 0 0 1-3-3V18z" fill="none" stroke="{color}" stroke-width="2.5" stroke-linejoin="round"/>
+      <path d="M8 18v-3a3 3 0 0 1 3-3h11l4 5" fill="none" stroke="{color}" stroke-width="2.5" stroke-linejoin="round"/>
+      <line x1="18" y1="40" x2="46" y2="40" stroke="{color}" stroke-width="2" opacity="0.45"/>
+    </svg>"""
+
+def _svg_robot_arm(color):
+    return f"""<svg viewBox="0 0 64 64" width="100%" height="56" xmlns="http://www.w3.org/2000/svg">
+      <rect x="10" y="48" width="20" height="8" rx="2" fill="none" stroke="{color}" stroke-width="2.3"/>
+      <line x1="18" y1="48" x2="18" y2="36" stroke="{color}" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="18" cy="34" r="3" fill="{color}"/>
+      <line x1="18" y1="34" x2="34" y2="24" stroke="{color}" stroke-width="3" stroke-linecap="round"/>
+      <circle cx="34" cy="22" r="3" fill="{color}"/>
+      <line x1="34" y1="22" x2="48" y2="28" stroke="{color}" stroke-width="3" stroke-linecap="round"/>
+      <path d="M48 28l6-2M48 28l4 5" stroke="{color}" stroke-width="2.4" stroke-linecap="round"/>
+    </svg>"""
+
+def _svg_ai_robot(color):
+    return f"""<svg viewBox="0 0 64 64" width="100%" height="56" xmlns="http://www.w3.org/2000/svg">
+      <rect x="20" y="14" width="24" height="18" rx="6" fill="none" stroke="{color}" stroke-width="2.5"/>
+      <circle cx="27" cy="23" r="2.4" fill="{color}"/>
+      <circle cx="37" cy="23" r="2.4" fill="{color}"/>
+      <line x1="32" y1="8" x2="32" y2="14" stroke="{color}" stroke-width="2.2"/>
+      <circle cx="32" cy="6" r="2.2" fill="{color}"/>
+      <rect x="16" y="34" width="32" height="20" rx="6" fill="none" stroke="{color}" stroke-width="2.5"/>
+      <line x1="16" y1="42" x2="9" y2="42" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
+      <line x1="48" y1="42" x2="55" y2="42" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
+      <line x1="26" y1="54" x2="26" y2="59" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
+      <line x1="38" y1="54" x2="38" y2="59" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
+    </svg>"""
+
+KPI_ICON_BUILDERS = {
+    "lightbulb":_svg_lightbulb, "trophy":_svg_trophy, "clock":_svg_clock,
+    "growth":_svg_growth, "folder":_svg_folder, "robot_arm":_svg_robot_arm,
+    "ai_robot":_svg_ai_robot,
+}
+
+def kpi_card2(value, label, color, illustration, sub="", trend=None):
+    """Premium two-column KPI card: large illustration (left ~50%) + value/label/trend (right)."""
+    svg = KPI_ICON_BUILDERS.get(illustration, _svg_lightbulb)(color)
+    trend_html = ""
+    if trend is not None:
+        up = trend >= 0
+        arrow = "▲" if up else "▼"
+        cls = "td-trend-up" if up else "td-trend-down"
+        trend_html = f'<div class="{cls}" style="font-size:10.5px;margin-top:3px;">{arrow} {abs(trend):.1f}%</div>'
+    st.markdown(f"""
+    <div class="td-kpi2 td-hover-lift" style="border-left:4px solid {color};">
+      <div class="td-kpi2-icon">{svg}</div>
+      <div class="td-kpi2-body">
+        <div class="td-kpi2-val" style="color:{color};">{value}</div>
+        <div class="td-kpi2-lbl">{label}</div>
+        {"<div class='td-kpi2-sub'>"+sub+"</div>" if sub else ""}
+        {trend_html}
+      </div>
     </div>""", unsafe_allow_html=True)
 
 def cnt_cat_status(cat, st_, ideas):
@@ -682,99 +764,382 @@ def cnt_cat_wip(ideas, cat):
     return len([i for i in ideas if i.get("category")==cat and i.get("status") in ("WIP","UAT")])
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  AUTOMATION & AI BREAKDOWN — animated robot panels
+# ══════════════════════════════════════════════════════════════════════════════
+def _cat_insights(ideas, ac):
+    sub = [i for i in ideas if i.get("automation_category")==ac]
+    total = len(sub)
+    completed = len([i for i in sub if i.get("status")=="Completed"])
+    wip = len([i for i in sub if i.get("status")=="WIP"])
+    uat = len([i for i in sub if i.get("status")=="UAT"])
+    hrs = round(sum(idea_hours(i) for i in sub),1)
+    roi = round(sum(float(i.get("roi",0) or 0) for i in sub),2)
+    success = round(completed/total*100,1) if total else 0.0
+    return {"total":total,"completed":completed,"wip":wip,"uat":uat,
+            "hrs":hrs,"roi":roi,"success":success}
+
+def _robot_arm_svg(angle, color, secondary):
+    """Industrial robotic arm; rotates its forearm toward the selected category via `angle` (deg)."""
+    return f"""
+    <svg viewBox="0 0 220 220" width="100%" height="190" style="overflow:visible;">
+      <defs>
+        <linearGradient id="armGrad" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stop-color="{color}"/><stop offset="100%" stop-color="{secondary}"/>
+        </linearGradient>
+        <filter id="armGlow"><feGaussianBlur stdDeviation="3" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+      <!-- base -->
+      <rect x="80" y="178" width="60" height="18" rx="5" fill="url(#armGrad)" opacity="0.9"/>
+      <circle cx="110" cy="178" r="14" fill="{color}" filter="url(#armGlow)"/>
+      <!-- rotating shoulder group -->
+      <g style="transform-origin:110px 178px; transform:rotate({angle}deg); transition:transform 0.9s cubic-bezier(.4,1.4,.4,1);">
+        <line x1="110" y1="178" x2="110" y2="110" stroke="url(#armGrad)" stroke-width="11" stroke-linecap="round"/>
+        <circle cx="110" cy="110" r="9" fill="{secondary}" filter="url(#armGlow)"/>
+        <g style="transform-origin:110px 110px; transform:rotate(-28deg);">
+          <line x1="110" y1="110" x2="168" y2="78" stroke="url(#armGrad)" stroke-width="9" stroke-linecap="round"/>
+          <circle cx="168" cy="78" r="7" fill="{color}"/>
+          <!-- gripper -->
+          <line x1="168" y1="78" x2="184" y2="64" stroke="{secondary}" stroke-width="5" stroke-linecap="round"/>
+          <line x1="168" y1="78" x2="184" y2="90" stroke="{secondary}" stroke-width="5" stroke-linecap="round"/>
+        </g>
+      </g>
+      <ellipse cx="110" cy="200" rx="58" ry="7" fill="{color}" opacity="0.12"/>
+    </svg>"""
+
+def _ai_robot_svg(tilt, color, secondary):
+    """Futuristic humanoid AI robot whose head tilts toward the selected AI category."""
+    return f"""
+    <svg viewBox="0 0 220 220" width="100%" height="190" style="overflow:visible;">
+      <defs>
+        <linearGradient id="aiGrad" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="{secondary}"/><stop offset="100%" stop-color="{color}"/>
+        </linearGradient>
+        <filter id="aiGlow"><feGaussianBlur stdDeviation="3" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      </defs>
+      <!-- torso -->
+      <rect x="78" y="120" width="64" height="64" rx="16" fill="none" stroke="url(#aiGrad)" stroke-width="3"/>
+      <circle cx="110" cy="152" r="14" fill="{color}" opacity="0.18"/>
+      <circle cx="110" cy="152" r="6" fill="{secondary}" filter="url(#aiGlow)"/>
+      <line x1="78" y1="140" x2="58" y2="155" stroke="url(#aiGrad)" stroke-width="6" stroke-linecap="round"/>
+      <line x1="142" y1="140" x2="162" y2="155" stroke="url(#aiGrad)" stroke-width="6" stroke-linecap="round"/>
+      <line x1="92" y1="184" x2="88" y2="206" stroke="url(#aiGrad)" stroke-width="7" stroke-linecap="round"/>
+      <line x1="128" y1="184" x2="132" y2="206" stroke="url(#aiGrad)" stroke-width="7" stroke-linecap="round"/>
+      <!-- head (tilts) -->
+      <g style="transform-origin:110px 112px; transform:rotate({tilt}deg); transition:transform 0.9s cubic-bezier(.4,1.4,.4,1);">
+        <rect x="86" y="78" width="48" height="38" rx="14" fill="none" stroke="url(#aiGrad)" stroke-width="3"/>
+        <circle cx="100" cy="96" r="4.5" fill="{secondary}" filter="url(#aiGlow)"/>
+        <circle cx="120" cy="96" r="4.5" fill="{secondary}" filter="url(#aiGlow)"/>
+        <line x1="110" y1="78" x2="110" y2="66" stroke="url(#aiGrad)" stroke-width="2.4"/>
+        <circle cx="110" cy="62" r="4" fill="{color}" filter="url(#aiGlow)"/>
+      </g>
+      <ellipse cx="110" cy="212" rx="50" ry="6" fill="{color}" opacity="0.12"/>
+    </svg>"""
+
+def render_automation_ai_panels(ideas, t):
+    """Two glassmorphism panels — Automation (robotic arm) & AI (humanoid robot) —
+    with click-to-select category insights."""
+    st.markdown("##### 🤖 Automation &amp; AI Breakdown")
+
+    if "_auto_sel" not in st.session_state:
+        st.session_state["_auto_sel"] = AUTOMATION_CATS[0] if AUTOMATION_CATS else None
+    if "_ai_sel" not in st.session_state:
+        st.session_state["_ai_sel"] = AI_CATS[0] if AI_CATS else None
+
+    p1, p2 = st.columns(2)
+
+    # ── LEFT: Automation panel ──────────────────────────────────────────
+    with p1:
+        st.markdown(f"""
+        <div class="td-gradient-border">
+          <div class="td-gradient-border-inner" style="padding:16px 16px 8px;">
+            <div style="font-size:15px;font-weight:800;color:{t['primary']};margin-bottom:4px;
+                 display:flex;align-items:center;gap:6px;">
+              ⚙️ Automation
+            </div>
+        """, unsafe_allow_html=True)
+
+        sel = st.session_state["_auto_sel"]
+        sel_idx = AUTOMATION_CATS.index(sel) if sel in AUTOMATION_CATS else 0
+        angle = -55 + sel_idx * (110 / max(len(AUTOMATION_CATS)-1,1))
+        st.markdown(_robot_arm_svg(angle, t['primary'], t['secondary']), unsafe_allow_html=True)
+
+        btn_cols = st.columns(len(AUTOMATION_CATS))
+        for idx, ac in enumerate(AUTOMATION_CATS):
+            with btn_cols[idx]:
+                short = ac.replace("Automation-","").replace(" ","\n")
+                is_sel = (ac == sel)
+                if st.button(ac.replace("Automation-",""), key=f"auto_btn_{idx}",
+                            use_container_width=True,
+                            type=("primary" if is_sel else "secondary")):
+                    st.session_state["_auto_sel"] = ac
+                    st.rerun()
+
+        ins = _cat_insights(ideas, sel) if sel else {"total":0,"completed":0,"wip":0,"uat":0,"hrs":0,"roi":0,"success":0}
+        st.markdown(f"""
+            <div style="margin-top:10px;padding:10px 12px;border-radius:12px;
+                 background:rgba({_hex_to_rgb(t['primary'])},.07);
+                 border:1px solid rgba({_hex_to_rgb(t['primary'])},.18);">
+              <div style="font-size:11.5px;font-weight:700;color:{t['primary']};margin-bottom:6px;">
+                {sel or '—'}
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:10.5px;">
+                <div><b>{ins['total']}</b><br><span style="color:#64748b;">Total</span></div>
+                <div><b>{ins['completed']}</b><br><span style="color:#64748b;">Completed</span></div>
+                <div><b>{ins['wip']}</b><br><span style="color:#64748b;">WIP</span></div>
+                <div><b>{ins['uat']}</b><br><span style="color:#64748b;">UAT</span></div>
+                <div><b>{ins['hrs']:,.0f}h</b><br><span style="color:#64748b;">Hrs Saved</span></div>
+                <div><b>{ins['roi']}</b><br><span style="color:#64748b;">ROI</span></div>
+              </div>
+              <div style="margin-top:6px;font-size:10.5px;">
+                Success Rate: <b style="color:{t['primary']};">{ins['success']}%</b>
+              </div>
+            </div>
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+    # ── RIGHT: AI panel ─────────────────────────────────────────────────
+    with p2:
+        st.markdown(f"""
+        <div class="td-gradient-border">
+          <div class="td-gradient-border-inner" style="padding:16px 16px 8px;">
+            <div style="font-size:15px;font-weight:800;color:{t['secondary']};margin-bottom:4px;
+                 display:flex;align-items:center;gap:6px;">
+              🧠 AI
+            </div>
+        """, unsafe_allow_html=True)
+
+        sel_ai = st.session_state["_ai_sel"]
+        sel_ai_idx = AI_CATS.index(sel_ai) if sel_ai in AI_CATS else 0
+        tilt = -18 + sel_ai_idx * (36 / max(len(AI_CATS)-1,1))
+        st.markdown(_ai_robot_svg(tilt, t['secondary'], t['primary']), unsafe_allow_html=True)
+
+        btn_cols2 = st.columns(len(AI_CATS))
+        for idx, ac in enumerate(AI_CATS):
+            with btn_cols2[idx]:
+                is_sel = (ac == sel_ai)
+                if st.button(ac.replace("AI-",""), key=f"ai_btn_{idx}",
+                            use_container_width=True,
+                            type=("primary" if is_sel else "secondary")):
+                    st.session_state["_ai_sel"] = ac
+                    st.rerun()
+
+        ins2 = _cat_insights(ideas, sel_ai) if sel_ai else {"total":0,"completed":0,"wip":0,"uat":0,"hrs":0,"roi":0,"success":0}
+        st.markdown(f"""
+            <div style="margin-top:10px;padding:10px 12px;border-radius:12px;
+                 background:rgba({_hex_to_rgb(t['secondary'])},.07);
+                 border:1px solid rgba({_hex_to_rgb(t['secondary'])},.18);">
+              <div style="font-size:11.5px;font-weight:700;color:{t['secondary']};margin-bottom:6px;">
+                {sel_ai or '—'}
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:10.5px;">
+                <div><b>{ins2['total']}</b><br><span style="color:#64748b;">Total</span></div>
+                <div><b>{ins2['completed']}</b><br><span style="color:#64748b;">Completed</span></div>
+                <div><b>{ins2['wip']}</b><br><span style="color:#64748b;">WIP</span></div>
+                <div><b>{ins2['uat']}</b><br><span style="color:#64748b;">UAT</span></div>
+                <div><b>{ins2['hrs']:,.0f}h</b><br><span style="color:#64748b;">Hrs Saved</span></div>
+                <div><b>{ins2['roi']}</b><br><span style="color:#64748b;">ROI</span></div>
+              </div>
+              <div style="margin-top:6px;font-size:10.5px;">
+                Success Rate: <b style="color:{t['secondary']};">{ins2['success']}%</b>
+              </div>
+            </div>
+          </div>
+        </div>""", unsafe_allow_html=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  KANBAN: NATIVE STREAMLIT COLUMN + EXPANDER BOARD
 # ══════════════════════════════════════════════════════════════════════════════
-def render_kanban_board(ideas):
-    """
-    Native Streamlit Kanban board — one st.column per status, expander per
-    card, inline selectbox + Update button inside each card (no HTML render).
-    """
-    t = THEMES.get(ss("theme", "ALTEN Red & Blue"), THEMES["ALTEN Red & Blue"])
+# ══════════════════════════════════════════════════════════════════════════════
+#  KANBAN: PARENT/CHILD HIERARCHY BOARD (drag-and-drop + explicit linking)
+# ══════════════════════════════════════════════════════════════════════════════
+def _parent_summary(ideas, parent_id):
+    children = [i for i in ideas if i.get("parent_id")==parent_id]
+    n = len(children)
+    completed = len([c for c in children if c.get("status")=="Completed"])
+    pct = round(completed/n*100,1) if n else 0
+    hrs = round(sum(idea_hours(c) for c in children),1)
+    roi = round(sum(float(c.get("roi",0) or 0) for c in children),2)
+    status_summary = {}
+    for c in children:
+        s = c.get("status","")
+        status_summary[s] = status_summary.get(s,0)+1
+    return {"children":children,"n":n,"pct":pct,"hrs":hrs,"roi":roi,"status_summary":status_summary}
 
-    # ── Column headers with coloured badges ───────────────────────────────
+def _handle_dragdrop_query_params():
+    """Pick up a drag-and-drop link request encoded in the URL query string
+    by the JS layer (?link_child=<id>&link_parent=<id>) and apply it,
+    then clear the params so it only fires once."""
+    qp = st.query_params
+    child_id  = qp.get("link_child")
+    parent_id = qp.get("link_parent")
+    if child_id and parent_id and child_id != parent_id:
+        update_idea(child_id, {"parent_id": parent_id})
+        st.query_params.clear()
+        st.success("🔗 Parent–child relationship created.")
+        st.rerun()
+    elif qp.get("unlink_child"):
+        update_idea(qp.get("unlink_child"), {"parent_id": ""})
+        st.query_params.clear()
+        st.rerun()
+
+def render_kanban_board(ideas):
+    _handle_dragdrop_query_params()
+
+    # Top-level cards = those without a parent (standalone OR parents themselves)
+    top_level = [i for i in ideas if not i.get("parent_id")]
+    all_ids   = {i["id"] for i in ideas}
+
     cols = st.columns(len(STATUSES))
     for col, status in zip(cols, STATUSES):
-        color = STATUS_COLORS.get(status, "#888")
-        icon  = STATUS_ICONS.get(status, "")
-        count = len([i for i in ideas if i.get("status") == status])
+        color = STATUS_COLORS.get(status,"#888")
+        icon  = STATUS_ICONS.get(status,"")
+        count = len([i for i in top_level if i.get("status")==status])
         col.markdown(
             f'<div style="background:{color};color:#fff;border-radius:8px;'
-            f'padding:6px 10px;text-align:center;font-size:12px;font-weight:700;'
+            f'padding:6px 10px;text-align:center;font-size:clamp(10px,0.9vw,12px);font-weight:700;'
             f'margin-bottom:6px;">{icon} {status} &nbsp;'
             f'<span style="background:rgba(255,255,255,0.25);border-radius:10px;'
             f'padding:1px 7px;">{count}</span></div>',
             unsafe_allow_html=True,
         )
 
-    # ── Card rows ─────────────────────────────────────────────────────────
+    st.markdown(
+        '<div style="font-size:10px;color:#94a3b8;margin:-2px 0 8px;">'
+        '💡 Drag a card onto another card to create a Parent–Child relationship '
+        '(or use <b>Link as Child</b> in the card menu below).</div>',
+        unsafe_allow_html=True,
+    )
+
     cols = st.columns(len(STATUSES))
     for col, status in zip(cols, STATUSES):
-        color  = STATUS_COLORS.get(status, "#888")
-        bucket = [i for i in ideas if i.get("status") == status]
-
+        color  = STATUS_COLORS.get(status,"#888")
+        bucket = [i for i in top_level if i.get("status")==status]
         with col:
             if not bucket:
                 st.caption("_Empty_")
-
             for idea in bucket:
-                eng       = idea.get("assigned_engineer", "")
-                eng_name  = eng.split("@")[0].replace(".", " ").title() if "@" in eng else (eng or "—")
-                proj      = idea.get("project", "-")
-                cat       = idea.get("category", "")
-                delivery  = idea.get("delivery_date", "")
-                hold      = idea.get("hold_reason", "")
+                _render_kanban_card(idea, ideas, color, all_ids, depth=0)
 
-                label = idea.get("idea_name", "No Name")[:28]
+def _render_kanban_card(idea, all_ideas, color, all_ids, depth=0):
+    eng      = idea.get("assigned_engineer") or ""
+    proj     = idea.get("project") or "-"
+    delivery = idea.get("delivery_date") or ""
+    hold     = idea.get("hold_reason") or ""
+    name     = idea.get("name") or "-"
+    eng_name = eng.split("@")[0] if "@" in eng else (eng or "—")
+    summary  = _parent_summary(all_ideas, idea["id"])
+    is_parent = summary["n"] > 0
+    label = (idea.get("idea_name") or "No Name")[:26]
+    badge = f" 📁 ({summary['n']})" if is_parent else ""
 
-                with st.expander(label, expanded=False):
-                    st.markdown(
-                        f'<div style="border-left:3px solid {color};padding-left:8px;margin-bottom:6px;">'
-                        f'<span style="font-size:11px;color:#64748b;">📌 {proj}</span><br>'
-                        f'<span style="font-size:11px;color:#64748b;">👤 {idea.get("name","-")}</span><br>'
-                        f'<span style="font-size:11px;color:#64748b;">👷 {eng_name}</span>'
-                        + (f'<br><span style="font-size:10px;color:#0369a1;">📅 {delivery}</span>' if delivery else "")
-                        + (f'<br><span style="font-size:10px;color:#b45309;">⏸ {hold[:30]}</span>' if hold else "")
-                        + f'</div>',
-                        unsafe_allow_html=True,
-                    )
+    # Draggable wrapper — HTML5 drag/drop; on drop, JS rewrites the URL
+    # query string with link_child/link_parent and reloads the parent
+    # frame, which Streamlit picks up via _handle_dragdrop_query_params().
+    drag_html = f"""
+    <div class="td-kanban-card" draggable="true" data-id="{idea['id']}"
+         ondragstart="window.__tdDragId='{idea['id']}';"
+         ondragover="event.preventDefault(); this.style.boxShadow='0 0 0 2px {color}, 0 0 14px {color}';"
+         ondragleave="this.style.boxShadow='';"
+         ondrop="event.preventDefault(); this.style.boxShadow='';
+                 if(window.__tdDragId && window.__tdDragId!=='{idea['id']}'){{
+                   const url = new URL(window.parent.location.href);
+                   url.searchParams.set('link_child', window.__tdDragId);
+                   url.searchParams.set('link_parent', '{idea['id']}');
+                   window.parent.location.href = url.toString();
+                 }}"
+         style="border-left:3px solid {color};padding:6px 8px;margin-bottom:4px;
+                border-radius:8px;background:rgba(0,0,0,0.015);cursor:grab;
+                font-size:11px;transition:box-shadow .15s;">
+      <b>{label}{badge}</b><br>
+      <span style="font-size:9.5px;color:#94a3b8;">📌 {proj} &nbsp;👤 {name} &nbsp;👷 {eng_name}</span>
+    </div>"""
+    st.markdown(drag_html, unsafe_allow_html=True)
 
-                    new_status = st.selectbox(
-                        "Move to",
-                        STATUSES,
-                        index=STATUSES.index(status),
-                        key=f"kanban_sel_{idea['id']}",
-                        label_visibility="collapsed",
-                    )
+    with st.expander(f"{'└─ ' if depth>0 else ''}{label}{badge}", expanded=False):
+        st.markdown(
+            f'<div style="border-left:3px solid {color};padding-left:8px;margin-bottom:6px;">'
+            f'<span style="font-size:11px;color:#64748b;">📌 {proj}</span><br>'
+            f'<span style="font-size:11px;color:#64748b;">👤 {name}</span><br>'
+            f'<span style="font-size:11px;color:#64748b;">👷 {eng_name}</span>'
+            +(f'<br><span style="font-size:10px;color:#0369a1;">📅 {delivery}</span>' if delivery else "")
+            +(f'<br><span style="font-size:10px;color:#b45309;">⏸ {hold[:30]}</span>' if hold else "")
+            +f'</div>', unsafe_allow_html=True,
+        )
 
-                    hold_input = ""
-                    if new_status == "Hold/Park":
-                        hold_input = st.text_input(
-                            "Reason *",
-                            key=f"kanban_hold_{idea['id']}",
-                            placeholder="Hold reason…",
-                        )
+        if is_parent:
+            st.markdown(f"""
+            <div style="background:rgba(0,0,0,.03);border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:10.5px;">
+              <b>📁 Parent Summary</b><br>
+              Children: <b>{summary['n']}</b> &nbsp;|&nbsp; Completion: <b>{summary['pct']}%</b><br>
+              Hours Saved: <b>{summary['hrs']:,.0f}</b> &nbsp;|&nbsp; ROI: <b>{summary['roi']}</b><br>
+              Status: {', '.join(f"{k}: {v}" for k,v in summary['status_summary'].items())}
+            </div>""", unsafe_allow_html=True)
+            with st.expander(f"▼ {summary['n']} Child Card(s)", expanded=False):
+                for child in summary["children"]:
+                    _render_kanban_card(child, all_ideas, STATUS_COLORS.get(child.get("status"),"#888"),
+                                        all_ids, depth=depth+1)
+                    cc1, cc2 = st.columns(2)
+                    with cc1:
+                        if st.button("✂️ Make Standalone", key=f"unlink_{child['id']}", use_container_width=True):
+                            update_idea(child["id"], {"parent_id":""}); st.rerun()
+                    with cc2:
+                        other_parents = [i for i in all_ideas if i["id"] != child["id"]
+                                         and i["id"] != idea["id"] and not i.get("parent_id")]
+                        if other_parents:
+                            new_p = st.selectbox("Move to parent", [p["id"] for p in other_parents],
+                                                 format_func=lambda pid: next((p.get("idea_name","?")[:20] for p in other_parents if p["id"]==pid),pid),
+                                                 key=f"moveparent_{child['id']}", label_visibility="collapsed")
+                            if st.button("↪ Move", key=f"movebtn_{child['id']}", use_container_width=True):
+                                update_idea(child["id"], {"parent_id":new_p}); st.rerun()
 
-                    if st.button("Update", key=f"kanban_btn_{idea['id']}", use_container_width=True):
-                        if new_status == "Hold/Park" and not hold_input:
-                            st.error("Enter a hold reason.")
-                        else:
-                            upd = {"status": new_status}
-                            if new_status == "Completed":
-                                upd["completion_date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-                            upd["hold_reason"] = hold_input if new_status == "Hold/Park" else ""
-                            update_idea(idea["id"], upd)
-                            st.rerun()
+        # ── Link-as-child control (reliable fallback to drag-and-drop) ────
+        if not idea.get("parent_id"):
+            candidates = [i for i in all_ideas if i["id"] != idea["id"] and i.get("parent_id") != idea["id"]]
+            if candidates:
+                with st.popover("🔗 Link as Child of…", use_container_width=True):
+                    target = st.selectbox("Parent card", [c["id"] for c in candidates],
+                                          format_func=lambda cid: next((c.get("idea_name","?")[:30] for c in candidates if c["id"]==cid),cid),
+                                          key=f"linkparent_{idea['id']}")
+                    if st.button("Link", key=f"linkbtn_{idea['id']}"):
+                        update_idea(idea["id"], {"parent_id":target}); st.rerun()
+        else:
+            if st.button("✂️ Remove Relationship (make standalone)", key=f"rmrel_{idea['id']}", use_container_width=True):
+                update_idea(idea["id"], {"parent_id":""}); st.rerun()
 
-                    st.divider()
+        new_status = st.selectbox("Move to", STATUSES,
+                                  index=STATUSES.index(idea.get("status","New Idea")) if idea.get("status") in STATUSES else 0,
+                                  key=f"kanban_sel_{idea['id']}",
+                                  label_visibility="collapsed")
+        hold_input = ""
+        if new_status == "Hold/Park":
+            hold_input = st.text_input("Reason *", key=f"kanban_hold_{idea['id']}", placeholder="Hold reason…")
+        if st.button("Update", key=f"kanban_btn_{idea['id']}", use_container_width=True):
+            if new_status=="Hold/Park" and not hold_input:
+                st.error("Enter a hold reason.")
+            else:
+                upd = {"status":new_status}
+                if new_status=="Completed":
+                    upd["completion_date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                upd["hold_reason"] = hold_input if new_status=="Hold/Park" else ""
+                update_idea(idea["id"], upd)
+                st.rerun()
+        st.divider()
+
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PAGE: LOGIN
 # ══════════════════════════════════════════════════════════════════════════════
 def page_login():
-    inject_page_bg()
     t = THEMES.get(ss("theme","ALTEN Red & Blue"), THEMES["ALTEN Red & Blue"])
     dark_bg = ss("theme","") == "Midnight Dark"
     surface = "#2a61b8" if dark_bg else "#CACDE3"
+
+    if ss("_session_expired"):
+        st.warning("⚠️ Session expired due to 5 minutes of inactivity. Please login again.")
+        st.session_state.pop("_session_expired", None)
 
     _, mid, _ = st.columns([1, 1.6, 1])
     with mid:
@@ -784,12 +1149,12 @@ def page_login():
              margin-top:20px;">
           <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:6px;">
             <img src="{ALTEN_LOGO_URL}" style="height:50px;object-fit:contain;" alt="ALTEN"/>
-            <span style="font-size:26px;font-weight:900;
+            <span style="font-size:clamp(20px,2vw,26px);font-weight:900;
                  background:linear-gradient(135deg,{t['primary']},{t['secondary']});
                  -webkit-background-clip:text;background-clip:text;color:transparent;
                  letter-spacing:1px;"> TURBO DRIVE</span>
           </div>
-          <div style="text-align:center;color:#64748b;font-size:13px;margin-bottom:2px;">
+          <div style="text-align:center;color:#64748b;font-size:clamp(11px,1vw,13px);margin-bottom:2px;">
             Ideation &amp; Automation Workflow Manager
           </div>
         </div>""", unsafe_allow_html=True)
@@ -816,7 +1181,6 @@ def page_login():
                         st.rerun()
 
         col1, col2, col3 = st.columns(3)
-        with col1: st.caption(f"Default pw: **{DEFAULT_PW}**")
         with col2:
             if st.button("🔑 Change Password"):
                 st.session_state["_page_override"] = "change_password"; st.rerun()
@@ -825,7 +1189,7 @@ def page_login():
                 st.session_state["_page_override"] = "register"; st.rerun()
 
         st.markdown(
-            f'<p style="font-size:10px;text-align:center;color:#94a3b8;margin-top:6px;">'
+            f'<p style="font-size:clamp(9px,0.8vw,10px);text-align:center;color:#94a3b8;margin-top:6px;">'
             f'For queries: <a href="mailto:{SUPPORT_EMAIL}" style="color:#00AEEF;">'
             f'{SUPPORT_NAME} — {SUPPORT_EMAIL}</a></p>',
             unsafe_allow_html=True
@@ -836,7 +1200,6 @@ def page_login():
 #  PAGE: REGISTER
 # ══════════════════════════════════════════════════════════════════════════════
 def page_register():
-    inject_page_bg()
     page_header("Create Account")
     st.caption("Only **organisational email addresses** are accepted (free providers like Gmail, Yahoo, Hotmail, Rediff are not allowed). Self-registered users get **Submit Idea** access; an Admin can upgrade your role.")
     with st.form("reg_form"):
@@ -854,14 +1217,12 @@ def page_register():
             elif len(pw) < 4:
                 st.error("Password must be at least 4 characters.")
             else:
-                resp = get_supabase().table("users").select("email").eq("email", email.lower()).execute()
+                resp = get_supabase().table("users").select("email").eq("email",email.lower()).execute()
                 if resp.data:
                     st.error("This email is already registered — please log in.")
                 else:
                     get_supabase().table("users").insert({
-                        "email": email.lower(),
-                        "role":  "normal user",
-                        "password_hash": generate_password_hash(pw)
+                        "email":email.lower(),"role":"normal user","password_hash":generate_password_hash(pw)
                     }).execute()
                     st.success("✅ Registered! You can now log in.")
     if st.button("← Back to Login"):
@@ -872,7 +1233,6 @@ def page_register():
 #  PAGE: CHANGE PASSWORD
 # ══════════════════════════════════════════════════════════════════════════════
 def page_change_password():
-    inject_page_bg()
     page_header("Change Password")
     prefill = ss("email","")
     with st.form("cpw_form"):
@@ -888,7 +1248,7 @@ def page_change_password():
             elif len(new_pw) < 4:
                 st.error("Minimum 4 characters.")
             else:
-                resp = get_supabase().table("users").select("*").eq("email", email.lower()).execute()
+                resp = get_supabase().table("users").select("*").eq("email",email.lower()).execute()
                 if not resp.data:
                     st.error("Email not found.")
                 elif not check_password_hash(resp.data[0].get("password_hash") or "", cur_pw):
@@ -904,7 +1264,6 @@ def page_change_password():
 #  PAGE: SUBMIT IDEA
 # ══════════════════════════════════════════════════════════════════════════════
 def page_submit():
-    inject_page_bg()
     page_header("Submit New Idea 💡")
     users     = get_users()
     pl_emails = [u["email"] for u in users if u["role"] in ("pl/spl","automation pl","super user")]
@@ -931,85 +1290,130 @@ def page_submit():
                           "category":category,"pl_name":pl_name,"status":"New Idea",
                           "customer":customer,"region":region})
                 st.success("✅ Idea Submitted Successfully")
-                pass  # no local cache to clear
     render_copyright()
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  PAGE: PL ASSIGNMENT
+#  PAGE: PL ASSIGNMENT  (+ engineer load bar chart top-right)
 # ══════════════════════════════════════════════════════════════════════════════
 def page_pl_assignment():
-    inject_page_bg()
     page_header("PL Assignment 🧑‍💼")
-    st.caption("⭐ Auto-priority: **Customer Requirement → ROI (high first) → FIFO**")
+
     all_ideas = get_all()
     users     = get_users()
     engineers = [u["email"] for u in users if u["role"]=="automation engineer"]
-    new_ideas = rank_ideas([i for i in all_ideas if i.get("status")=="New Idea"])
 
-    if not new_ideas:
-        st.info("No new ideas pending assignment.")
-        render_copyright(); return
+    # ── Engineer load bar chart — top right ──────────────────────────────
+    left_col, right_col = st.columns([2, 1])
 
-    if ss("_assign_outlook_url"):
-        url = ss("_assign_outlook_url"); lbl = ss("_assign_outlook_label","")
-        st.markdown(f"""
-        <div class="idea-card" style="border-left:4px solid #0ea5e9;">
-          📤 <b>Send assignment notification via Outlook:</b><br>
-          <span style="color:#64748b;font-size:12px;">{lbl}</span><br>
-          <a href="{url}" target="_blank" class="outlook-btn">📤 Open in Outlook</a>
-        </div>""", unsafe_allow_html=True)
-        st.session_state.pop("_assign_outlook_url",None)
-        st.session_state.pop("_assign_outlook_label",None)
+    with right_col:
+        st.markdown("<span style='font-size:13px;font-weight:600;'>📊 Engineer Task Load</span>", unsafe_allow_html=True)
+        if engineers:
+            MAX_TASKS = 10   # max expected tasks — gauge full at 10
+            for eng in engineers:
+                active = len([
+                    i for i in all_ideas
+                    if i.get("assigned_engineer")==eng
+                    and i.get("status") in {"Assigned","WIP","UAT","Hold/Park"}
+                ])
+                eng_label = eng.split("@")[0].replace("."," ").title()
+                load_pct  = min(active / MAX_TASKS, 1.0) * 100
+                # colour: green→amber→red based on load
+                needle_color = ("#059669" if load_pct < 40
+                                else "#b45309" if load_pct < 75
+                                else "#dc2626")
+                gauge_opt = {
+                    "series":[{
+                        "type":"gauge",
+                        "radius":"85%",
+                        "startAngle":200,"endAngle":-20,
+                        "min":0,"max":MAX_TASKS,
+                        "splitNumber":5,
+                        "axisLine":{
+                            "lineStyle":{
+                                "width":10,
+                                "color":[[0.4,"#059669"],[0.75,"#b45309"],[1,"#dc2626"]]
+                            }
+                        },
+                        "pointer":{"itemStyle":{"color":"auto"},"length":"60%","width":4},
+                        "axisTick":{"distance":-15,"length":6,"lineStyle":{"color":"#fff","width":1}},
+                        "splitLine":{"distance":-20,"length":12,"lineStyle":{"color":"#fff","width":2}},
+                        "axisLabel":{"color":"inherit","distance":18,"fontSize":8},
+                        "detail":{
+                            "valueAnimation":True,
+                            "formatter":f"{active} tasks",
+                            "color":"inherit","fontSize":11,"offsetCenter":[0,"60%"]
+                        },
+                        "title":{"offsetCenter":[0,"85%"],"fontSize":9,"color":"#64748b"},
+                        "data":[{"value":active,"name":eng_label}],
+                    }]
+                }
+                st_echarts(gauge_opt, height="160px", key=f"gauge_{eng}")
+        else:
+            st.info("No automation engineers configured.")
 
-    for idea in new_ideas:
-        with st.expander(f"💡 {idea.get('idea_name','(no name)')}  —  {idea.get('priority_label','')}"):
-            col1,col2 = st.columns(2)
-            with col1:
-                st.markdown(f"**Submitted by:** {idea.get('name','-')}")
-                st.markdown(f"**Project:** {idea.get('project','-')} | **Category:** {idea.get('category','-')}")
-                st.markdown(f"**Customer:** {idea.get('customer','-')} | **Region:** {idea.get('region','-')}")
-                st.markdown(f"**Description:** {idea.get('idea','-')}")
-            with col2:
-                st.markdown(f"**PL/SPL:** {idea.get('pl_name','-')}")
-                st.markdown(f"**Submitted:** {idea.get('created_date','-')[:10]}")
+    with left_col:
+        st.caption("⭐ Auto-priority: **Customer Requirement → ROI (high first) → FIFO**")
+        new_ideas = rank_ideas([i for i in all_ideas if i.get("status")=="New Idea"])
 
-            if not engineers:
-                st.warning("No automation engineers in the system — add them in Admin first.")
-                continue
+        if not new_ideas:
+            st.info("No new ideas pending assignment.")
+        else:
+            if ss("_assign_outlook_url"):
+                url = ss("_assign_outlook_url"); lbl = ss("_assign_outlook_label","")
+                st.markdown(f"""
+                <div class="idea-card" style="border-left:4px solid #0ea5e9;">
+                  📤 <b>Send assignment notification via Outlook:</b><br>
+                  <span style="color:#64748b;font-size:12px;">{lbl}</span><br>
+                  <a href="{url}" target="_blank" class="outlook-btn">📤 Open in Outlook</a>
+                </div>""", unsafe_allow_html=True)
+                st.session_state.pop("_assign_outlook_url",None)
+                st.session_state.pop("_assign_outlook_label",None)
 
-            with st.form(f"assign_{idea['id']}"):
-                eng = st.selectbox("Assign Engineer", engineers, key=f"eng_{idea['id']}")
-                if st.form_submit_button("✅ Assign"):
-                    qi = compute_delivery(all_ideas, eng, idea)
-                    update_idea(idea["id"],{
-                        "assigned_engineer":eng,"status":"Assigned",
-                        "assigned_date":datetime.now().strftime("%Y-%m-%d %H:%M"),
-                        "priority_label":qi["priority_label"] if qi else "",
-                        "sprint_start":fmt_d(qi["sprint_start"]) if qi else "",
-                        "sprint_end":fmt_d(qi["sprint_end"]) if qi else "",
-                        "delivery_date":fmt_d(qi["sprint_end"]) if qi else "",
-                    })
-                    fresh = next((i for i in get_all() if i["id"]==idea["id"]),idea)
-                    url = build_assign_outlook(fresh, eng, qi)
-                    st.session_state["_assign_outlook_url"]   = url
-                    st.session_state["_assign_outlook_label"] = f"Notify {eng} — {idea.get('idea_name','')}"
-                    st.success(f"Assigned to {eng}. Click 📤 Open in Outlook above to notify them.")
-                    st.rerun()
+            for idea in new_ideas:
+                with st.expander(f"💡 {idea.get('idea_name','(no name)')}  —  {idea.get('priority_label','')}"):
+                    c1,c2 = st.columns(2)
+                    with c1:
+                        st.markdown(f"**Submitted by:** {idea.get('name','-')}")
+                        st.markdown(f"**Project:** {idea.get('project','-')} | **Category:** {idea.get('category','-')}")
+                        st.markdown(f"**Customer:** {idea.get('customer','-')} | **Region:** {idea.get('region','-')}")
+                        st.markdown(f"**Description:** {idea.get('idea','-')}")
+                    with c2:
+                        st.markdown(f"**PL/SPL:** {idea.get('pl_name','-')}")
+                        st.markdown(f"**Submitted:** {idea.get('created_date','-')[:10]}")
+
+                    if not engineers:
+                        st.warning("No automation engineers in the system — add them in Admin first.")
+                        continue
+
+                    with st.form(f"assign_{idea['id']}"):
+                        eng = st.selectbox("Assign Engineer", engineers, key=f"eng_{idea['id']}")
+                        if st.form_submit_button("✅ Assign"):
+                            qi = compute_delivery(all_ideas, eng, idea)
+                            update_idea(idea["id"],{
+                                "assigned_engineer":eng,"status":"Assigned",
+                                "assigned_date":datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                "priority_label":qi["priority_label"] if qi else "",
+                                "sprint_start":fmt_d(qi["sprint_start"]) if qi else "",
+                                "sprint_end":fmt_d(qi["sprint_end"]) if qi else "",
+                                "delivery_date":fmt_d(qi["sprint_end"]) if qi else "",
+                            })
+                            fresh = next((i for i in get_all() if i["id"]==idea["id"]),idea)
+                            url = build_assign_outlook(fresh, eng, qi)
+                            st.session_state["_assign_outlook_url"]   = url
+                            st.session_state["_assign_outlook_label"] = f"Notify {eng} — {idea.get('idea_name','')}"
+                            st.success(f"Assigned to {eng}. Click 📤 Open in Outlook above to notify them.")
+                            st.rerun()
 
     # ── Engineer Workload & Sprint Schedule ───────────────────────────────
     st.divider()
     st.markdown("#### 📅 Engineer Workload & Sprint Schedule")
     st.caption("Active tasks per engineer ordered by auto-priority (Customer → ROI → FIFO), with rolling 2-week sprint dates.")
-    all_eng = [u["email"] for u in users if u["role"] == "automation engineer"]
+    all_eng = [u["email"] for u in users if u["role"]=="automation engineer"]
     if not all_eng:
         st.info("No automation engineers configured — add them in Admin.")
     else:
-        sel_engs = st.multiselect(
-            "Select Engineer(s) to view",
-            all_eng,
-            default=None,
-            placeholder="Choose one or more engineers…",
-        )
+        sel_engs = st.multiselect("Select Engineer(s) to view", all_eng,
+                                  default=None, placeholder="Choose one or more engineers…")
         import pandas as pd
         for eng in (sel_engs or []):
             queue = engineer_queue(all_ideas, eng)
@@ -1018,12 +1422,9 @@ def page_pl_assignment():
                     st.caption("No active tasks — fully available.")
                 else:
                     df = pd.DataFrame([{
-                        "Queue #":              i["priority_rank"],
-                        "Idea":                 i.get("idea_name",""),
-                        "Category":             i.get("category",""),
-                        "Priority":             i.get("priority_label",""),
-                        "Sprint Start":         fmt_d(i["sprint_start"]),
-                        "Delivery (Sprint End)":fmt_d(i["sprint_end"]),
+                        "Queue #":i["priority_rank"],"Idea":i.get("idea_name",""),
+                        "Category":i.get("category",""),"Priority":i.get("priority_label",""),
+                        "Sprint Start":fmt_d(i["sprint_start"]),"Delivery (Sprint End)":fmt_d(i["sprint_end"]),
                     } for i in queue])
                     st.dataframe(df, use_container_width=True, hide_index=True)
 
@@ -1033,7 +1434,6 @@ def page_pl_assignment():
 #  PAGE: FEASIBILITY STUDY
 # ══════════════════════════════════════════════════════════════════════════════
 def page_feasibility():
-    inject_page_bg()
     page_header("Feasibility Study 🔍")
     all_ideas = get_all()
     assigned  = rank_ideas([i for i in all_ideas if i.get("status")=="Assigned"])
@@ -1056,28 +1456,24 @@ def page_feasibility():
     for idea in assigned:
         with st.expander(f"💡 {idea.get('idea_name','(no name)')}  —  {idea.get('priority_label','')}"):
             st.markdown(f"**Engineer:** {idea.get('assigned_engineer','-')}  |  "
-                        f"**PL/SPL:** {idea.get('pl_name','-')}  |  "
-                        f"**Category:** {idea.get('category','-')}")
+                        f"**PL/SPL:** {idea.get('pl_name','-')}  |  **Category:** {idea.get('category','-')}")
             if idea.get("delivery_date"):
                 st.caption(f"📅 Provisional delivery: {idea['delivery_date']}")
 
             with st.form(f"feas_{idea['id']}"):
-                st.markdown("##### 📊 ROI Calculator")
+                st.markdown("##### ROI Calculator")
                 col1,col2,col3 = st.columns(3)
                 with col1: manual = st.number_input("Manual Effort (hrs)", min_value=0.0, step=0.5, key=f"m_{idea['id']}")
                 with col2: fte    = st.number_input("FTE Count", min_value=0.0, step=0.1, key=f"f_{idea['id']}")
                 with col3: eng_ef = st.number_input("Automation Effort (hrs)", min_value=0.01, step=0.5, value=1.0, key=f"e_{idea['id']}")
-
                 col4,col5 = st.columns(2)
                 with col4: freq     = st.selectbox("Frequency", list(FREQ_MULT.keys()), key=f"fr_{idea['id']}")
                 with col5: auto_cat = st.selectbox("Automation Category *", AUTO_CATS, key=f"ac_{idea['id']}")
                 comments = st.text_area("Comments / Observations", key=f"co_{idea['id']}")
-
-                roi = round((manual * fte * FREQ_MULT[freq]) / eng_ef, 2)
+                roi = round((manual*fte*FREQ_MULT[freq])/eng_ef, 2)
                 st.info(f"📈 Computed ROI: **{roi}**")
-
                 if st.form_submit_button("✅ Submit Feasibility & Notify PL via Outlook"):
-                    vsm_date = next_workday(date.today() + timedelta(days=1))
+                    vsm_date = next_workday(date.today()+timedelta(days=1))
                     qi = compute_delivery(all_ideas, idea.get("assigned_engineer",""), {**idea,"roi":roi})
                     update_idea(idea["id"],{
                         "status":"WIP","roi":roi,"automation_category":auto_cat,
@@ -1103,13 +1499,11 @@ def page_feasibility():
 #  PAGE: APPROVAL
 # ══════════════════════════════════════════════════════════════════════════════
 def page_approval():
-    inject_page_bg()
     page_header("PL/SPL Approval ✅")
     all_ideas = get_all()
     my_email  = ss("email","")
     wip_ideas = rank_ideas([i for i in all_ideas
                             if i.get("status")=="WIP" and i.get("pl_name","").lower()==my_email.lower()])
-
     if not wip_ideas:
         other = rank_ideas([i for i in all_ideas if i.get("status")=="WIP"])
         if other and user_role()=="super user":
@@ -1151,39 +1545,79 @@ def page_approval():
                         sprint_start = qi["sprint_start"] if qi else None
                         sprint_end   = qi["sprint_end"]   if qi else None
                         update_idea(idea["id"],{
-                            "status":"WIP","decision":"GO","approval_comment":comment,
-                            "wip_date":now,
+                            "status":"WIP","decision":"GO","approval_comment":comment,"wip_date":now,
                             **({"sprint_start":fmt_d(sprint_start),"sprint_end":fmt_d(sprint_end),
                                 "delivery_date":fmt_d(sprint_end),
                                 "sprint_meeting_date":fmt_d(sprint_start)} if sprint_start else {}),
                         })
                         st.success("✅ GO — Idea is now In Progress (WIP).")
                     else:
-                        update_idea(idea["id"],{
-                            "status":"Rejected","decision":"NO-GO",
-                            "rejection_reason":reason,"approval_comment":comment,
-                        })
+                        update_idea(idea["id"],{"status":"Rejected","decision":"NO-GO",
+                                               "rejection_reason":reason,"approval_comment":comment})
                         st.warning(f"❌ NO-GO — Idea rejected. Reason: {reason}")
                     st.rerun()
     render_copyright()
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  PAGE: DASHBOARD  (unchanged — no ocean-blue override here)
+#  PAGE: DASHBOARD  — with interlinked filters
 # ══════════════════════════════════════════════════════════════════════════════
 def page_dashboard():
-    page_header("Dashboard 📊")
-    ideas = get_all()
-    if not ideas:
+    page_header("Dashboard ")
+    all_ideas_raw = get_all()
+    if not all_ideas_raw:
         st.info("No ideas yet.")
         render_copyright(); return
 
-    def cnt(s): return len([i for i in ideas if i.get("status")==s])
-    def cnt_cat(cat): return len([i for i in ideas if i.get("category")==cat])
+    # ── FILTER BAR ────────────────────────────────────────────────────────
+    users    = get_users()
+    all_pls  = sorted({i.get("pl_name","") for i in all_ideas_raw if i.get("pl_name","")})
+    all_regs = sorted({i.get("region","")   for i in all_ideas_raw if i.get("region","")})
+    all_cats = CATEGORIES
+
+    st.markdown('<div class="filter-bar">', unsafe_allow_html=True)
+    fc1, fc2, fc3, fc4 = st.columns([1.2, 1.2, 1.2, 0.5])
+    with fc1:
+        f_cat = st.multiselect("Category", all_cats, key="f_cat",
+                               placeholder="All categories", label_visibility="collapsed")
+        st.caption("🗂 Category")
+    with fc2:
+        f_pl  = st.multiselect("PL/SPL", all_pls, key="f_pl",
+                               placeholder="All PLs", label_visibility="collapsed")
+        st.caption("🧑‍💼 PL / SPL")
+    with fc3:
+        f_reg = st.multiselect("Region", all_regs, key="f_reg",
+                               placeholder="All regions", label_visibility="collapsed")
+        st.caption("🌍 Region")
+    with fc4:
+        st.write("")
+        if st.button("🔄 Reset", use_container_width=True):
+            for k in ["f_cat","f_pl","f_reg"]: st.session_state.pop(k,None)
+            st.rerun()
+        st.caption("Reset filters")
+    st.markdown('</div>', unsafe_allow_html=True)
+
+    # Apply filters — interlinked (all three narrow the same set)
+    ideas = all_ideas_raw
+    if f_cat: ideas = [i for i in ideas if i.get("category","") in f_cat]
+    if f_pl:  ideas = [i for i in ideas if i.get("pl_name","") in f_pl]
+    if f_reg: ideas = [i for i in ideas if i.get("region","") in f_reg]
+
+    active_filters = bool(f_cat or f_pl or f_reg)
+    if active_filters:
+        st.caption(f"📌 Showing **{len(ideas)}** of **{len(all_ideas_raw)}** ideas after filters.")
+
+    if not ideas:
+        st.warning("No ideas match the selected filters.")
+        render_copyright(); return
+
+    # ── Local helper lambdas (scoped to filtered set) ─────────────────────
+    def cnt(s):        return len([i for i in ideas if i.get("status")==s])
+    def cnt_cat(cat):  return len([i for i in ideas if i.get("category")==cat])
     def cnt_cat_ac(cat,ac): return len([i for i in ideas if i.get("category")==cat and i.get("automation_category")==ac])
-    def cnt_ac(ac): return len([i for i in ideas if i.get("automation_category")==ac])
-    def hrs_cat(cat): return round(sum(idea_hours(i) for i in ideas if i.get("category")==cat),1)
-    def roi_cat(cat): return round(sum(float(i.get("roi",0) or 0) for i in ideas if i.get("category")==cat),2)
-    def roi_ac(ac): return round(sum(float(i.get("roi",0) or 0) for i in ideas if i.get("automation_category")==ac),2)
+    def cnt_ac(ac):    return len([i for i in ideas if i.get("automation_category")==ac])
+    def hrs_cat(cat):  return round(sum(idea_hours(i) for i in ideas if i.get("category")==cat),1)
+    def roi_cat(cat):  return round(sum(float(i.get("roi",0) or 0) for i in ideas if i.get("category")==cat),2)
+    def roi_ac(ac):    return round(sum(float(i.get("roi",0) or 0) for i in ideas if i.get("automation_category")==ac),2)
 
     total     = len(ideas)
     cust_hrs  = hrs_cat("Customer Requirement")
@@ -1194,182 +1628,203 @@ def page_dashboard():
     int_cnt   = cnt_cat("Internal")
     completed = cnt("Completed")
 
+    # ── ROW 1: KPI Cards (premium two-column illustrated) ──────────────────
     st.markdown("##### 📦 Key Metrics")
     c1,c2,c3,c4 = st.columns(4)
-    with c1: kpi_card(total,"Total Ideas","#1a4fad",f"{completed} completed | {cnt('Rejected')} rejected","💡")
-    with c2: kpi_card(completed,"Completed","#059669",f"{round(completed/total*100,1) if total else 0}% completion rate","🏁")
-    with c3: kpi_card(f"{cust_hrs:,.0f} hrs","Customer Hrs Saved / yr","#00498F",f"ROI: {cust_roi} | {cust_cnt} ideas | WIP: {cnt('WIP')}","⏱️")
-    with c4: kpi_card(f"{int_hrs:,.0f} hrs","Internal Hrs Saved / yr","#0ea5e9",f"ROI: {int_roi} | {int_cnt} ideas | UAT: {cnt('UAT')}","⏳")
+    with c1:
+        kpi_card2(total,"Total Ideas","#1a4fad","lightbulb",
+                  f"{completed} completed · {cnt('Rejected')} rejected")
+    with c2:
+        kpi_card2(completed,"Completed","#059669","trophy",
+                  f"{round(completed/total*100,1) if total else 0}% completion rate")
+    with c3:
+        kpi_card2(f"{cust_hrs:,.0f} hrs","Customer Hrs Saved / yr","#00498F","clock",
+                  f"ROI {cust_roi} · {cust_cnt} ideas · WIP {cnt('WIP')}")
+    with c4:
+        kpi_card2(f"{int_hrs:,.0f} hrs","Internal Hrs Saved / yr","#0ea5e9","growth",
+                  f"ROI {int_roi} · {int_cnt} ideas · UAT {cnt('UAT')}")
 
-    st.markdown("##### 🔧 Automation Category Breakdown")
-    cols = st.columns(len(AUTO_CATS))
-    for idx, ac in enumerate(AUTO_CATS):
-        ac_total = cnt_ac(ac)
-        ac_cust  = cnt_cat_ac("Customer Requirement", ac)
-        ac_int   = cnt_cat_ac("Internal", ac)
-        ac_roi   = roi_ac(ac)
-        color    = AUTO_CAT_COLORS.get(ac, "#888")
-        with cols[idx]:
-            kpi_card(ac_total, ac, color,
-                     f"🔴 Cust: {ac_cust}  🔵 Int: {ac_int}  |  ROI: {ac_roi}", "🔧")
+    # ── ROW 2: Automation & AI Breakdown (animated robot panels) ──────────
+    t_cur = THEMES.get(ss("theme"), THEMES["ALTEN Red & Blue"])
+    render_automation_ai_panels(ideas, t_cur)
 
+    # ── ROW 3: Charts row (Status + Project + Customer+Region combo pies) ─
     st.markdown("##### 📈 Charts")
-    ch1, ch2 = st.columns(2)
+    ch1, ch2, ch3 = st.columns(3)
 
     with ch1:
-        st.markdown("<span style='font-size:13px;font-weight:600;'>Ideas by Status</span>", unsafe_allow_html=True)
-        status_data = [{"value":cnt(s),"name":s,"itemStyle":{"color":STATUS_COLORS.get(s,"#888")}}
-                       for s in STATUSES if cnt(s)>0]
-        st_echarts({"tooltip":{"trigger":"item","formatter":"{b}: {c} ({d}%)"},
-                    "series":[{"type":"pie","radius":["38%","68%"],
-                               "data":status_data,"label":{"fontSize":10}}]},
-                   height="240px")
+        st.markdown("<span style='font-size:clamp(10px,1vw,13px);font-weight:600;'>Ideas by Status</span>", unsafe_allow_html=True)
+        status_labels = [s for s in STATUSES]
+        status_vals   = [cnt(s) for s in STATUSES]
+        status_cols   = [STATUS_COLORS.get(s,"#888") for s in STATUSES]
+        st_echarts({
+            "tooltip":{"trigger":"axis","axisPointer":{"type":"shadow"}},
+            "grid":{"left":"3%","right":"4%","bottom":"22%","containLabel":True},
+            "xAxis":{"type":"category","data":status_labels,
+                     "axisLabel":{"rotate":28,"fontSize":8,"interval":0}},
+            "yAxis":{"type":"value","name":"Ideas","nameTextStyle":{"fontSize":8}},
+            "series":[{
+                "type":"bar","data":[{"value":v,"itemStyle":{"color":c}} for v,c in zip(status_vals,status_cols)],
+                "label":{"show":True,"position":"top","fontSize":9,"fontWeight":"bold"},
+                "barMaxWidth":30,
+                "animationDuration":700,"animationEasing":"cubicOut",
+            }],
+        }, height="220px")
 
     with ch2:
-        st.markdown("<span style='font-size:13px;font-weight:600;'>Hours Saved by Project</span>", unsafe_allow_html=True)
-        proj_hrs = {}
+        st.markdown("<span style='font-size:clamp(10px,1vw,13px);font-weight:600;'>Customer — Count &amp; ROI</span>", unsafe_allow_html=True)
+        cust_data = {}
         for i in ideas:
-            proj_hrs[i.get("project","Other")] = proj_hrs.get(i.get("project","Other"),0)+idea_hours(i)
+            c = i.get("customer","") or "Unknown"
+            if c not in cust_data: cust_data[c] = {"count":0,"roi":0.0}
+            cust_data[c]["count"] += 1
+            cust_data[c]["roi"]   += float(i.get("roi",0) or 0)
+        cust_palette = ["#E30613","#00AEEF","#7c3aed","#059669","#0d9488","#b45309","#0369a1"]
+        c_pie_cnt = [{"value":v["count"],
+                      "name":f'{k}\n({round(v["roi"],1)} ROI)',
+                      "itemStyle":{"color":cust_palette[idx%len(cust_palette)]}}
+                     for idx,(k,v) in enumerate(cust_data.items())]
+        st_echarts({
+            "tooltip":{"trigger":"item","formatter":"{b}: {c} ideas ({d}%)"},
+            "series":[{"type":"pie","radius":["35%","65%"],"data":c_pie_cnt,
+                       "label":{"fontSize":9,"formatter":"{b}"},
+                       "labelLine":{"length":8,"length2":5}}]
+        }, height="220px")
+
+    with ch3:
+        st.markdown("<span style='font-size:clamp(10px,1vw,13px);font-weight:600;'>Hours Saved by Project</span>", unsafe_allow_html=True)
+        proj_hrs_raw = {}
+        for i in ideas:
+            proj_hrs_raw[i.get("project","Other")] = proj_hrs_raw.get(i.get("project","Other"),0)+idea_hours(i)
+        # Only display projects with a real, positive, valid Hours-Saved value
+        proj_hrs = {k:v for k,v in proj_hrs_raw.items() if v and v > 0}
         if proj_hrs:
             st_echarts({
                 "tooltip":{"trigger":"axis"},
-                "xAxis":{"type":"category","data":list(proj_hrs.keys()),"axisLabel":{"rotate":10,"fontSize":10}},
-                "yAxis":{"type":"value","name":"hrs/yr","nameTextStyle":{"fontSize":10}},
+                "grid":{"left":"3%","right":"4%","bottom":"28%","containLabel":True},
+                "xAxis":{"type":"category","data":list(proj_hrs.keys()),
+                         "axisLabel":{"rotate":30,"fontSize":8,"interval":0}},
+                "yAxis":{"type":"value","name":"hrs/yr","nameTextStyle":{"fontSize":8}},
                 "series":[{"type":"bar","data":[round(v,1) for v in proj_hrs.values()],
-                           "itemStyle":{"color":"#7c3aed"},"barMaxWidth":40}]},
-                height="240px")
+                           "itemStyle":{"color":"#7c3aed"},"barMaxWidth":32}]},
+                height="220px")
+        else:
+            st.caption("No projects with valid Hours Saved data yet.")
 
+    # ── ROW 4: Ideation Tree + Region chart ──────────────────────────────
     tr_col, wl_col = st.columns([1.4, 1])
 
     with tr_col:
         st.markdown("##### 🌳 Ideation Workflow Tree")
-
         def cs(cat,st_): return len([i for i in ideas if i.get("category")==cat and i.get("status")==st_])
         def rs(r): return len([i for i in ideas if i.get("status")=="Rejected" and i.get("rejection_reason")==r])
-
         def add_label_boxes(node):
-            color = node.get("itemStyle", {}).get("color", "#FFFFFF")
-            node["label"] = {
-                "show":True,"backgroundColor":color,"color":"#FFFFFF",
-                "borderRadius":5,"padding":[4,8],"position":"inside",
-                "align":"center","fontSize":10,"fontWeight":"bold"
-            }
+            color = node.get("itemStyle",{}).get("color","#FFFFFF")
+            node["label"] = {"show":True,"backgroundColor":color,"color":"#FFFFFF",
+                             "borderRadius":5,"padding":[4,8],"position":"inside",
+                             "align":"center","fontSize":10,"fontWeight":"bold"}
             for child in node.get("children",[]): add_label_boxes(child)
-
+        # Tree flow: Ideation → Triage/Feasibility(Queued) → Accepted → Customer → WIP / Deployed
+        #                                                              → Internal
+        #                                              → Rejected
         tree_data = {
-            "name": f"Ideation ({total})",
-            "itemStyle": {"color":"#E30613"},
-            "children": [
-                {"name": f"Triaged ({cnt('Assigned')})", "itemStyle": {"color":"#1a4fad"},
-                 "children": [
-                     {"name":f"Customer ({cust_cnt})", "itemStyle":{"color":"#00498F"},
-                      "children":[
-                          {"name":f"WIP ({cs('Customer Requirement','WIP')})","itemStyle":{"color":"#0d9488"}},
-                          {"name":f"UAT ({cs('Customer Requirement','UAT')})","itemStyle":{"color":"#0ea5e9"}},
-                          {"name":f"Done ({cs('Customer Requirement','Completed')})","itemStyle":{"color":"#059669"}},
-                      ]},
-                     {"name":f"Internal ({int_cnt})", "itemStyle":{"color":"#0ea5e9"},
-                      "children":[
-                          {"name":f"WIP ({cs('Internal','WIP')})","itemStyle":{"color":"#0d9488"}},
-                          {"name":f"UAT ({cs('Internal','UAT')})","itemStyle":{"color":"#0ea5e9"}},
-                          {"name":f"Done ({cs('Internal','Completed')})","itemStyle":{"color":"#059669"}},
-                      ]},
-                 ]},
-                {"name": f"Accepted ({cnt('WIP')+cnt('UAT')+cnt('Completed')})", "itemStyle": {"color":"#059669"},
-                 "children": [
-                     {"name":f"Customer ({cust_cnt})", "itemStyle":{"color":"#00498F"},
-                      "children":[
-                          {"name":f"WIP ({cs('Customer Requirement','WIP')})","itemStyle":{"color":"#0d9488"}},
-                          {"name":f"UAT ({cs('Customer Requirement','UAT')})","itemStyle":{"color":"#0ea5e9"}},
-                          {"name":f"Done ({cs('Customer Requirement','Completed')})","itemStyle":{"color":"#059669"}},
-                      ]},
-                     {"name":f"Internal ({int_cnt})", "itemStyle":{"color":"#0ea5e9"},
-                      "children":[
-                          {"name":f"WIP ({cs('Internal','WIP')})","itemStyle":{"color":"#0d9488"}},
-                          {"name":f"UAT ({cs('Internal','UAT')})","itemStyle":{"color":"#0ea5e9"}},
-                          {"name":f"Done ({cs('Internal','Completed')})","itemStyle":{"color":"#059669"}},
-                      ]},
-                 ]},
-                {"name": f"Rejected ({cnt('Rejected')})", "itemStyle": {"color":"#dc2626"},
+            "name":f"Ideation ({total})","itemStyle":{"color":"#1a4fad"},
+            "children":[
+                {"name":f"Triage / Feasibility Study\n(Queued: {cnt('Assigned')})","itemStyle":{"color":"#1a4fad"},
                  "children":[
-                     {"name":f"Technical ({rs('Technical Rejection')})","itemStyle":{"color":"#ef4444"}},
-                     {"name":f"Business ({rs('Business Rejection')})","itemStyle":{"color":"#f97316"}},
-                 ]}
+                     {"name":f"Accepted ({cnt('WIP')+cnt('UAT')+cnt('Completed')})","itemStyle":{"color":"#059669"},
+                      "children":[
+                          {"name":f"Customer ({cust_cnt})","itemStyle":{"color":"#00498F"},
+                           "children":[
+                               {"name":f"WIP ({cs('Customer Requirement','WIP')+cs('Customer Requirement','UAT')})","itemStyle":{"color":"#0d9488"}},
+                               {"name":f"Deployed ({cs('Customer Requirement','Completed')})","itemStyle":{"color":"#059669"}},
+                           ]},
+                          {"name":f"Internal ({int_cnt})","itemStyle":{"color":"#0ea5e9"},
+                           "children":[
+                               {"name":f"WIP ({cs('Internal','WIP')+cs('Internal','UAT')})","itemStyle":{"color":"#0d9488"}},
+                               {"name":f"Deployed ({cs('Internal','Completed')})","itemStyle":{"color":"#059669"}},
+                           ]},
+                      ]},
+                     {"name":f"Rejected ({cnt('Rejected')})","itemStyle":{"color":"#dc2626"},
+                      "children":[
+                          {"name":f"Technical ({rs('Technical Rejection')})","itemStyle":{"color":"#ef4444"}},
+                          {"name":f"Business ({rs('Business Rejection')})","itemStyle":{"color":"#f97316"}},
+                      ]},
+                 ]},
             ]
         }
         add_label_boxes(tree_data)
         st_echarts({
             "backgroundColor":"#0B0B0D",
             "tooltip":{"trigger":"item","triggerOn":"mousemove"},
-            "series":[{
-                "type":"tree","data":[tree_data],
-                "top":"5%","left":"7%","bottom":"5%","right":"15%",
-                "symbol":"rect","symbolSize":1,
-                "lineStyle":{"color":"#f97316","width":2},
-                "label":{"position":"left","verticalAlign":"middle","align":"right","fontSize":10},
-                "leaves":{"label":{"position":"right","verticalAlign":"middle","align":"left","fontSize":9}},
-                "emphasis":{"focus":"descendant"},
-                "expandAndCollapse":True,"animationDuration":550,"initialTreeDepth":2,
-            }]
+            "series":[{"type":"tree","data":[tree_data],
+                       "top":"5%","left":"7%","bottom":"5%","right":"15%",
+                       "symbol":"rect","symbolSize":1,
+                       "lineStyle":{"color":"#f97316","width":2},
+                       "label":{"position":"left","verticalAlign":"middle","align":"right","fontSize":10},
+                       "leaves":{"label":{"position":"right","verticalAlign":"middle","align":"left","fontSize":9}},
+                       "emphasis":{"focus":"descendant"},
+                       "expandAndCollapse":True,"animationDuration":550,"initialTreeDepth":2}]
         }, height="400px")
 
     with wl_col:
-        st.markdown("##### 🌍 Ideas by Region")
-        # Build region → {count, roi} aggregation
+        st.markdown("##### 🌍 Region — Word Map")
         region_data = {}
         for i in ideas:
-            r = i.get("region","") or "Unknown"
-            if r not in region_data:
-                region_data[r] = {"count": 0, "roi": 0.0}
+            r = i.get("region","") or ""
+            if not r:
+                continue   # skip ideas with no region set
+            if r not in region_data: region_data[r] = {"count":0,"roi":0.0}
             region_data[r]["count"] += 1
             region_data[r]["roi"]   += float(i.get("roi",0) or 0)
 
+        no_region_count = len([i for i in ideas if not (i.get("region","") or "").strip()])
+
         if not region_data:
-            st.info("No region data yet.")
+            st.info(f"No region data yet — {no_region_count} idea(s) have no region assigned.")
         else:
-            import pandas as pd
-            region_df = pd.DataFrame([
-                {"Region": k, "Ideas": v["count"], "ROI": round(v["roi"],2)}
-                for k,v in sorted(region_data.items(), key=lambda x: -x[1]["count"])
-            ])
-            # Bar chart — ideas count per region
-            bar_data = [{"value": v["count"], "name": k} for k,v in
-                        sorted(region_data.items(), key=lambda x: -x[1]["count"])]
-            st_echarts({
-                "tooltip": {"trigger":"axis"},
-                "grid": {"left":"3%","right":"4%","bottom":"25%","containLabel":True},
-                "xAxis": {"type":"category",
-                           "data":[d["name"] for d in bar_data],
-                           "axisLabel":{"rotate":35,"fontSize":9}},
-                "yAxis": [
-                    {"type":"value","name":"Ideas","nameTextStyle":{"fontSize":9},
-                     "axisLabel":{"fontSize":9}},
-                    {"type":"value","name":"ROI","nameTextStyle":{"fontSize":9},
-                     "axisLabel":{"fontSize":9}},
-                ],
-                "series": [
-                    {"name":"Ideas","type":"bar","data":[d["value"] for d in bar_data],
-                     "itemStyle":{"color":"#1a4fad"},"barMaxWidth":28},
-                    {"name":"ROI","type":"line","yAxisIndex":1,
-                     "data":[round(region_data[d["name"]]["roi"],1) for d in bar_data],
-                     "itemStyle":{"color":"#E30613"},"lineStyle":{"width":2},
-                     "symbol":"circle","symbolSize":6},
-                ],
-                "legend":{"data":["Ideas","ROI"],"bottom":0,"textStyle":{"fontSize":9}},
-            }, height="320px")
-            # Summary table below chart
-            st.dataframe(region_df, use_container_width=True, hide_index=True,
-                         column_config={
-                             "Region": st.column_config.TextColumn(width="medium"),
-                             "Ideas":  st.column_config.NumberColumn(width="small"),
-                             "ROI":    st.column_config.NumberColumn(format="%.2f", width="small"),
-                         })
+            # ── Word-map: sized coloured bubbles (true word-cloud feel) ──
+            max_count = max(v["count"] for v in region_data.values()) or 1
+            sorted_regions = sorted(region_data.items(), key=lambda x: -x[1]["count"])
+            colors = [
+                "#E30613","#1a4fad","#059669","#7c3aed",
+                "#0891b2","#b45309","#9333ea","#0d9488",
+                "#0369a1","#16a34a","#dc2626","#d97706",
+            ]
+            wc_html = (
+                '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;' +
+                'justify-content:center;padding:18px 8px;'  +
+                'background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;'
+                'min-height:180px;">'
+            )
+            for idx,(region,val) in enumerate(sorted_regions):
+                ratio   = val["count"] / max_count          # 0.0 – 1.0
+                fs      = int(13 + ratio * 26)              # 13 – 39 px
+                pad_h   = int(8  + ratio * 14)
+                pad_v   = int(4  + ratio * 8)
+                alpha   = int(18 + ratio * 20)              # hex opacity 18–38
+                col_hex = colors[idx % len(colors)]
+                bg_hex  = col_hex + hex(alpha)[2:].zfill(2) # colour + alpha
+                tooltip = f"{region}: {val['count']} idea(s) · ROI {round(val['roi'],1)}"
+                wc_html += (
+                    f'<span title="{tooltip}" style="' +
+                    f'font-size:{fs}px;font-weight:{600 if ratio>0.5 else 500};' +
+                    f'color:{col_hex};background:{bg_hex};' +
+                    f'border-radius:8px;padding:{pad_v}px {pad_h}px;' +
+                    f'cursor:default;line-height:1.5;white-space:nowrap;'
+                    f'box-shadow:0 1px 3px rgba(0,0,0,.06);">' +
+                    f'{region}'
+                    f'<span style="font-size:{max(9,fs-10)}px;vertical-align:super;'
+                    f'margin-left:3px;opacity:0.7;">{val['count']}</span>'
+                    f'</span>'
+                )
+            wc_html += '</div>'
+            st.markdown(wc_html, unsafe_allow_html=True)
+            if no_region_count:
+                st.caption(f"ℹ️ {no_region_count} idea(s) have no region assigned and are excluded.")
+            st.caption("Font size = idea count · Hover for count & ROI")
 
-    # ── Planner-style Kanban board ────────────────────────────────────────
-    st.markdown("##### 📋 Kanban Board")
-    render_kanban_board(ideas)
-
-    # ── All Ideas table + CSV ─────────────────────────────────────────────
+    # ── All Ideas table + CSV (above Kanban) ────────────────────────────
     st.markdown("##### 📄 All Ideas")
     search = st.text_input("🔎 Search ideas", placeholder="Filter by name, project, status…")
     import pandas as pd
@@ -1381,10 +1836,13 @@ def page_dashboard():
         mask = df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)
         df   = df[mask]
     st.dataframe(df, use_container_width=True, hide_index=True)
-
     csv_buf = io.StringIO()
     df.to_csv(csv_buf, index=False)
     st.download_button("⬇️ Download CSV", csv_buf.getvalue(), "turbodrive_ideas.csv", "text/csv")
+
+    # ── Kanban Board ──────────────────────────────────────────────────────
+    st.markdown("##### 📋 Kanban Board")
+    render_kanban_board(ideas)
 
     render_copyright()
 
@@ -1392,23 +1850,20 @@ def page_dashboard():
 #  PAGE: EMAIL
 # ══════════════════════════════════════════════════════════════════════════════
 def page_email():
-    inject_page_bg()
     page_header("Send Meeting Invites 📤")
     st.caption("All dates are auto-computed from sprint scheduling. Click 'Open in Outlook' to review & send manually.")
     all_ideas = get_all()
     idea_opts = {f"{i.get('idea_name','(no name)')} — {i.get('status','')}":i for i in all_ideas}
     if not idea_opts:
-        st.info("No ideas yet.")
-        render_copyright(); return
+        st.info("No ideas yet."); render_copyright(); return
 
     col1,col2 = st.columns(2)
-    with col1:
-        sel_name = st.selectbox("Select Idea", list(idea_opts.keys()))
+    with col1: sel_name = st.selectbox("Select Idea", list(idea_opts.keys()))
     with col2:
-        mtype    = st.selectbox("Meeting Type",
-                                ["vsm — VSM Session (11:00 AM)",
-                                 "sprint — Sprint Planning (10:00 AM)",
-                                 "delivery — Delivery/Demo Review (03:00 PM)"])
+        mtype = st.selectbox("Meeting Type",
+                             ["vsm — VSM Session (11:00 AM)",
+                              "sprint — Sprint Planning (10:00 AM)",
+                              "delivery — Delivery/Demo Review (03:00 PM)"])
 
     idea  = idea_opts[sel_name]
     mkey  = mtype.split(" — ")[0]
@@ -1432,7 +1887,6 @@ def page_email():
         "sprint":  [idea.get("assigned_engineer",""),idea.get("pl_name","")],
         "delivery":[idea.get("submitter_email",""),idea.get("assigned_engineer",""),idea.get("pl_name","")],
     }
-
     if mdate:
         url = build_meeting_outlook(mkey, idea, mdate, recips_map[mkey])
         st.markdown(f'<a href="{url}" target="_blank" class="outlook-btn">📤 Open in Outlook</a>', unsafe_allow_html=True)
@@ -1457,10 +1911,8 @@ def page_email():
 #  PAGE: ADMIN
 # ══════════════════════════════════════════════════════════════════════════════
 def page_admin():
-    inject_page_bg()
     page_header("Admin Panel ⚙️")
     users = get_users()
-
     tab1,tab2,tab3 = st.tabs(["👥 Users","➕ Add User","🔑 Password Reset"])
 
     with tab1:
@@ -1474,12 +1926,10 @@ def page_admin():
                                             key=f"role_{u['email']}")
                 with col2:
                     if st.button("💾 Update Role", key=f"upd_{u['email']}"):
-                        update_role(u["email"], new_role)
-                        st.success("Role updated."); pass  # no local cache to clear; st.rerun()
+                        update_role(u["email"], new_role); st.success("Role updated.")
                 with col3:
                     if st.button("🗑 Delete", key=f"del_{u['email']}"):
-                        delete_user(u["email"])
-                        st.warning("User deleted."); pass  # no local cache to clear; st.rerun()
+                        delete_user(u["email"]); st.warning("User deleted.")
 
     with tab2:
         with st.form("add_user_form", clear_on_submit=True):
@@ -1497,45 +1947,36 @@ def page_admin():
         with st.form("reset_pw_form"):
             target = st.selectbox("User", emails)
             col1,col2 = st.columns(2)
-            with col1:
-                new_pw  = st.text_input("Set New Password (optional)", type="password")
+            with col1: new_pw = st.text_input("Set New Password (optional)", type="password")
             with col2:
                 do_reset = st.form_submit_button(f"Reset to '{DEFAULT_PW}'")
                 do_set   = st.form_submit_button("Set Specific Password")
             if do_reset:
                 reset_password(target); st.success(f"Password reset to '{DEFAULT_PW}' for {target}")
             elif do_set:
-                if not new_pw or len(new_pw)<4:
-                    st.error("Minimum 4 characters.")
-                else:
-                    set_password(target, new_pw)
-                    st.success(f"Password updated for {target}")
+                if not new_pw or len(new_pw)<4: st.error("Minimum 4 characters.")
+                else: set_password(target, new_pw); st.success(f"Password updated for {target}")
     render_copyright()
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  MAIN ROUTER
 # ══════════════════════════════════════════════════════════════════════════════
 def main():
-    st.set_page_config(
-        page_title="Turbo Drive",
-        page_icon="",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
-
+    st.set_page_config(page_title="Turbo Drive", page_icon="", layout="wide",
+                       initial_sidebar_state="expanded")
     init_db()
-
     if "theme" not in st.session_state:
         st.session_state["theme"] = "ALTEN Red & Blue"
     apply_theme(ss("theme"))
 
     override = ss("_page_override")
-    if override == "register":
-        page_register(); return
-    if override == "change_password":
-        page_change_password(); return
+    if override == "register":    page_register(); return
+    if override == "change_password": page_change_password(); return
+    if not logged_in():           page_login(); return
 
-    if not logged_in():
+    # ── Enterprise session timeout (5 min inactivity) ──────────────────────
+    enforce_session_timeout()
+    if not logged_in():   # logged out by the guard above
         page_login(); return
 
     t = THEMES.get(ss("theme"), THEMES["ALTEN Red & Blue"])
@@ -1543,10 +1984,10 @@ def main():
         st.markdown(f"""
         <div style="text-align:center;padding:10px 0 6px;">
           <img src="{ALTEN_LOGO_URL}" style="height:22px;object-fit:contain;margin-bottom:4px;" alt="ALTEN"/><br>
-          <span style="font-size:20px;font-weight:900;
+          <span style="font-size:clamp(14px,1.5vw,20px);font-weight:900;
                background:linear-gradient(135deg,{t['primary']},{t['secondary']});
                -webkit-background-clip:text;background-clip:text;color:transparent;">
-            ⚡ TURBO DRIVE
+             TURBO DRIVE
           </span>
           <div style="color:#94a3b8;font-size:10px;margin-top:2px;">Automation Workflow</div>
         </div>""", unsafe_allow_html=True)
@@ -1590,6 +2031,9 @@ def main():
             f'<a href="mailto:{SUPPORT_EMAIL}" style="color:#00AEEF;">{SUPPORT_NAME}</a></p>',
             unsafe_allow_html=True
         )
+
+        st.divider()
+        render_session_timer_widget()
 
     if   current_page == "Dashboard":     page_dashboard()
     elif current_page == "Submit Idea":   page_submit()
