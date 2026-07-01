@@ -25,7 +25,9 @@ def get_supabase() -> Client:
 STATUSES   = ["New Idea","Assigned","WIP","UAT","Completed","Hold/Park","Rejected"]
 PROJECTS   = ["EFS CA-MRO","EFS BA-MRO","EFS BA-LCE","EFS CA-LCE","EFS Controls","EFS Technical Response","Others"]
 CATEGORIES = ["Customer Requirement","Internal"]
-AUTO_CATS  = ["Automation-Personal Productivity","Automation-Process Improvement","Automation-Defined Product and Sales","Automation-Quality Enhancement","AI-Personal Productivity","AI-Process Improvement","AI-Defined Product and Sales"]
+AUTOMATION_CATS = ["Automation-Personal Productivity","Automation-Process Improvement","Automation-Defined Product and Sales","Automation-Quality Enhancement"]
+AI_CATS         = ["AI-Personal Productivity","AI-Process Improvement","AI-Defined Product and Sales"]
+AUTO_CATS  = AUTOMATION_CATS + AI_CATS   # kept for feasibility dropdown (flat list)
 FREQ_MULT  = {"Daily":260,"Weekly":52,"Monthly":12,"Yearly":1}
 REJ_REASONS= ["Technical Rejection","Business Rejection"]
 ROLES_LIST = ["super user","normal user","automation engineer","automation pl","pl/spl"]
@@ -65,14 +67,6 @@ AUTO_CAT_COLORS = {
     "AI-Process Improvement":"#9333ea",
     "AI-Defined Product and Sales":"#0891b2",
 }
-
-# Split for the two-panel Automation / AI breakdown
-AUTOMATION_CATS = [c for c in AUTO_CATS if c.startswith("Automation-")]
-AI_CATS         = [c for c in AUTO_CATS if c.startswith("AI-")]
-
-# Session inactivity timeout (seconds)
-SESSION_TIMEOUT_SECONDS = 300   # 5 minutes
-SESSION_WARNING_AT      = 240   # show warning at 4 minutes (60s left)
 CAT_COLORS = {"Customer Requirement":"#0623E3","Internal":"#0ee95e"}
 
 STATUS_COLORS = {
@@ -392,14 +386,6 @@ def page_header(title: str):
 # ══════════════════════════════════════════════════════════════════════════════
 #  THEME / CSS INJECTION  (no forced page-bg override on any page)
 # ══════════════════════════════════════════════════════════════════════════════
-def _hex_to_rgb(hexcol):
-    h = hexcol.lstrip("#")
-    if len(h) == 3: h = "".join(c*2 for c in h)
-    try:
-        return f"{int(h[0:2],16)},{int(h[2:4],16)},{int(h[4:6],16)}"
-    except Exception:
-        return "227,6,19"
-
 def apply_theme(theme_name):
     t = THEMES.get(theme_name, THEMES["ALTEN Red & Blue"])
     dark_bg = theme_name == "Midnight Dark"
@@ -439,9 +425,7 @@ def apply_theme(theme_name):
     .idea-card{{
         background:{surface};border-radius:12px;padding:14px 16px;
         border:1px solid #e2e8f0;box-shadow:0 2px 8px rgba(0,0,0,.06);margin-bottom:10px;
-        transition:transform .2s ease, box-shadow .2s ease;
     }}
-    .idea-card:hover{{transform:translateY(-2px);box-shadow:0 8px 20px rgba(0,0,0,.12);}}
     .outlook-btn{{
         display:inline-block;background:{t['primary']};color:#fff;
         padding:8px 18px;border-radius:8px;text-decoration:none;
@@ -454,14 +438,9 @@ def apply_theme(theme_name):
     .stButton>button:hover{{opacity:.88;}}
     div[data-testid="stForm"]{{background:{surface};border-radius:12px;padding:12px;}}
     .login-box{{
-        max-width:440px;margin:40px auto;
-        background:linear-gradient(145deg, rgba(255,255,255,.7), rgba(255,255,255,.3));
-        backdrop-filter:blur(16px) saturate(160%);
-        -webkit-backdrop-filter:blur(16px) saturate(160%);
-        border-radius:18px;padding:32px 36px;
-        box-shadow:0 10px 38px rgba(0,0,0,.14);
-        border:1px solid rgba(255,255,255,.45);
-        animation:td-fade-in .5s ease both;
+        max-width:440px;margin:40px auto;background:{surface};border-radius:16px;
+        padding:32px 36px;box-shadow:0 8px 32px rgba(0,0,0,.12);
+        border:1px solid rgba(255,255,255,.08);
     }}
     /* filter bar */
     .filter-bar{{
@@ -470,64 +449,75 @@ def apply_theme(theme_name):
         box-shadow:0 1px 4px rgba(0,0,0,.05);
     }}
 
-    /* ── Premium SaaS / Glassmorphism layer ─────────────────────────── */
-    @keyframes td-fade-in {{
-        from {{opacity:0;transform:translateY(6px);}}
-        to   {{opacity:1;transform:translateY(0);}}
-    }}
-    @keyframes td-glow-pulse {{
-        0%,100%{{box-shadow:0 0 14px rgba({_hex_to_rgb(t['primary'])},.35);}}
-        50%    {{box-shadow:0 0 26px rgba({_hex_to_rgb(t['primary'])},.6);}}
-    }}
-    .td-glass{{
-        background:linear-gradient(145deg, rgba(255,255,255,.65), rgba(255,255,255,.25));
-        backdrop-filter:blur(14px) saturate(160%);
-        -webkit-backdrop-filter:blur(14px) saturate(160%);
-        border:1px solid rgba(255,255,255,.4);
-        border-radius:18px;
-        box-shadow:0 8px 32px rgba(0,0,0,.10);
-        animation:td-fade-in .4s ease both;
-    }}
-    {("" if not dark_bg else """
-    .td-glass{
-        background:linear-gradient(145deg, rgba(30,41,59,.65), rgba(30,41,59,.35));
-        border:1px solid rgba(255,255,255,.08);
-    }
-    """)}
-    .td-gradient-border{{
-        position:relative;border-radius:18px;padding:1.5px;
-        background:linear-gradient(135deg,{t['primary']},{t['secondary']},{t['primary']});
-        background-size:200% 200%;
-        animation:td-border-flow 6s ease infinite;
-    }}
-    @keyframes td-border-flow{{
-        0%{{background-position:0% 50%;}}
-        50%{{background-position:100% 50%;}}
-        100%{{background-position:0% 50%;}}
-    }}
-    .td-gradient-border-inner{{
-        background:{surface};border-radius:16.5px;height:100%;width:100%;
-    }}
-    .td-hover-lift{{transition:transform .22s ease, box-shadow .22s ease;}}
-    .td-hover-lift:hover{{transform:translateY(-3px);box-shadow:0 12px 28px rgba(0,0,0,.16);}}
-    .td-kpi2{{
+    /* ── Premium illustrated KPI card (50/50 split) ─────────────────────── */
+    .kpi-card-v2{{
         display:flex;align-items:center;gap:10px;
         background:{surface};border-radius:16px;padding:12px 14px;
-        border:1px solid rgba(0,0,0,.06);
-        box-shadow:0 4px 16px rgba(0,0,0,.07);
-        transition:transform .2s ease, box-shadow .2s ease;
-        animation:td-fade-in .4s ease both;
+        box-shadow:0 3px 14px rgba(0,0,0,.08);
+        transition:transform .18s ease, box-shadow .18s ease;
+        margin-bottom:8px;min-height:88px;
     }}
-    .td-kpi2:hover{{transform:translateY(-2px);box-shadow:0 10px 24px rgba(0,0,0,.14);}}
-    .td-kpi2-icon{{
-        flex:0 0 44%;display:flex;align-items:center;justify-content:center;
+    .kpi-card-v2:hover{{
+        transform:translateY(-3px);
+        box-shadow:0 10px 28px rgba(0,0,0,.14);
     }}
-    .td-kpi2-body{{flex:1;min-width:0;}}
-    .td-kpi2-val{{font-size:clamp(17px,1.7vw,24px);font-weight:800;line-height:1.1;}}
-    .td-kpi2-lbl{{font-size:clamp(10px,0.9vw,12px);color:#64748b;font-weight:600;margin-top:2px;}}
-    .td-kpi2-sub{{font-size:clamp(9px,0.8vw,10.5px);color:#94a3b8;margin-top:3px;}}
-    .td-trend-up{{color:#059669;font-weight:700;}}
-    .td-trend-down{{color:#dc2626;font-weight:700;}}
+    .kpi-v2-illust{{
+        flex:0 0 42%;max-width:60px;aspect-ratio:1/1;
+        display:flex;align-items:center;justify-content:center;
+        opacity:.92;
+    }}
+    .kpi-v2-content{{flex:1;min-width:0;}}
+    .kpi-v2-value{{font-size:clamp(17px,1.7vw,23px);font-weight:800;line-height:1.1;}}
+    .kpi-v2-label{{font-size:clamp(9px,0.85vw,11px);color:#64748b;font-weight:600;margin-top:2px;}}
+    .kpi-v2-sub{{font-size:clamp(8px,0.7vw,9.5px);color:#94a3b8;margin-top:3px;line-height:1.4;}}
+
+    /* ── Glassmorphism category panel (Automation / AI breakdown) ──────── */
+    .glass-panel{{
+        background:rgba(255,255,255,.55);
+        backdrop-filter:blur(14px) saturate(160%);
+        -webkit-backdrop-filter:blur(14px) saturate(160%);
+        border-radius:20px;border:1px solid rgba(255,255,255,.4);
+        padding:18px 16px;box-shadow:0 8px 30px rgba(0,0,0,.10);
+        position:relative;overflow:hidden;
+    }}
+    .glass-panel::before{{
+        content:"";position:absolute;inset:0;border-radius:20px;padding:1.5px;
+        background:linear-gradient(135deg,{t['primary']},{t['secondary']},transparent 70%);
+        -webkit-mask:linear-gradient(#fff 0 0) content-box,linear-gradient(#fff 0 0);
+        -webkit-mask-composite:xor;mask-composite:exclude;
+        opacity:.55;pointer-events:none;
+    }}
+    .glass-panel-title{{
+        font-size:clamp(14px,1.3vw,18px);font-weight:800;margin-bottom:4px;
+        display:flex;align-items:center;gap:8px;
+    }}
+    .cat-pill{{
+        display:block;width:100%;text-align:left;
+        background:rgba(255,255,255,.5);border:1.5px solid rgba(255,255,255,.6);
+        border-radius:12px;padding:9px 12px;margin-bottom:7px;cursor:pointer;
+        font-size:clamp(10px,0.95vw,12px);font-weight:600;
+        transition:all .2s ease;position:relative;
+    }}
+    .cat-pill:hover{{
+        background:rgba(255,255,255,.8);transform:translateX(3px);
+        box-shadow:0 4px 14px rgba(0,0,0,.10);
+    }}
+    .cat-pill.selected{{
+        background:linear-gradient(135deg,var(--cat-color,#1a4fad),transparent);
+        color:#fff;border-color:var(--cat-color,#1a4fad);
+        box-shadow:0 0 0 3px color-mix(in srgb, var(--cat-color,#1a4fad) 25%, transparent),
+                   0 6px 18px color-mix(in srgb, var(--cat-color,#1a4fad) 45%, transparent);
+    }}
+    .cat-insight-card{{
+        background:rgba(255,255,255,.65);border-radius:14px;padding:14px 16px;
+        margin-top:8px;box-shadow:inset 0 0 0 1.5px rgba(255,255,255,.6),0 4px 16px rgba(0,0,0,.08);
+    }}
+    .cat-insight-grid{{
+        display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px;
+    }}
+    .cat-insight-stat{{text-align:center;}}
+    .cat-insight-stat .v{{font-size:clamp(13px,1.3vw,17px);font-weight:800;}}
+    .cat-insight-stat .l{{font-size:clamp(7.5px,0.7vw,9px);color:#64748b;font-weight:600;margin-top:1px;}}
     </style>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -535,6 +525,69 @@ def apply_theme(theme_name):
 # ══════════════════════════════════════════════════════════════════════════════
 def ss(key, default=None):
     return st.session_state.get(key, default)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  SESSION TIMEOUT  (inactivity = time since last widget interaction / rerun)
+#  True idle/mouse detection isn't possible in pure Streamlit — every widget
+#  interaction (button, dropdown, form submit, navigation, kanban move, etc.)
+#  triggers a rerun, and that rerun is what resets the timer here.
+# ══════════════════════════════════════════════════════════════════════════════
+SESSION_TIMEOUT_SECONDS = 300   # 5 minutes
+SESSION_WARNING_AT      = 240   # show warning after 4 minutes (60s before logout)
+
+def touch_activity():
+    st.session_state["_last_activity"] = datetime.now()
+
+def seconds_since_activity():
+    last = st.session_state.get("_last_activity")
+    if not last:
+        return 0
+    return (datetime.now() - last).total_seconds()
+
+def enforce_session_timeout():
+    """Call once per page render while logged in. Shows a warning dialog at
+    4 minutes idle, and force-logs-out + clears session at 5 minutes idle."""
+    if "_last_activity" not in st.session_state:
+        touch_activity()
+        return
+
+    idle = seconds_since_activity()
+
+    if idle >= SESSION_TIMEOUT_SECONDS:
+        for k in list(st.session_state.keys()):
+            del st.session_state[k]
+        st.session_state["_session_expired"] = True
+        st.rerun()
+
+    elif idle >= SESSION_WARNING_AT:
+        remaining = int(SESSION_TIMEOUT_SECONDS - idle)
+        with st.container():
+            st.warning(f"⚠️ Your session will expire in **{remaining} seconds** due to inactivity.")
+            wc1, wc2 = st.columns(2)
+            with wc1:
+                if st.button("✅ Continue Session", use_container_width=True, key="_continue_session"):
+                    touch_activity()
+                    st.rerun()
+            with wc2:
+                if st.button("🚪 Logout Now", use_container_width=True, key="_logout_now"):
+                    for k in list(st.session_state.keys()):
+                        del st.session_state[k]
+                    st.rerun()
+
+def render_session_countdown():
+    """Live countdown shown in the sidebar — re-renders on every interaction
+    (covers clicks, dropdowns, form submits, navigation, Kanban moves, etc.)."""
+    idle      = seconds_since_activity()
+    remaining = max(0, int(SESSION_TIMEOUT_SECONDS - idle))
+    mins, secs = divmod(remaining, 60)
+    color = "#dc2626" if remaining <= 60 else ("#b45309" if remaining <= 120 else "#94a3b8")
+    st.markdown(
+        f'<div style="text-align:center;margin-top:6px;">'
+        f'<span style="font-size:9px;color:#64748b;letter-spacing:.5px;">SESSION TIMEOUT</span><br>'
+        f'<span style="font-size:16px;font-weight:800;color:{color};font-family:monospace;">'
+        f'{mins:02d}:{secs:02d}</span></div>',
+        unsafe_allow_html=True
+    )
 
 def logged_in(): return bool(ss("email"))
 def user_role(): return ss("role","")
@@ -558,85 +611,6 @@ def check_login(email, password):
     return row, None
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  AUTO-LOGOUT / SESSION TIMEOUT (5 min inactivity)
-# ══════════════════════════════════════════════════════════════════════════════
-def touch_activity():
-    """Call on every rerun once a user interacts — stamps last-activity time."""
-    st.session_state["_last_activity"] = datetime.now().timestamp()
-
-def seconds_since_activity():
-    last = st.session_state.get("_last_activity")
-    if last is None:
-        return 0
-    return datetime.now().timestamp() - last
-
-def enforce_session_timeout():
-    """Server-side guard: logs the user out if the gap between Streamlit
-    reruns (i.e. real inactivity, since any interaction triggers a rerun)
-    exceeds SESSION_TIMEOUT_SECONDS."""
-    if not logged_in():
-        return
-    if "_last_activity" not in st.session_state:
-        touch_activity()
-        return
-    elapsed = seconds_since_activity()
-    if elapsed >= SESSION_TIMEOUT_SECONDS:
-        for k in ["email","role","name"]:
-            st.session_state.pop(k, None)
-        st.session_state["_session_expired"] = True
-        st.rerun()
-    else:
-        # Any rerun this function reaches means the user did something
-        # (clicked / typed / navigated) — refresh the activity stamp.
-        touch_activity()
-
-def render_session_timer_widget():
-    """Live countdown + inactivity warning, rendered in the sidebar.
-    Pure front-end JS for the visible ticking clock + warning modal;
-    actual logout enforcement is the server-side guard above (a click on
-    'Continue Session' / any control triggers a Streamlit rerun, which
-    resets the server-side timer via touch_activity())."""
-    remaining = max(0, int(SESSION_TIMEOUT_SECONDS - seconds_since_activity()))
-    mins, secs = divmod(remaining, 60)
-    warn = remaining <= (SESSION_TIMEOUT_SECONDS - SESSION_WARNING_AT)
-    color = "#dc2626" if warn else "#94a3b8"
-    st.markdown(f"""
-    <div style="font-size:10px;color:#94a3b8;margin-top:4px;">
-      <b style="color:#cbd5e1;">⏱ Session Timeout</b><br>
-      <span id="td-session-clock" style="font-family:monospace;font-size:14px;
-            font-weight:700;color:{color};">{mins:02d}:{secs:02d}</span>
-    </div>
-    <script>
-    (function(){{
-        let remaining = {remaining};
-        const el = document.getElementById('td-session-clock');
-        if (!el) return;
-        const tick = () => {{
-            if (remaining <= 0) {{ return; }}
-            remaining -= 1;
-            const m = String(Math.floor(remaining/60)).padStart(2,'0');
-            const s = String(remaining%60).padStart(2,'0');
-            el.textContent = m+':'+s;
-            el.style.color = remaining <= 60 ? '#dc2626' : '#94a3b8';
-            setTimeout(tick, 1000);
-        }};
-        setTimeout(tick, 1000);
-    }})();
-    </script>
-    """, unsafe_allow_html=True)
-    if warn and remaining > 0:
-        wmins, wsecs = divmod(remaining, 60)
-        st.warning(f"⚠️ Your session will expire in {remaining} seconds due to inactivity.")
-        wc1, wc2 = st.columns(2)
-        with wc1:
-            if st.button("✅ Continue Session", use_container_width=True, key="_continue_session_btn"):
-                touch_activity(); st.rerun()
-        with wc2:
-            if st.button("🚪 Logout Now", use_container_width=True, key="_logout_now_btn"):
-                for k in ["email","role","name","_last_activity"]: st.session_state.pop(k, None)
-                st.rerun()
-
-# ══════════════════════════════════════════════════════════════════════════════
 #  DASHBOARD HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 def idea_hours(i):
@@ -646,6 +620,7 @@ def idea_hours(i):
     except: return 0
 
 def kpi_card(value, label, color, sub="", icon=""):
+    """Legacy small KPI card — kept for Automation Category Breakdown mini-cards."""
     st.markdown(f"""
     <div class="kpi-card" style="border-left-color:{color}">
       <div style="font-size:clamp(14px,1.4vw,18px);margin-bottom:2px;">{icon}</div>
@@ -654,404 +629,195 @@ def kpi_card(value, label, color, sub="", icon=""):
       {"<div class='kpi-sub'>"+sub+"</div>" if sub else ""}
     </div>""", unsafe_allow_html=True)
 
-# ── Inline SVG illustration library for premium KPI cards ──────────────────
-def _svg_lightbulb(color):
-    return f"""<svg viewBox="0 0 64 64" width="100%" height="56" xmlns="http://www.w3.org/2000/svg">
-      <defs><radialGradient id="bulbGlow" cx="50%" cy="40%" r="60%">
-        <stop offset="0%" stop-color="{color}" stop-opacity="0.55"/>
-        <stop offset="100%" stop-color="{color}" stop-opacity="0"/>
-      </radialGradient></defs>
-      <circle cx="32" cy="26" r="22" fill="url(#bulbGlow)"/>
-      <path d="M32 6c-9.4 0-17 7.6-17 17 0 6.2 3.3 10.4 6.4 13.6 1.6 1.7 2.6 3.5 2.6 5.4v2h16v-2c0-1.9 1-3.7 2.6-5.4 3.1-3.2 6.4-7.4 6.4-13.6 0-9.4-7.6-17-17-17z"
-        fill="none" stroke="{color}" stroke-width="2.5"/>
-      <line x1="26" y1="50" x2="38" y2="50" stroke="{color}" stroke-width="2.5" stroke-linecap="round"/>
-      <line x1="27" y1="55" x2="37" y2="55" stroke="{color}" stroke-width="2.5" stroke-linecap="round"/>
-      <path d="M27 20l5 8 5-8" fill="none" stroke="{color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-    </svg>"""
-
-def _svg_trophy(color):
-    return f"""<svg viewBox="0 0 64 64" width="100%" height="56" xmlns="http://www.w3.org/2000/svg">
-      <path d="M20 10h24v14c0 8-5.4 13-12 13s-12-5-12-13V10z" fill="none" stroke="{color}" stroke-width="2.5"/>
-      <path d="M20 13h-6c0 7 3 11 8 11.5" fill="none" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
-      <path d="M44 13h6c0 7-3 11-8 11.5" fill="none" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
-      <line x1="32" y1="37" x2="32" y2="46" stroke="{color}" stroke-width="2.5"/>
-      <path d="M22 54h20l-3-8H25l-3 8z" fill="none" stroke="{color}" stroke-width="2.5" stroke-linejoin="round"/>
-      <circle cx="32" cy="17" r="5" fill="{color}" opacity="0.18"/>
-    </svg>"""
-
-def _svg_clock(color):
-    return f"""<svg viewBox="0 0 64 64" width="100%" height="56" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="32" cy="34" r="20" fill="none" stroke="{color}" stroke-width="2.5"/>
-      <line x1="32" y1="34" x2="32" y2="21" stroke="{color}" stroke-width="2.5" stroke-linecap="round"/>
-      <line x1="32" y1="34" x2="41" y2="38" stroke="{color}" stroke-width="2.5" stroke-linecap="round"/>
-      <line x1="24" y1="8" x2="29" y2="13" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
-      <line x1="40" y1="8" x2="35" y2="13" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
-      <circle cx="32" cy="34" r="2" fill="{color}"/>
-    </svg>"""
-
-def _svg_growth(color):
-    return f"""<svg viewBox="0 0 64 64" width="100%" height="56" xmlns="http://www.w3.org/2000/svg">
-      <polyline points="8,48 22,34 32,42 56,14" fill="none" stroke="{color}" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
-      <polyline points="44,14 56,14 56,26" fill="none" stroke="{color}" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>
-      <line x1="8" y1="54" x2="56" y2="54" stroke="{color}" stroke-width="2" opacity="0.4"/>
-      <circle cx="22" cy="34" r="2.4" fill="{color}"/>
-      <circle cx="32" cy="42" r="2.4" fill="{color}"/>
-      <circle cx="8" cy="48" r="2.4" fill="{color}"/>
-    </svg>"""
-
-def _svg_folder(color):
-    return f"""<svg viewBox="0 0 64 64" width="100%" height="56" xmlns="http://www.w3.org/2000/svg">
-      <path d="M8 18h16l5 6h27v28a3 3 0 0 1-3 3H11a3 3 0 0 1-3-3V18z" fill="none" stroke="{color}" stroke-width="2.5" stroke-linejoin="round"/>
-      <path d="M8 18v-3a3 3 0 0 1 3-3h11l4 5" fill="none" stroke="{color}" stroke-width="2.5" stroke-linejoin="round"/>
-      <line x1="18" y1="40" x2="46" y2="40" stroke="{color}" stroke-width="2" opacity="0.45"/>
-    </svg>"""
-
-def _svg_robot_arm(color):
-    return f"""<svg viewBox="0 0 64 64" width="100%" height="56" xmlns="http://www.w3.org/2000/svg">
-      <rect x="10" y="48" width="20" height="8" rx="2" fill="none" stroke="{color}" stroke-width="2.3"/>
-      <line x1="18" y1="48" x2="18" y2="36" stroke="{color}" stroke-width="3" stroke-linecap="round"/>
-      <circle cx="18" cy="34" r="3" fill="{color}"/>
-      <line x1="18" y1="34" x2="34" y2="24" stroke="{color}" stroke-width="3" stroke-linecap="round"/>
-      <circle cx="34" cy="22" r="3" fill="{color}"/>
-      <line x1="34" y1="22" x2="48" y2="28" stroke="{color}" stroke-width="3" stroke-linecap="round"/>
-      <path d="M48 28l6-2M48 28l4 5" stroke="{color}" stroke-width="2.4" stroke-linecap="round"/>
-    </svg>"""
-
-def _svg_ai_robot(color):
-    return f"""<svg viewBox="0 0 64 64" width="100%" height="56" xmlns="http://www.w3.org/2000/svg">
-      <rect x="20" y="14" width="24" height="18" rx="6" fill="none" stroke="{color}" stroke-width="2.5"/>
-      <circle cx="27" cy="23" r="2.4" fill="{color}"/>
-      <circle cx="37" cy="23" r="2.4" fill="{color}"/>
-      <line x1="32" y1="8" x2="32" y2="14" stroke="{color}" stroke-width="2.2"/>
-      <circle cx="32" cy="6" r="2.2" fill="{color}"/>
-      <rect x="16" y="34" width="32" height="20" rx="6" fill="none" stroke="{color}" stroke-width="2.5"/>
-      <line x1="16" y1="42" x2="9" y2="42" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
-      <line x1="48" y1="42" x2="55" y2="42" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
-      <line x1="26" y1="54" x2="26" y2="59" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
-      <line x1="38" y1="54" x2="38" y2="59" stroke="{color}" stroke-width="2.2" stroke-linecap="round"/>
-    </svg>"""
-
-KPI_ICON_BUILDERS = {
-    "lightbulb":_svg_lightbulb, "trophy":_svg_trophy, "clock":_svg_clock,
-    "growth":_svg_growth, "folder":_svg_folder, "robot_arm":_svg_robot_arm,
-    "ai_robot":_svg_ai_robot,
+# ── Premium illustrated KPI card (50/50 split: big illustration | value+trend) ──
+KPI_ILLUSTRATIONS = {
+    "total_ideas": """<svg viewBox="0 0 64 64" width="100%" height="100%">
+        <circle cx="32" cy="26" r="16" fill="none" stroke="currentColor" stroke-width="3" opacity=".25"/>
+        <path d="M32 10a16 16 0 0 1 9 29c-1.5 1-2 2.5-2 4v3H25v-3c0-1.5-.5-3-2-4a16 16 0 0 1 9-29z"
+              fill="currentColor" opacity=".9"/>
+        <rect x="25" y="48" width="14" height="4" rx="2" fill="currentColor"/>
+        <rect x="27" y="54" width="10" height="3" rx="1.5" fill="currentColor" opacity=".7"/>
+        <line x1="32" y1="2" x2="32" y2="7" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+        <line x1="12" y1="10" x2="16" y2="14" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".6"/>
+        <line x1="52" y1="10" x2="48" y2="14" stroke="currentColor" stroke-width="3" stroke-linecap="round" opacity=".6"/>
+    </svg>""",
+    "trophy": """<svg viewBox="0 0 64 64" width="100%" height="100%">
+        <path d="M18 10h28v14a14 14 0 0 1-28 0V10z" fill="currentColor" opacity=".9"/>
+        <path d="M18 14h-6a8 8 0 0 0 8 8" fill="none" stroke="currentColor" stroke-width="3"/>
+        <path d="M46 14h6a8 8 0 0 1-8 8" fill="none" stroke="currentColor" stroke-width="3"/>
+        <rect x="29" y="38" width="6" height="10" fill="currentColor"/>
+        <rect x="20" y="48" width="24" height="6" rx="2" fill="currentColor" opacity=".85"/>
+        <circle cx="32" cy="20" r="5" fill="#fff" opacity=".5"/>
+    </svg>""",
+    "clock": """<svg viewBox="0 0 64 64" width="100%" height="100%">
+        <circle cx="32" cy="34" r="22" fill="none" stroke="currentColor" stroke-width="3.5" opacity=".9"/>
+        <line x1="32" y1="34" x2="32" y2="20" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+        <line x1="32" y1="34" x2="42" y2="38" stroke="currentColor" stroke-width="3.5" stroke-linecap="round"/>
+        <rect x="26" y="6" width="12" height="5" rx="2.5" fill="currentColor"/>
+        <circle cx="32" cy="34" r="2.5" fill="currentColor"/>
+    </svg>""",
+    "growth": """<svg viewBox="0 0 64 64" width="100%" height="100%">
+        <polyline points="8,48 22,34 32,42 56,14" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+        <polygon points="56,14 56,24 46,14" fill="currentColor"/>
+        <rect x="8" y="50" width="48" height="3" rx="1.5" fill="currentColor" opacity=".3"/>
+        <circle cx="22" cy="34" r="3" fill="currentColor"/>
+        <circle cx="32" cy="42" r="3" fill="currentColor"/>
+    </svg>""",
+    "robot_arm": """<svg viewBox="0 0 64 64" width="100%" height="100%">
+        <rect x="10" y="46" width="44" height="8" rx="2" fill="currentColor" opacity=".85"/>
+        <rect x="28" y="30" width="8" height="18" rx="2" fill="currentColor"/>
+        <circle cx="32" cy="26" r="7" fill="currentColor" opacity=".9"/>
+        <rect x="32" y="16" width="18" height="6" rx="3" fill="currentColor" transform="rotate(-25 32 19)"/>
+        <circle cx="48" cy="10" r="4" fill="currentColor" opacity=".75"/>
+    </svg>""",
+    "ai_robot": """<svg viewBox="0 0 64 64" width="100%" height="100%">
+        <rect x="18" y="18" width="28" height="24" rx="6" fill="currentColor" opacity=".9"/>
+        <circle cx="27" cy="29" r="3" fill="#fff"/>
+        <circle cx="37" cy="29" r="3" fill="#fff"/>
+        <rect x="26" y="36" width="12" height="2.5" rx="1.25" fill="#fff" opacity=".8"/>
+        <line x1="32" y1="18" x2="32" y2="10" stroke="currentColor" stroke-width="3"/>
+        <circle cx="32" cy="7" r="3.5" fill="currentColor"/>
+        <rect x="10" y="44" width="44" height="6" rx="3" fill="currentColor" opacity=".6"/>
+        <rect x="6" y="24" width="5" height="12" rx="2.5" fill="currentColor" opacity=".7"/>
+        <rect x="53" y="24" width="5" height="12" rx="2.5" fill="currentColor" opacity=".7"/>
+    </svg>""",
+    "folder": """<svg viewBox="0 0 64 64" width="100%" height="100%">
+        <path d="M8 18a4 4 0 0 1 4-4h12l5 6h23a4 4 0 0 1 4 4v24a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V18z"
+              fill="currentColor" opacity=".9"/>
+        <path d="M8 24h48v22a4 4 0 0 1-4 4H12a4 4 0 0 1-4-4V24z" fill="currentColor"/>
+    </svg>""",
 }
 
-def kpi_card2(value, label, color, illustration, sub="", trend=None):
-    """Premium two-column KPI card: large illustration (left ~50%) + value/label/trend (right)."""
-    svg = KPI_ICON_BUILDERS.get(illustration, _svg_lightbulb)(color)
+def premium_kpi_card(value, label, color, sub="", illustration="total_ideas", trend=None):
+    """50/50 illustration | value+trend KPI card."""
     trend_html = ""
     if trend is not None:
         up = trend >= 0
+        tcol = "#059669" if up else "#dc2626"
         arrow = "▲" if up else "▼"
-        cls = "td-trend-up" if up else "td-trend-down"
-        trend_html = f'<div class="{cls}" style="font-size:10.5px;margin-top:3px;">{arrow} {abs(trend):.1f}%</div>'
+        trend_html = f'<div style="font-size:11px;font-weight:700;color:{tcol};margin-top:2px;">{arrow} {abs(trend):.1f}%</div>'
+    svg = KPI_ILLUSTRATIONS.get(illustration, KPI_ILLUSTRATIONS["total_ideas"])
     st.markdown(f"""
-    <div class="td-kpi2 td-hover-lift" style="border-left:4px solid {color};">
-      <div class="td-kpi2-icon">{svg}</div>
-      <div class="td-kpi2-body">
-        <div class="td-kpi2-val" style="color:{color};">{value}</div>
-        <div class="td-kpi2-lbl">{label}</div>
-        {"<div class='td-kpi2-sub'>"+sub+"</div>" if sub else ""}
+    <div class="kpi-card-v2" style="border-top:4px solid {color};">
+      <div class="kpi-v2-illust" style="color:{color};">{svg}</div>
+      <div class="kpi-v2-content">
+        <div class="kpi-v2-value" style="color:{color};">{value}</div>
+        <div class="kpi-v2-label">{label}</div>
+        {f'<div class="kpi-v2-sub">{sub}</div>' if sub else ''}
         {trend_html}
       </div>
     </div>""", unsafe_allow_html=True)
 
+# ── Robotic arm SVG (Automation panel) — arm rotates/points per category idx
 def cnt_cat_status(cat, st_, ideas):
     return len([i for i in ideas if i.get("category")==cat and i.get("status")==st_])
 
 def cnt_cat_wip(ideas, cat):
     return len([i for i in ideas if i.get("category")==cat and i.get("status") in ("WIP","UAT")])
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  AUTOMATION & AI BREAKDOWN — animated robot panels
-# ══════════════════════════════════════════════════════════════════════════════
-def _cat_insights(ideas, ac):
-    sub = [i for i in ideas if i.get("automation_category")==ac]
-    total = len(sub)
-    completed = len([i for i in sub if i.get("status")=="Completed"])
-    wip = len([i for i in sub if i.get("status")=="WIP"])
-    uat = len([i for i in sub if i.get("status")=="UAT"])
-    hrs = round(sum(idea_hours(i) for i in sub),1)
-    roi = round(sum(float(i.get("roi",0) or 0) for i in sub),2)
-    success = round(completed/total*100,1) if total else 0.0
-    return {"total":total,"completed":completed,"wip":wip,"uat":uat,
-            "hrs":hrs,"roi":roi,"success":success}
+CATEGORY_ICONS = {
+    "Automation-Personal Productivity":     "⚙️",
+    "Automation-Process Improvement":       "🔧",
+    "Automation-Defined Product and Sales": "📦",
+    "Automation-Quality Enhancement":       "✅",
+    "AI-Personal Productivity":             "🧠",
+    "AI-Process Improvement":               "🔄",
+    "AI-Defined Product and Sales":         "📊",
+}
 
-def _robot_arm_svg(angle, color, secondary):
-    """Industrial robotic arm; rotates its forearm toward the selected category via `angle` (deg)."""
-    return f"""
-    <svg viewBox="0 0 220 220" width="100%" height="190" style="overflow:visible;">
-      <defs>
-        <linearGradient id="armGrad" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stop-color="{color}"/><stop offset="100%" stop-color="{secondary}"/>
-        </linearGradient>
-        <filter id="armGlow"><feGaussianBlur stdDeviation="3" result="b"/>
-          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      </defs>
-      <!-- base -->
-      <rect x="80" y="178" width="60" height="18" rx="5" fill="url(#armGrad)" opacity="0.9"/>
-      <circle cx="110" cy="178" r="14" fill="{color}" filter="url(#armGlow)"/>
-      <!-- rotating shoulder group -->
-      <g style="transform-origin:110px 178px; transform:rotate({angle}deg); transition:transform 0.9s cubic-bezier(.4,1.4,.4,1);">
-        <line x1="110" y1="178" x2="110" y2="110" stroke="url(#armGrad)" stroke-width="11" stroke-linecap="round"/>
-        <circle cx="110" cy="110" r="9" fill="{secondary}" filter="url(#armGlow)"/>
-        <g style="transform-origin:110px 110px; transform:rotate(-28deg);">
-          <line x1="110" y1="110" x2="168" y2="78" stroke="url(#armGrad)" stroke-width="9" stroke-linecap="round"/>
-          <circle cx="168" cy="78" r="7" fill="{color}"/>
-          <!-- gripper -->
-          <line x1="168" y1="78" x2="184" y2="64" stroke="{secondary}" stroke-width="5" stroke-linecap="round"/>
-          <line x1="168" y1="78" x2="184" y2="90" stroke="{secondary}" stroke-width="5" stroke-linecap="round"/>
-        </g>
-      </g>
-      <ellipse cx="110" cy="200" rx="58" ry="7" fill="{color}" opacity="0.12"/>
-    </svg>"""
+def render_category_panel(panel_title, panel_icon, categories, ideas, state_key, accent_color):
+    """Simple, easy-to-read panel: small icon top-left, category list with
+    counts, and an insight card (Total/Completed/WIP/UAT/Hours/ROI/Success%)
+    for whichever category is selected. No animated character — plain and
+    clear."""
+    if state_key not in st.session_state:
+        st.session_state[state_key] = categories[0]
+    selected = st.session_state[state_key]
+    if selected not in categories:
+        selected = categories[0]
+        st.session_state[state_key] = selected
 
-def _ai_robot_svg(tilt, color, secondary):
-    """Futuristic humanoid AI robot whose head tilts toward the selected AI category."""
-    return f"""
-    <svg viewBox="0 0 220 220" width="100%" height="190" style="overflow:visible;">
-      <defs>
-        <linearGradient id="aiGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stop-color="{secondary}"/><stop offset="100%" stop-color="{color}"/>
-        </linearGradient>
-        <filter id="aiGlow"><feGaussianBlur stdDeviation="3" result="b"/>
-          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      </defs>
-      <!-- torso -->
-      <rect x="78" y="120" width="64" height="64" rx="16" fill="none" stroke="url(#aiGrad)" stroke-width="3"/>
-      <circle cx="110" cy="152" r="14" fill="{color}" opacity="0.18"/>
-      <circle cx="110" cy="152" r="6" fill="{secondary}" filter="url(#aiGlow)"/>
-      <line x1="78" y1="140" x2="58" y2="155" stroke="url(#aiGrad)" stroke-width="6" stroke-linecap="round"/>
-      <line x1="142" y1="140" x2="162" y2="155" stroke="url(#aiGrad)" stroke-width="6" stroke-linecap="round"/>
-      <line x1="92" y1="184" x2="88" y2="206" stroke="url(#aiGrad)" stroke-width="7" stroke-linecap="round"/>
-      <line x1="128" y1="184" x2="132" y2="206" stroke="url(#aiGrad)" stroke-width="7" stroke-linecap="round"/>
-      <!-- head (tilts) -->
-      <g style="transform-origin:110px 112px; transform:rotate({tilt}deg); transition:transform 0.9s cubic-bezier(.4,1.4,.4,1);">
-        <rect x="86" y="78" width="48" height="38" rx="14" fill="none" stroke="url(#aiGrad)" stroke-width="3"/>
-        <circle cx="100" cy="96" r="4.5" fill="{secondary}" filter="url(#aiGlow)"/>
-        <circle cx="120" cy="96" r="4.5" fill="{secondary}" filter="url(#aiGlow)"/>
-        <line x1="110" y1="78" x2="110" y2="66" stroke="url(#aiGrad)" stroke-width="2.4"/>
-        <circle cx="110" cy="62" r="4" fill="{color}" filter="url(#aiGlow)"/>
-      </g>
-      <ellipse cx="110" cy="212" rx="50" ry="6" fill="{color}" opacity="0.12"/>
-    </svg>"""
+    st.markdown(f"""
+    <div class="glass-panel">
+      <div class="glass-panel-title" style="color:{accent_color};">{panel_icon} {panel_title}</div>
+    """, unsafe_allow_html=True)
 
-def render_automation_ai_panels(ideas, t):
-    """Two glassmorphism panels — Automation (robotic arm) & AI (humanoid robot) —
-    with click-to-select category insights."""
-    st.markdown("##### 🤖 Automation &amp; AI Breakdown")
+    for cat in categories:
+        is_sel = (cat == selected)
+        color  = AUTO_CAT_COLORS.get(cat, accent_color)
+        cat_icon  = CATEGORY_ICONS.get(cat, "•")
+        cnt_total = len([i for i in ideas if i.get("automation_category")==cat])
+        if st.button(
+            f"{cat_icon}  {cat.split('-',1)[-1]}   ({cnt_total}) {'●' if is_sel else ''}",
+            key=f"{state_key}_btn_{cat}",
+            use_container_width=True,
+        ):
+            st.session_state[state_key] = cat
+            touch_activity()
+            st.rerun()
 
-    if "_auto_sel" not in st.session_state:
-        st.session_state["_auto_sel"] = AUTOMATION_CATS[0] if AUTOMATION_CATS else None
-    if "_ai_sel" not in st.session_state:
-        st.session_state["_ai_sel"] = AI_CATS[0] if AI_CATS else None
+    # ── Insight card for selected category — icon left, details right ─────
+    cat = selected
+    color = AUTO_CAT_COLORS.get(cat, accent_color)
+    cat_icon    = CATEGORY_ICONS.get(cat, "•")
+    total_c     = len([i for i in ideas if i.get("automation_category")==cat])
+    completed_c = len([i for i in ideas if i.get("automation_category")==cat and i.get("status")=="Completed"])
+    wip_c       = len([i for i in ideas if i.get("automation_category")==cat and i.get("status")=="WIP"])
+    uat_c       = len([i for i in ideas if i.get("automation_category")==cat and i.get("status")=="UAT"])
+    hours_c     = round(sum(idea_hours(i) for i in ideas if i.get("automation_category")==cat), 1)
+    roi_c       = round(sum(float(i.get("roi",0) or 0) for i in ideas if i.get("automation_category")==cat), 1)
+    success_pct = round(completed_c/total_c*100, 1) if total_c else 0.0
 
-    p1, _robot_col, p2 = st.columns([1, 0.52, 1])
-
-    # ── CENTRE: Spline 3D NEXBOT — cursor-reactive ─────────────────────
-    with _robot_col:
-        st.markdown('''
-        <div style="display:flex;flex-direction:column;align-items:center;
-             justify-content:center;height:100%;padding:6px 0 0;">
-          <div style="font-size:9px;font-weight:700;color:#64748b;
-               letter-spacing:2px;text-transform:uppercase;margin-bottom:4px;">
-            NEXBOT
+    st.markdown(f"""
+      <div class="cat-insight-card" style="border-left:4px solid {color};display:flex;gap:14px;align-items:flex-start;">
+        <div style="flex:0 0 auto;font-size:34px;line-height:1;padding-top:2px;">{cat_icon}</div>
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:clamp(11px,1vw,13px);font-weight:700;color:{color};margin-bottom:6px;">
+            {cat}
           </div>
-          <div id="nexbot-wrap"
-               style="width:170px;height:230px;border-radius:18px;overflow:hidden;
-                      box-shadow:0 6px 28px rgba(0,0,0,.22);
-                      background:linear-gradient(160deg,#0f172a 55%,#1e3a5f);
-                      position:relative;">
-            <spline-viewer
-              id="nexbot-spline"
-              url="https://prod.spline.design/kZDDjO5HmRHKWMYo/scene.splinecode"
-              style="width:170px;height:230px;display:block;"
-              loading-anim="true">
-            </spline-viewer>
+          <div class="cat-insight-grid">
+            <div class="cat-insight-stat"><div class="v" style="color:{color};">{total_c}</div><div class="l">TOTAL</div></div>
+            <div class="cat-insight-stat"><div class="v" style="color:#059669;">{completed_c}</div><div class="l">COMPLETED</div></div>
+            <div class="cat-insight-stat"><div class="v" style="color:#0d9488;">{wip_c}</div><div class="l">WIP</div></div>
+            <div class="cat-insight-stat"><div class="v" style="color:#0ea5e9;">{uat_c}</div><div class="l">UAT</div></div>
           </div>
-          <div style="font-size:8px;color:#94a3b8;margin-top:5px;text-align:center;">
-            Hover to interact
+          <div class="cat-insight-grid" style="margin-top:10px;">
+            <div class="cat-insight-stat"><div class="v" style="color:#7c3aed;">{hours_c:,.0f}</div><div class="l">HRS SAVED</div></div>
+            <div class="cat-insight-stat"><div class="v" style="color:#b45309;">{roi_c}</div><div class="l">ROI</div></div>
+            <div class="cat-insight-stat" style="grid-column:span 2;"><div class="v" style="color:{color};">{success_pct}%</div><div class="l">SUCCESS RATE</div></div>
           </div>
         </div>
-
-        <!-- Spline viewer web component -->
-        <script type="module"
-          src="https://unpkg.com/@splinetool/viewer@1.0.77/build/spline-viewer.js">
-        </script>
-
-        <!-- Forward page-level mousemove into the Spline canvas -->
-        <script>
-        (function() {
-          function forwardMouse(e) {
-            var viewer = document.getElementById("nexbot-spline");
-            if (!viewer || !viewer.shadowRoot) return;
-            var canvas = viewer.shadowRoot.querySelector("canvas");
-            if (!canvas) return;
-            var cr  = canvas.getBoundingClientRect();
-            var wrap = document.getElementById("nexbot-wrap");
-            if (!wrap) return;
-            var wr  = wrap.getBoundingClientRect();
-            var nx  = (e.clientX - wr.left) / wr.width;
-            var ny  = (e.clientY - wr.top)  / wr.height;
-            canvas.dispatchEvent(new MouseEvent("mousemove", {
-              clientX: cr.left + nx * cr.width,
-              clientY: cr.top  + ny * cr.height,
-              bubbles: true, cancelable: true
-            }));
-          }
-          document.addEventListener("mousemove", forwardMouse);
-        })();
-        </script>
-        ''', unsafe_allow_html=True)
-
-    # ── LEFT: Automation panel ──────────────────────────────────────────
-    with p1:
-        st.markdown(f"""
-        <div class="td-gradient-border">
-          <div class="td-gradient-border-inner" style="padding:16px 16px 8px;">
-            <div style="font-size:15px;font-weight:800;color:{t['primary']};margin-bottom:4px;
-                 display:flex;align-items:center;gap:6px;">
-              ⚙️ Automation
-            </div>
-        """, unsafe_allow_html=True)
-
-        sel = st.session_state["_auto_sel"]
-        sel_idx = AUTOMATION_CATS.index(sel) if sel in AUTOMATION_CATS else 0
-        angle = -55 + sel_idx * (110 / max(len(AUTOMATION_CATS)-1,1))
-        st.markdown(_robot_arm_svg(angle, t['primary'], t['secondary']), unsafe_allow_html=True)
-
-        btn_cols = st.columns(len(AUTOMATION_CATS))
-        for idx, ac in enumerate(AUTOMATION_CATS):
-            with btn_cols[idx]:
-                short = ac.replace("Automation-","").replace(" ","\n")
-                is_sel = (ac == sel)
-                if st.button(ac.replace("Automation-",""), key=f"auto_btn_{idx}",
-                            use_container_width=True,
-                            type=("primary" if is_sel else "secondary")):
-                    st.session_state["_auto_sel"] = ac
-                    st.rerun()
-
-        ins = _cat_insights(ideas, sel) if sel else {"total":0,"completed":0,"wip":0,"uat":0,"hrs":0,"roi":0,"success":0}
-        st.markdown(f"""
-            <div style="margin-top:10px;padding:10px 12px;border-radius:12px;
-                 background:rgba({_hex_to_rgb(t['primary'])},.07);
-                 border:1px solid rgba({_hex_to_rgb(t['primary'])},.18);">
-              <div style="font-size:11.5px;font-weight:700;color:{t['primary']};margin-bottom:6px;">
-                {sel or '—'}
-              </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:10.5px;">
-                <div><b>{ins['total']}</b><br><span style="color:#64748b;">Total</span></div>
-                <div><b>{ins['completed']}</b><br><span style="color:#64748b;">Completed</span></div>
-                <div><b>{ins['wip']}</b><br><span style="color:#64748b;">WIP</span></div>
-                <div><b>{ins['uat']}</b><br><span style="color:#64748b;">UAT</span></div>
-                <div><b>{ins['hrs']:,.0f}h</b><br><span style="color:#64748b;">Hrs Saved</span></div>
-                <div><b>{ins['roi']}</b><br><span style="color:#64748b;">ROI</span></div>
-              </div>
-              <div style="margin-top:6px;font-size:10.5px;">
-                Success Rate: <b style="color:{t['primary']};">{ins['success']}%</b>
-              </div>
-            </div>
-          </div>
-        </div>""", unsafe_allow_html=True)
-
-    # ── RIGHT: AI panel ─────────────────────────────────────────────────
-    with p2:
-        st.markdown(f"""
-        <div class="td-gradient-border">
-          <div class="td-gradient-border-inner" style="padding:16px 16px 8px;">
-            <div style="font-size:15px;font-weight:800;color:{t['secondary']};margin-bottom:4px;
-                 display:flex;align-items:center;gap:6px;">
-              🧠 AI
-            </div>
-        """, unsafe_allow_html=True)
-
-        sel_ai = st.session_state["_ai_sel"]
-        sel_ai_idx = AI_CATS.index(sel_ai) if sel_ai in AI_CATS else 0
-        tilt = -18 + sel_ai_idx * (36 / max(len(AI_CATS)-1,1))
-        st.markdown(_ai_robot_svg(tilt, t['secondary'], t['primary']), unsafe_allow_html=True)
-
-        btn_cols2 = st.columns(len(AI_CATS))
-        for idx, ac in enumerate(AI_CATS):
-            with btn_cols2[idx]:
-                is_sel = (ac == sel_ai)
-                if st.button(ac.replace("AI-",""), key=f"ai_btn_{idx}",
-                            use_container_width=True,
-                            type=("primary" if is_sel else "secondary")):
-                    st.session_state["_ai_sel"] = ac
-                    st.rerun()
-
-        ins2 = _cat_insights(ideas, sel_ai) if sel_ai else {"total":0,"completed":0,"wip":0,"uat":0,"hrs":0,"roi":0,"success":0}
-        st.markdown(f"""
-            <div style="margin-top:10px;padding:10px 12px;border-radius:12px;
-                 background:rgba({_hex_to_rgb(t['secondary'])},.07);
-                 border:1px solid rgba({_hex_to_rgb(t['secondary'])},.18);">
-              <div style="font-size:11.5px;font-weight:700;color:{t['secondary']};margin-bottom:6px;">
-                {sel_ai or '—'}
-              </div>
-              <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:10.5px;">
-                <div><b>{ins2['total']}</b><br><span style="color:#64748b;">Total</span></div>
-                <div><b>{ins2['completed']}</b><br><span style="color:#64748b;">Completed</span></div>
-                <div><b>{ins2['wip']}</b><br><span style="color:#64748b;">WIP</span></div>
-                <div><b>{ins2['uat']}</b><br><span style="color:#64748b;">UAT</span></div>
-                <div><b>{ins2['hrs']:,.0f}h</b><br><span style="color:#64748b;">Hrs Saved</span></div>
-                <div><b>{ins2['roi']}</b><br><span style="color:#64748b;">ROI</span></div>
-              </div>
-              <div style="margin-top:6px;font-size:10.5px;">
-                Success Rate: <b style="color:{t['secondary']};">{ins2['success']}%</b>
-              </div>
-            </div>
-          </div>
-        </div>""", unsafe_allow_html=True)
+      </div>
+    </div>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  KANBAN: NATIVE STREAMLIT COLUMN + EXPANDER BOARD
+#  KANBAN: NATIVE STREAMLIT COLUMN + EXPANDER BOARD  (with Parent/Child links)
+#  Note: true HTML5 drag-and-drop card-to-card linking is not supported by
+#  Streamlit's widget model without a custom JS component. Parent/Child
+#  relationships are created via a "Set Parent" dropdown on each card —
+#  same end result (hierarchy, expand/collapse, aggregated metrics) without
+#  a drag gesture.
 # ══════════════════════════════════════════════════════════════════════════════
-# ══════════════════════════════════════════════════════════════════════════════
-#  KANBAN: PARENT/CHILD HIERARCHY BOARD (drag-and-drop + explicit linking)
-# ══════════════════════════════════════════════════════════════════════════════
-def _parent_summary(ideas, parent_id):
-    children = [i for i in ideas if i.get("parent_id")==parent_id]
-    n = len(children)
-    completed = len([c for c in children if c.get("status")=="Completed"])
-    pct = round(completed/n*100,1) if n else 0
-    hrs = round(sum(idea_hours(c) for c in children),1)
-    roi = round(sum(float(c.get("roi",0) or 0) for c in children),2)
-    status_summary = {}
-    for c in children:
-        s = c.get("status","")
-        status_summary[s] = status_summary.get(s,0)+1
-    return {"children":children,"n":n,"pct":pct,"hrs":hrs,"roi":roi,"status_summary":status_summary}
+def _children_of(parent_id, all_ideas):
+    return [i for i in all_ideas if i.get("parent_id") == parent_id]
 
-def _handle_dragdrop_query_params():
-    """Pick up a drag-and-drop link request encoded in the URL query string
-    by the JS layer (?link_child=<id>&link_parent=<id>) and apply it,
-    then clear the params so it only fires once."""
-    qp = st.query_params
-    child_id  = qp.get("link_child")
-    parent_id = qp.get("link_parent")
-    if child_id and parent_id and child_id != parent_id:
-        update_idea(child_id, {"parent_id": parent_id})
-        st.query_params.clear()
-        st.success("🔗 Parent–child relationship created.")
-        st.rerun()
-    elif qp.get("unlink_child"):
-        update_idea(qp.get("unlink_child"), {"parent_id": ""})
-        st.query_params.clear()
-        st.rerun()
+def _parent_summary(parent, all_ideas):
+    kids = _children_of(parent["id"], all_ideas)
+    if not kids:
+        return None
+    n = len(kids)
+    done = len([k for k in kids if k.get("status")=="Completed"])
+    pct  = round(done/n*100, 1) if n else 0
+    roi  = round(sum(float(k.get("roi",0) or 0) for k in kids), 1)
+    hrs  = round(sum(idea_hours(k) for k in kids), 1)
+    return {"children": n, "completion_pct": pct, "roi": roi, "hours": hrs}
 
 def render_kanban_board(ideas):
-    _handle_dragdrop_query_params()
-
-    # Top-level cards = those without a parent (standalone OR parents themselves)
-    top_level = [i for i in ideas if not i.get("parent_id")]
-    all_ids   = {i["id"] for i in ideas}
-
     cols = st.columns(len(STATUSES))
     for col, status in zip(cols, STATUSES):
         color = STATUS_COLORS.get(status,"#888")
         icon  = STATUS_ICONS.get(status,"")
-        count = len([i for i in top_level if i.get("status")==status])
+        count = len([i for i in ideas if i.get("status")==status])
         col.markdown(
             f'<div style="background:{color};color:#fff;border-radius:8px;'
             f'padding:6px 10px;text-align:center;font-size:clamp(10px,0.9vw,12px);font-weight:700;'
@@ -1061,12 +827,10 @@ def render_kanban_board(ideas):
             unsafe_allow_html=True,
         )
 
-    st.markdown(
-        '<div style="font-size:10px;color:#94a3b8;margin:-2px 0 8px;">'
-        '💡 Drag a card onto another card to create a Parent–Child relationship '
-        '(or use <b>Link as Child</b> in the card menu below).</div>',
-        unsafe_allow_html=True,
-    )
+    # Only standalone cards (no parent) get their own Kanban column slot —
+    # children render nested under their parent's card via expand/collapse.
+    top_level = [i for i in ideas if not i.get("parent_id")]
+    id_to_idea = {i["id"]: i for i in ideas}
 
     cols = st.columns(len(STATUSES))
     for col, status in zip(cols, STATUSES):
@@ -1076,96 +840,49 @@ def render_kanban_board(ideas):
             if not bucket:
                 st.caption("_Empty_")
             for idea in bucket:
-                _render_kanban_card(idea, ideas, color, all_ids, depth=0)
+                _render_kanban_card(idea, status, color, ideas, id_to_idea, depth=0)
 
-def _render_kanban_card(idea, all_ideas, color, all_ids, depth=0):
+def _render_kanban_card(idea, status, color, all_ideas, id_to_idea, depth=0):
     eng      = idea.get("assigned_engineer") or ""
     proj     = idea.get("project") or "-"
     delivery = idea.get("delivery_date") or ""
     hold     = idea.get("hold_reason") or ""
     name     = idea.get("name") or "-"
     eng_name = eng.split("@")[0] if "@" in eng else (eng or "—")
-    summary  = _parent_summary(all_ideas, idea["id"])
-    is_parent = summary["n"] > 0
-    label = (idea.get("idea_name") or "No Name")[:26]
-    badge = f" 📁 ({summary['n']})" if is_parent else ""
+    children = _children_of(idea["id"], all_ideas)
+    summary  = _parent_summary(idea, all_ideas)
+    is_parent = bool(children)
+    icon_prefix = "📁 " if is_parent else ("    └ 📄 " if depth>0 else "📄 ")
+    label = icon_prefix + (idea.get("idea_name") or "No Name")[:26]
 
-    # Draggable wrapper — HTML5 drag/drop; on drop, JS rewrites the URL
-    # query string with link_child/link_parent and reloads the parent
-    # frame, which Streamlit picks up via _handle_dragdrop_query_params().
-    drag_html = f"""
-    <div class="td-kanban-card" draggable="true" data-id="{idea['id']}"
-         ondragstart="window.__tdDragId='{idea['id']}';"
-         ondragover="event.preventDefault(); this.style.boxShadow='0 0 0 2px {color}, 0 0 14px {color}';"
-         ondragleave="this.style.boxShadow='';"
-         ondrop="event.preventDefault(); this.style.boxShadow='';
-                 if(window.__tdDragId && window.__tdDragId!=='{idea['id']}'){{
-                   const url = new URL(window.parent.location.href);
-                   url.searchParams.set('link_child', window.__tdDragId);
-                   url.searchParams.set('link_parent', '{idea['id']}');
-                   window.parent.location.href = url.toString();
-                 }}"
-         style="border-left:3px solid {color};padding:6px 8px;margin-bottom:4px;
-                border-radius:8px;background:rgba(0,0,0,0.015);cursor:grab;
-                font-size:11px;transition:box-shadow .15s;">
-      <b>{label}{badge}</b><br>
-      <span style="font-size:9.5px;color:#94a3b8;">📌 {proj} &nbsp;👤 {name} &nbsp;👷 {eng_name}</span>
-    </div>"""
-    st.markdown(drag_html, unsafe_allow_html=True)
-
-    with st.expander(f"{'└─ ' if depth>0 else ''}{label}{badge}", expanded=False):
+    with st.expander(label, expanded=False):
         st.markdown(
             f'<div style="border-left:3px solid {color};padding-left:8px;margin-bottom:6px;">'
-            f'<span style="font-size:11px;color:#64748b;">📌 {proj}</span><br>'
-            f'<span style="font-size:11px;color:#64748b;">👤 {name}</span><br>'
-            f'<span style="font-size:11px;color:#64748b;">👷 {eng_name}</span>'
-            +(f'<br><span style="font-size:10px;color:#0369a1;">📅 {delivery}</span>' if delivery else "")
-            +(f'<br><span style="font-size:10px;color:#b45309;">⏸ {hold[:30]}</span>' if hold else "")
+            f'<span style="font-size:clamp(9px,0.85vw,11px);color:#64748b;">📌 {proj}</span><br>'
+            f'<span style="font-size:clamp(9px,0.85vw,11px);color:#64748b;">👤 {name}</span><br>'
+            f'<span style="font-size:clamp(9px,0.85vw,11px);color:#64748b;">👷 {eng_name}</span>'
+            +(f'<br><span style="font-size:clamp(8px,0.75vw,10px);color:#0369a1;">📅 {delivery}</span>' if delivery else "")
+            +(f'<br><span style="font-size:clamp(8px,0.75vw,10px);color:#b45309;">⏸ {hold[:30]}</span>' if hold else "")
             +f'</div>', unsafe_allow_html=True,
         )
 
-        if is_parent:
+        # ── Parent summary block ──────────────────────────────────────────
+        if summary:
             st.markdown(f"""
-            <div style="background:rgba(0,0,0,.03);border-radius:8px;padding:8px 10px;margin-bottom:6px;font-size:10.5px;">
-              <b>📁 Parent Summary</b><br>
-              Children: <b>{summary['n']}</b> &nbsp;|&nbsp; Completion: <b>{summary['pct']}%</b><br>
-              Hours Saved: <b>{summary['hrs']:,.0f}</b> &nbsp;|&nbsp; ROI: <b>{summary['roi']}</b><br>
-              Status: {', '.join(f"{k}: {v}" for k,v in summary['status_summary'].items())}
+            <div style="background:rgba(124,58,237,.08);border-radius:8px;padding:8px 10px;margin-bottom:8px;
+                 border:1px solid rgba(124,58,237,.18);">
+              <div style="font-size:10px;font-weight:700;color:#7c3aed;margin-bottom:4px;">📁 PARENT SUMMARY</div>
+              <div style="font-size:10px;color:#475569;line-height:1.7;">
+                Children: <b>{summary['children']}</b> &nbsp;|&nbsp;
+                Completion: <b>{summary['completion_pct']}%</b><br>
+                Hours Saved: <b>{summary['hours']:,.0f}</b> &nbsp;|&nbsp;
+                ROI: <b>{summary['roi']}</b>
+              </div>
             </div>""", unsafe_allow_html=True)
-            with st.expander(f"▼ {summary['n']} Child Card(s)", expanded=False):
-                for child in summary["children"]:
-                    _render_kanban_card(child, all_ideas, STATUS_COLORS.get(child.get("status"),"#888"),
-                                        all_ids, depth=depth+1)
-                    cc1, cc2 = st.columns(2)
-                    with cc1:
-                        if st.button("✂️ Make Standalone", key=f"unlink_{child['id']}", use_container_width=True):
-                            update_idea(child["id"], {"parent_id":""}); st.rerun()
-                    with cc2:
-                        other_parents = [i for i in all_ideas if i["id"] != child["id"]
-                                         and i["id"] != idea["id"] and not i.get("parent_id")]
-                        if other_parents:
-                            new_p = st.selectbox("Move to parent", [p["id"] for p in other_parents],
-                                                 format_func=lambda pid: next((p.get("idea_name","?")[:20] for p in other_parents if p["id"]==pid),pid),
-                                                 key=f"moveparent_{child['id']}", label_visibility="collapsed")
-                            if st.button("↪ Move", key=f"movebtn_{child['id']}", use_container_width=True):
-                                update_idea(child["id"], {"parent_id":new_p}); st.rerun()
 
-        # ── Link-as-child control (reliable fallback to drag-and-drop) ────
-        if not idea.get("parent_id"):
-            candidates = [i for i in all_ideas if i["id"] != idea["id"] and i.get("parent_id") != idea["id"]]
-            if candidates:
-                with st.popover("🔗 Link as Child of…", use_container_width=True):
-                    target = st.selectbox("Parent card", [c["id"] for c in candidates],
-                                          format_func=lambda cid: next((c.get("idea_name","?")[:30] for c in candidates if c["id"]==cid),cid),
-                                          key=f"linkparent_{idea['id']}")
-                    if st.button("Link", key=f"linkbtn_{idea['id']}"):
-                        update_idea(idea["id"], {"parent_id":target}); st.rerun()
-        else:
-            if st.button("✂️ Remove Relationship (make standalone)", key=f"rmrel_{idea['id']}", use_container_width=True):
-                update_idea(idea["id"], {"parent_id":""}); st.rerun()
-
+        # ── Status update ──────────────────────────────────────────────────
         new_status = st.selectbox("Move to", STATUSES,
-                                  index=STATUSES.index(idea.get("status","New Idea")) if idea.get("status") in STATUSES else 0,
+                                  index=STATUSES.index(status),
                                   key=f"kanban_sel_{idea['id']}",
                                   label_visibility="collapsed")
         hold_input = ""
@@ -1180,10 +897,48 @@ def _render_kanban_card(idea, all_ideas, color, all_ids, depth=0):
                     upd["completion_date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                 upd["hold_reason"] = hold_input if new_status=="Hold/Park" else ""
                 update_idea(idea["id"], upd)
+                touch_activity()
                 st.rerun()
+
+        # ── Parent/Child relationship controls ───────────────────────────
+        st.markdown('<div style="font-size:10px;font-weight:700;color:#64748b;margin-top:10px;">🔗 RELATIONSHIP</div>', unsafe_allow_html=True)
+        candidate_parents = [i for i in all_ideas
+                             if i["id"] != idea["id"]
+                             and i.get("parent_id") != idea["id"]   # can't parent your own child
+                             and not i.get("parent_id")              # parents must be top-level themselves (no grandparents)
+                             ]
+        parent_opts = {"— None (standalone) —": ""}
+        for p in candidate_parents:
+            parent_opts[f"{p.get('idea_name','(no name)')[:30]}"] = p["id"]
+
+        current_parent_id = idea.get("parent_id","") or ""
+        current_label = next((k for k,v in parent_opts.items() if v == current_parent_id), "— None (standalone) —")
+
+        new_parent_label = st.selectbox(
+            "Link as Child of", list(parent_opts.keys()),
+            index=list(parent_opts.keys()).index(current_label) if current_label in parent_opts else 0,
+            key=f"parent_sel_{idea['id']}", label_visibility="collapsed",
+        )
+        if st.button("🔗 Apply Relationship", key=f"parent_btn_{idea['id']}", use_container_width=True):
+            new_parent_id = parent_opts[new_parent_label]
+            update_idea(idea["id"], {"parent_id": new_parent_id})
+            touch_activity()
+            if new_parent_id:
+                st.success(f"Linked as child of '{new_parent_label}'.")
+            else:
+                st.success("Converted to standalone card.")
+            st.rerun()
+
+        # ── Nested children (expand/collapse) ────────────────────────────
+        if children:
+            show_kids = st.checkbox(f"▼ Show {len(children)} Child Card(s)", key=f"expand_{idea['id']}", value=False)
+            if show_kids:
+                for child in children:
+                    child_status = child.get("status", "New Idea")
+                    child_color  = STATUS_COLORS.get(child_status, "#888")
+                    _render_kanban_card(child, child_status, child_color, all_ideas, id_to_idea, depth=depth+1)
+
         st.divider()
-
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PAGE: LOGIN
@@ -1624,50 +1379,8 @@ def page_dashboard():
         st.info("No ideas yet.")
         render_copyright(); return
 
-    # ── LIVE USER STATS — top-right badge ────────────────────────────────
-    users            = get_users()
-    total_registered = len(users)
-    # Track active sessions via Supabase heartbeat table.
-    # Table DDL (run once in Supabase SQL editor if needed):
-    #   CREATE TABLE IF NOT EXISTS active_sessions (
-    #     email text PRIMARY KEY, last_seen timestamptz DEFAULT now());
-    active_count = 1
-    try:
-        sb       = get_supabase()
-        my_email = ss("email","")
-        now_ts   = datetime.utcnow().isoformat()
-        cutoff   = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
-        if my_email:
-            sb.table("active_sessions").upsert(
-                {"email": my_email, "last_seen": now_ts},
-                on_conflict="email"
-            ).execute()
-        resp = sb.table("active_sessions").select("email").gte("last_seen", cutoff).execute()
-        active_count = len(resp.data or [])
-    except Exception:
-        pass   # table may not exist yet — fall back to 1
-
-    _hdr_left, _hdr_right = st.columns([5, 1])
-    with _hdr_right:
-        st.markdown(
-            f'<div style="background:linear-gradient(135deg,#1a4fad,#0ea5e9);'
-            f'border-radius:14px;padding:10px 14px;text-align:center;'
-            f'box-shadow:0 3px 14px rgba(26,79,173,.28);margin-bottom:8px;">'
-            f'<div style="display:flex;gap:16px;justify-content:center;align-items:center;">'
-            f'  <div>'
-            f'    <div style="font-size:9px;color:rgba(255,255,255,.75);letter-spacing:.5px;text-transform:uppercase;">👥 Registered</div>'
-            f'    <div style="font-size:22px;font-weight:800;color:#fff;line-height:1.1;">{total_registered}</div>'
-            f'  </div>'
-            f'  <div style="width:1px;height:36px;background:rgba(255,255,255,.25);"></div>'
-            f'  <div>'
-            f'    <div style="font-size:9px;color:rgba(255,255,255,.75);letter-spacing:.5px;text-transform:uppercase;">🟢 Active</div>'
-            f'    <div style="font-size:22px;font-weight:800;color:#4ade80;line-height:1.1;">{active_count}</div>'
-            f'  </div>'
-            f'</div></div>',
-            unsafe_allow_html=True
-        )
-
     # ── FILTER BAR ────────────────────────────────────────────────────────
+    users    = get_users()
     all_pls  = sorted({i.get("pl_name","") for i in all_ideas_raw if i.get("pl_name","")})
     all_regs = sorted({i.get("region","")   for i in all_ideas_raw if i.get("region","")})
     all_cats = CATEGORIES
@@ -1726,27 +1439,51 @@ def page_dashboard():
     int_cnt   = cnt_cat("Internal")
     completed = cnt("Completed")
 
-    # ── ROW 1: KPI Cards (premium two-column illustrated) ──────────────────
+    # ── ROW 1: Premium Illustrated KPI Cards ───────────────────────────────
     st.markdown("##### 📦 Key Metrics")
+    auto_total_ideas = len([i for i in ideas if i.get("automation_category") in AUTOMATION_CATS])
+    ai_total_ideas   = len([i for i in ideas if i.get("automation_category") in AI_CATS])
+    proj_count       = len({i.get("project","") for i in ideas if i.get("project")})
+
     c1,c2,c3,c4 = st.columns(4)
     with c1:
-        kpi_card2(total,"Total Ideas","#1a4fad","lightbulb",
-                  f"{completed} completed · {cnt('Rejected')} rejected")
+        premium_kpi_card(total, "Total Ideas", "#1a4fad",
+                          f"{completed} completed · {cnt('Rejected')} rejected", "total_ideas")
     with c2:
-        kpi_card2(completed,"Completed","#059669","trophy",
-                  f"{round(completed/total*100,1) if total else 0}% completion rate")
+        premium_kpi_card(completed, "Completed", "#059669",
+                          f"{round(completed/total*100,1) if total else 0}% completion rate", "trophy")
     with c3:
-        kpi_card2(f"{cust_hrs:,.0f} hrs","Customer Hrs Saved / yr","#00498F","clock",
-                  f"ROI {cust_roi} · {cust_cnt} ideas · WIP {cnt('WIP')}")
+        premium_kpi_card(f"{cust_hrs+int_hrs:,.0f} hrs", "Total Hrs Saved / yr", "#0d9488",
+                          f"Customer {cust_hrs:,.0f} · Internal {int_hrs:,.0f}", "clock")
     with c4:
-        kpi_card2(f"{int_hrs:,.0f} hrs","Internal Hrs Saved / yr","#0ea5e9","growth",
-                  f"ROI {int_roi} · {int_cnt} ideas · UAT {cnt('UAT')}")
+        premium_kpi_card(round(cust_roi+int_roi,1), "Total ROI", "#b45309",
+                          f"Customer {cust_roi} · Internal {int_roi}", "growth")
 
-    # ── ROW 2: Automation & AI Breakdown (animated robot panels) ──────────
-    t_cur = THEMES.get(ss("theme"), THEMES["ALTEN Red & Blue"])
-    render_automation_ai_panels(ideas, t_cur)
+    c5,c6,c7,c8 = st.columns(4)
+    with c5:
+        premium_kpi_card(proj_count, "Active Projects", "#9333ea",
+                          f"Across {len(set(i.get('region','') for i in ideas if i.get('region')))} region(s)", "folder")
+    with c6:
+        premium_kpi_card(auto_total_ideas, "Automation Ideas", "#1a4fad",
+                          f"{len(AUTOMATION_CATS)} sub-categories tracked", "robot_arm")
+    with c7:
+        premium_kpi_card(ai_total_ideas, "AI Ideas", "#0369a1",
+                          f"{len(AI_CATS)} sub-categories tracked", "ai_robot")
+    with c8:
+        premium_kpi_card(f"{cust_hrs:,.0f} hrs", "Customer Hrs Saved / yr", "#00498F",
+                          f"ROI {cust_roi} · {cust_cnt} ideas", "clock")
 
-    # ── ROW 3: Charts row (Status + Project + Customer+Region combo pies) ─
+    # ── ROW 2: Automation & AI Breakdown — simple icon + details panels ────
+    st.markdown("##### 🤖 Automation &amp; AI Category Breakdown")
+    pa, pb = st.columns(2)
+    with pa:
+        render_category_panel("Automation", "⚙️", AUTOMATION_CATS, ideas,
+                              "_sel_automation_cat", "#1a4fad")
+    with pb:
+        render_category_panel("AI", "🧠", AI_CATS, ideas,
+                              "_sel_ai_cat", "#0369a1")
+
+    # ── ROW 3: Charts row (Status BAR chart + Customer pie + clean Hours/Project) ─
     st.markdown("##### 📈 Charts")
     ch1, ch2, ch3 = st.columns(3)
 
@@ -1759,14 +1496,13 @@ def page_dashboard():
             "tooltip":{"trigger":"axis","axisPointer":{"type":"shadow"}},
             "grid":{"left":"3%","right":"4%","bottom":"22%","containLabel":True},
             "xAxis":{"type":"category","data":status_labels,
-                     "axisLabel":{"rotate":28,"fontSize":8,"interval":0}},
+                     "axisLabel":{"rotate":30,"fontSize":8,"interval":0}},
             "yAxis":{"type":"value","name":"Ideas","nameTextStyle":{"fontSize":8}},
             "series":[{
                 "type":"bar","data":[{"value":v,"itemStyle":{"color":c}} for v,c in zip(status_vals,status_cols)],
-                "label":{"show":True,"position":"top","fontSize":9,"fontWeight":"bold"},
-                "barMaxWidth":30,
-                "animationDuration":700,"animationEasing":"cubicOut",
-            }],
+                "barMaxWidth":34,"animationDuration":700,"animationEasing":"elasticOut",
+                "label":{"show":True,"position":"top","fontSize":9,"fontWeight":700},
+            }]
         }, height="220px")
 
     with ch2:
@@ -1791,11 +1527,16 @@ def page_dashboard():
 
     with ch3:
         st.markdown("<span style='font-size:clamp(10px,1vw,13px);font-weight:600;'>Hours Saved by Project</span>", unsafe_allow_html=True)
-        proj_hrs_raw = {}
+        proj_hrs = {}
         for i in ideas:
-            proj_hrs_raw[i.get("project","Other")] = proj_hrs_raw.get(i.get("project","Other"),0)+idea_hours(i)
-        # Only display projects with a real, positive, valid Hours-Saved value
-        proj_hrs = {k:v for k,v in proj_hrs_raw.items() if v and v > 0}
+            h = idea_hours(i)
+            if not h or h <= 0:           # skip NULL / zero / invalid hours
+                continue
+            proj = i.get("project","")
+            if not proj:                  # skip missing project too
+                continue
+            proj_hrs[proj] = proj_hrs.get(proj, 0) + h
+        proj_hrs = {k: v for k, v in proj_hrs.items() if v and v > 0}
         if proj_hrs:
             st_echarts({
                 "tooltip":{"trigger":"axis"},
@@ -2072,10 +1813,10 @@ def main():
     if override == "change_password": page_change_password(); return
     if not logged_in():           page_login(); return
 
-    # ── Enterprise session timeout (5 min inactivity) ──────────────────────
+    # ── Session timeout check (every rerun = activity signal) ─────────────
+    touch_activity_flag = True  # any page render past this point counts as activity
     enforce_session_timeout()
-    if not logged_in():   # logged out by the guard above
-        page_login(); return
+    touch_activity()
 
     t = THEMES.get(ss("theme"), THEMES["ALTEN Red & Blue"])
     with st.sidebar:
@@ -2123,15 +1864,15 @@ def main():
         if chosen != ss("theme"):
             st.session_state["theme"] = chosen; st.rerun()
 
+        st.divider()
+        render_session_countdown()
+
         st.markdown("---")
         st.markdown(
             f'<p style="font-size:10px;color:#64748b;">Queries?<br>'
             f'<a href="mailto:{SUPPORT_EMAIL}" style="color:#00AEEF;">{SUPPORT_NAME}</a></p>',
             unsafe_allow_html=True
         )
-
-        st.divider()
-        render_session_timer_widget()
 
     if   current_page == "Dashboard":     page_dashboard()
     elif current_page == "Submit Idea":   page_submit()
