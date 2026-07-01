@@ -1379,8 +1379,45 @@ def page_dashboard():
         st.info("No ideas yet.")
         render_copyright(); return
 
+    # ── LIVE USER STATS — top-right badge ────────────────────────────────
+    users            = get_users()
+    total_registered = len(users)
+    active_count     = 1
+    try:
+        sb       = get_supabase()
+        my_email = ss("email","")
+        now_ts   = datetime.utcnow().isoformat()
+        cutoff   = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
+        if my_email:
+            sb.table("active_sessions").upsert(
+                {"email": my_email, "last_seen": now_ts}, on_conflict="email"
+            ).execute()
+        resp = sb.table("active_sessions").select("email").gte("last_seen", cutoff).execute()
+        active_count = len(resp.data or [])
+    except Exception:
+        pass
+
+    _bl, _br = st.columns([5, 1])
+    with _br:
+        st.markdown(
+            f'<div style="background:linear-gradient(135deg,#1a4fad,#0ea5e9);'
+            f'border-radius:14px;padding:10px 14px;text-align:center;'
+            f'box-shadow:0 3px 16px rgba(26,79,173,.3);margin-bottom:8px;">'
+            f'<div style="display:flex;gap:16px;justify-content:center;align-items:center;">'
+            f'<div>'
+            f'<div style="font-size:9px;color:rgba(255,255,255,.8);letter-spacing:.6px;text-transform:uppercase;font-weight:600;">👥 Registered</div>'
+            f'<div style="font-size:22px;font-weight:800;color:#fff;line-height:1.1;">{total_registered}</div>'
+            f'</div>'
+            f'<div style="width:1px;height:36px;background:rgba(255,255,255,.3);"></div>'
+            f'<div>'
+            f'<div style="font-size:9px;color:rgba(255,255,255,.8);letter-spacing:.6px;text-transform:uppercase;font-weight:600;">🟢 Active</div>'
+            f'<div style="font-size:22px;font-weight:800;color:#4ade80;line-height:1.1;">{active_count}</div>'
+            f'</div>'
+            f'</div></div>',
+            unsafe_allow_html=True
+        )
+
     # ── FILTER BAR ────────────────────────────────────────────────────────
-    users    = get_users()
     all_pls  = sorted({i.get("pl_name","") for i in all_ideas_raw if i.get("pl_name","")})
     all_regs = sorted({i.get("region","")   for i in all_ideas_raw if i.get("region","")})
     all_cats = CATEGORIES
@@ -1473,9 +1510,107 @@ def page_dashboard():
         premium_kpi_card(f"{cust_hrs:,.0f} hrs", "Customer Hrs Saved / yr", "#00498F",
                           f"ROI {cust_roi} · {cust_cnt} ideas", "clock")
 
-    # ── ROW 2: Automation & AI Breakdown — simple icon + details panels ────
+    # ── ROW 2: Automation | NEXBOT | AI breakdown ─────────────────────────
     st.markdown("##### 🤖 Automation &amp; AI Category Breakdown")
-    pa, pb = st.columns(2)
+    pa, _nexbot_col, pb = st.columns([1, 0.55, 1])
+
+    # ── CENTRE: Spline 3D NEXBOT — cursor-reactive ─────────────────────
+    with _nexbot_col:
+        st.markdown('''
+        <style>
+        #nexbot-outer {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            width: 100%;
+            padding: 6px 0 0;
+        }
+        #nexbot-label {
+            font-size: 9px;
+            font-weight: 700;
+            color: #64748b;
+            letter-spacing: 2.5px;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        #nexbot-wrap {
+            width: 168px;
+            height: 240px;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 8px 32px rgba(0,0,0,.28), 0 0 0 1px rgba(255,255,255,.06);
+            background: linear-gradient(160deg, #0a0f1e 55%, #0d2a4a);
+            position: relative;
+            cursor: crosshair;
+        }
+        #nexbot-caption {
+            font-size: 8px;
+            color: #94a3b8;
+            margin-top: 5px;
+            text-align: center;
+        }
+        </style>
+
+        <!-- Spline viewer web component loader -->
+        <script type="module"
+            src="https://unpkg.com/@splinetool/viewer@1.0.77/build/spline-viewer.js">
+        </script>
+
+        <div id="nexbot-outer">
+          <div id="nexbot-label">NEXBOT</div>
+          <div id="nexbot-wrap">
+            <spline-viewer
+              id="nexbot-spline"
+              url="https://prod.spline.design/kZDDjO5HmRHKWMYo/scene.splinecode"
+              style="width:168px;height:240px;display:block;"
+              loading-anim="true">
+            </spline-viewer>
+          </div>
+          <div id="nexbot-caption">Move cursor to interact</div>
+        </div>
+
+        <!-- Forward page mousemove into Spline canvas shadow root -->
+        <script>
+        (function () {
+            var lastRaf = 0;
+            document.addEventListener("mousemove", function (e) {
+                var now = Date.now();
+                if (now - lastRaf < 16) return;   // ~60 fps throttle
+                lastRaf = now;
+
+                var wrap = document.getElementById("nexbot-wrap");
+                if (!wrap) return;
+                var viewer = document.getElementById("nexbot-spline");
+                if (!viewer) return;
+
+                // Try shadow root first (standard Spline viewer)
+                var root   = viewer.shadowRoot || viewer;
+                var canvas = root.querySelector("canvas");
+                if (!canvas) return;
+
+                var wr = wrap.getBoundingClientRect();
+                var cr = canvas.getBoundingClientRect();
+
+                // Map cursor position relative to wrap → canvas coords
+                var nx = (e.clientX - wr.left) / Math.max(wr.width, 1);
+                var ny = (e.clientY - wr.top)  / Math.max(wr.height, 1);
+                var cx = cr.left + nx * cr.width;
+                var cy = cr.top  + ny * cr.height;
+
+                // Dispatch both pointermove and mousemove — Spline uses both
+                ["pointermove","mousemove"].forEach(function(evtName) {
+                    canvas.dispatchEvent(new MouseEvent(evtName, {
+                        clientX: cx, clientY: cy,
+                        bubbles: true, cancelable: true,
+                        view: window
+                    }));
+                });
+            });
+        })();
+        </script>
+        ''', unsafe_allow_html=True)
+
     with pa:
         render_category_panel("Automation", "⚙️", AUTOMATION_CATS, ideas,
                               "_sel_automation_cat", "#1a4fad")
