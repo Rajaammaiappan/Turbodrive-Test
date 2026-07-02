@@ -9,8 +9,8 @@ from supabase import create_client, Client
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIG / CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
-SUPABASE_URL = ""
-SUPABASE_KEY = ""
+SUPABASE_URL = "https://mvoxhdbcxmmozulenlvh.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12b3hoZGJjeG1tb3p1bGVubHZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MTczNDIsImV4cCI6MjA5NDQ5MzM0Mn0.6Fhrqo6sfMnO3KklN5dwLup0BVbp0_ga8k5hi3LgXQU"
 
 @st.cache_resource
 def get_supabase() -> Client:
