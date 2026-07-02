@@ -570,8 +570,8 @@ def ss(key, default=None):
 #  interaction (button, dropdown, form submit, navigation, kanban move, etc.)
 #  triggers a rerun, and that rerun is what resets the timer here.
 # ══════════════════════════════════════════════════════════════════════════════
-SESSION_TIMEOUT_SECONDS = 600   # 5 minutes
-SESSION_WARNING_AT      = 400   # show warning after 4 minutes (60s before logout)
+SESSION_TIMEOUT_SECONDS = 300   # 5 minutes
+SESSION_WARNING_AT      = 240   # show warning after 4 minutes (60s before logout)
 
 def touch_activity():
     st.session_state["_last_activity"] = datetime.now()
@@ -1071,6 +1071,24 @@ def page_submit():
     sub_email = st.text_input("Your Email", value=ss("email",""))
     idea_name = st.text_input("Idea Name *", placeholder="Short title for the idea")
     idea_desc = st.text_area("Idea Description *", placeholder="Describe the automation idea in detail")
+
+    SHAREPOINT_ATTACH_URL = ("https://altengroup.sharepoint.com/sites/Rolls-RoyceGlobalEfS/Production/Forms/AllItems.aspx?"
+                              "id=%2Fsites%2FRolls%2DRoyceGlobalEfS%2FProduction%2F25%2E%20EFS%20Continuous%20Improvements%2FTurbo%20Drive"
+                              "&viewid=f000ae74%2De644%2D4a79%2D8bb3%2D974be51b1c53"
+                              "&viewpath=%2Fsites%2FRolls%2DRoyceGlobalEfS%2FProduction%2FForms%2FAllItems%2Easpx")
+    st.markdown("**Attachments (optional)**")
+    st.markdown(f"""
+    <div onclick="window.open('{SHAREPOINT_ATTACH_URL}','_blank')"
+         ondragover="event.preventDefault(); this.style.borderColor='#00AEEF';"
+         ondragleave="this.style.borderColor='#94a3b8';"
+         ondrop="event.preventDefault(); window.open('{SHAREPOINT_ATTACH_URL}','_blank');"
+         style="border:2px dashed #94a3b8;border-radius:10px;padding:18px;text-align:center;
+                cursor:pointer;color:#64748b;font-size:13px;background:rgba(148,163,184,.06);
+                transition:border-color .15s;">
+        📎 <b>Click to browse or drop files here</b><br>
+        <span style="font-size:11px;">You'll be redirected to the SharePoint folder to upload attachments</span>
+    </div>
+    """, unsafe_allow_html=True)
 
     sel_otp = st.selectbox(
         "OTP *", otp_options, key="submit_otp_select",
