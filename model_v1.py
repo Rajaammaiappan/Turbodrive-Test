@@ -798,14 +798,19 @@ def render_category_panel(panel_title, panel_icon, categories, ideas, state_key,
 #  same end result (hierarchy, expand/collapse, aggregated metrics) without
 #  a drag gesture.
 # ══════════════════════════════════════════════════════════════════════════════
-# ══════════════════════════════════════════════════════════════════════════════
-#  KANBAN BOARD — visual parent/child tagging via session_state only.
-#  No DB column needed. Tags reset on page refresh (visual grouping only).
-# ══════════════════════════════════════════════════════════════════════════════
-def _kanban_tags():
-    if "_kanban_tags" not in st.session_state:
-        st.session_state["_kanban_tags"] = {}
-    return st.session_state["_kanban_tags"]
+def _children_of(parent_id, all_ideas):
+    return [i for i in all_ideas if i.get("parent_id") == parent_id]
+
+def _parent_summary(parent, all_ideas):
+    kids = _children_of(parent["id"], all_ideas)
+    if not kids:
+        return None
+    n = len(kids)
+    done = len([k for k in kids if k.get("status")=="Completed"])
+    pct  = round(done/n*100, 1) if n else 0
+    roi  = round(sum(float(k.get("roi",0) or 0) for k in kids), 1)
+    hrs  = round(sum(idea_hours(k) for k in kids), 1)
+    return {"children": n, "completion_pct": pct, "roi": roi, "hours": hrs}
 
 def render_kanban_board(ideas):
     cols = st.columns(len(STATUSES))
@@ -821,36 +826,29 @@ def render_kanban_board(ideas):
             f'padding:1px 7px;">{count}</span></div>',
             unsafe_allow_html=True,
         )
-    tags = _kanban_tags()
-    id_map = {i["id"]: i for i in ideas}
-    children_ids = set(tags.keys())
+
+    id_to_idea = {i["id"]: i for i in ideas}
+
     cols = st.columns(len(STATUSES))
     for col, status in zip(cols, STATUSES):
         color  = STATUS_COLORS.get(status,"#888")
-        bucket = [i for i in ideas if i.get("status")==status and i["id"] not in children_ids]
+        bucket = [i for i in ideas if i.get("status")==status]
         with col:
-            if not [i for i in ideas if i.get("status")==status]:
+            if not bucket:
                 st.caption("_Empty_")
             for idea in bucket:
-                _render_kanban_card(idea, status, color, ideas, id_map, tags, depth=0)
+                _render_kanban_card(idea, status, color, ideas, id_to_idea, depth=0)
 
-def _render_kanban_card(idea, status, color, all_ideas, id_map, tags, depth=0):
+def _render_kanban_card(idea, status, color, all_ideas, id_to_idea, depth=0):
     eng      = idea.get("assigned_engineer") or ""
     proj     = idea.get("project") or "-"
     delivery = idea.get("delivery_date") or ""
     hold     = idea.get("hold_reason") or ""
     name     = idea.get("name") or "-"
     eng_name = eng.split("@")[0] if "@" in eng else (eng or "—")
-    iid      = idea["id"]
-    my_children = [id_map[cid] for cid, pid in tags.items() if pid==iid and cid in id_map]
-    is_parent   = bool(my_children)
-    my_parent   = tags.get(iid)
-    if depth > 0:
-        label = "    └ 📄 " + (idea.get("idea_name") or "No Name")[:24]
-    elif is_parent:
-        label = f"📁 {(idea.get('idea_name') or 'No Name')[:24]}  ({len(my_children)} child)"
-    else:
-        label = "📄 " + (idea.get("idea_name") or "No Name")[:26]
+    # Simple label: "Child Card" prefix for nested cards, card icon for top-level
+    label_prefix = "📦 Child Card — " if depth > 0 else "📄 "
+    label = label_prefix + (idea.get("idea_name") or "No Name")[:26]
 
     with st.expander(label, expanded=False):
         st.markdown(
@@ -862,14 +860,16 @@ def _render_kanban_card(idea, status, color, all_ideas, id_map, tags, depth=0):
             +(f'<br><span style="font-size:clamp(8px,0.75vw,10px);color:#b45309;">⏸ {hold[:30]}</span>' if hold else "")
             +f'</div>', unsafe_allow_html=True,
         )
+
+        # ── Status move ────────────────────────────────────────────────────
         new_status = st.selectbox("Move to", STATUSES,
                                   index=STATUSES.index(status),
-                                  key=f"kanban_sel_{iid}",
+                                  key=f"kanban_sel_{idea['id']}",
                                   label_visibility="collapsed")
         hold_input = ""
         if new_status == "Hold/Park":
-            hold_input = st.text_input("Reason *", key=f"kanban_hold_{iid}", placeholder="Hold reason…")
-        if st.button("Update", key=f"kanban_btn_{iid}", use_container_width=True):
+            hold_input = st.text_input("Reason *", key=f"kanban_hold_{idea['id']}", placeholder="Hold reason…")
+        if st.button("Update", key=f"kanban_btn_{idea['id']}", use_container_width=True):
             if new_status == "Hold/Park" and not hold_input:
                 st.error("Enter a hold reason.")
             else:
@@ -877,35 +877,11 @@ def _render_kanban_card(idea, status, color, all_ideas, id_map, tags, depth=0):
                 if new_status == "Completed":
                     upd["completion_date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                 upd["hold_reason"] = hold_input if new_status == "Hold/Park" else ""
-                update_idea(iid, upd)
+                update_idea(idea["id"], upd)
                 touch_activity()
                 st.rerun()
 
-        # Visual parent/child tag (session-state only, no DB write)
-        st.caption("🔗 Group tag (visual, resets on refresh)")
-        other = [i for i in all_ideas if i["id"]!=iid and i["id"] not in [c["id"] for c in my_children]]
-        opts = {"— None (standalone) —":""}
-        for p in other:
-            opts[f"{(p.get('idea_name') or '(no name)')[:32]}"] = p["id"]
-        cur_lbl = next((k for k,v in opts.items() if v==(my_parent or "")), "— None (standalone) —")
-        chosen  = st.selectbox("Tag as child of", list(opts.keys()),
-                               index=list(opts.keys()).index(cur_lbl),
-                               key=f"ptag_{iid}", label_visibility="collapsed")
-        if st.button("🔗 Apply Tag", key=f"ptag_btn_{iid}", use_container_width=True):
-            chosen_pid = opts[chosen]
-            if chosen_pid: tags[iid] = chosen_pid
-            else: tags.pop(iid, None)
-            st.rerun()
-
-        if my_children:
-            show = st.checkbox(f"▼ Show {len(my_children)} child card(s)", key=f"expand_{iid}", value=True)
-            if show:
-                for child in my_children:
-                    cs = child.get("status","New Idea")
-                    cc = STATUS_COLORS.get(cs,"#888")
-                    _render_kanban_card(child, cs, cc, all_ideas, id_map, tags, depth=depth+1)
         st.divider()
-
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PAGE: LOGIN
@@ -1441,54 +1417,48 @@ def page_dashboard():
     int_cnt   = cnt_cat("Internal")
     completed = cnt("Completed")
 
-    # ── ROW 1: Auto-scrolling KPI Ticker ─────────────────────────────────
+    # ── ROW 1: Premium Illustrated KPI Cards ───────────────────────────────
     st.markdown("##### 📦 Key Metrics")
     auto_total_ideas = len([i for i in ideas if i.get("automation_category") in AUTOMATION_CATS])
     ai_total_ideas   = len([i for i in ideas if i.get("automation_category") in AI_CATS])
     proj_count       = len({i.get("project","") for i in ideas if i.get("project")})
+    auto_roi = round(sum(float(i.get("roi",0) or 0) for i in ideas if i.get("automation_category","") in AUTOMATION_CATS),1)
+    ai_roi = round(sum(float(i.get("roi",0) or 0) for i in ideas if i.get("automation_category","") in AI_CATS),1)
 
-    _kpi_items = [
-        {"icon":"💡","val":str(total),        "label":"Total Ideas",         "sub":f"{completed} completed · {cnt('Rejected')} rejected","color":"#1a4fad"},
-        {"icon":"🏆","val":str(completed),    "label":"Completed",            "sub":f"{round(completed/total*100,1) if total else 0}% completion rate","color":"#059669"},
-        {"icon":"⏱", "val":f"{cust_hrs+int_hrs:,.0f} hrs","label":"Total Hrs Saved / yr","sub":f"Customer {cust_hrs:,.0f} · Internal {int_hrs:,.0f}","color":"#0d9488"},
-        {"icon":"📈","val":str(round(cust_roi+int_roi,1)),"label":"Total ROI","sub":f"Customer {cust_roi} · Internal {int_roi}","color":"#b45309"},
-        {"icon":"🤖","val":str(auto_total_ideas),"label":"Automation Ideas", "sub":f"{len(AUTOMATION_CATS)} sub-categories","color":"#7c3aed"},
-        {"icon":"🧠","val":str(ai_total_ideas), "label":"AI Ideas",          "sub":f"{len(AI_CATS)} sub-categories","color":"#0369a1"},
-        {"icon":"📁","val":str(proj_count),    "label":"Active Projects",     "sub":f"Across {len(set(i.get('region','') for i in ideas if i.get('region')))} regions","color":"#9333ea"},
-        {"icon":"⚙️","val":str(cnt('WIP')),   "label":"In Progress (WIP)",   "sub":f"UAT: {cnt('UAT')} · New: {cnt('New Idea')}","color":"#e11d48"},
-    ]
-    # Double the items so the animation loops seamlessly
-    _cards = ""
-    for _it in _kpi_items * 2:
-        _cards += f"""<div style="flex:0 0 210px;min-height:82px;display:flex;align-items:center;
-          gap:12px;padding:14px 16px;border-radius:14px;border-left:4px solid {_it['color']};
-          background:rgba(255,255,255,.06);border-top:1px solid rgba(255,255,255,.1);
-          border-right:1px solid rgba(255,255,255,.08);border-bottom:1px solid rgba(255,255,255,.08);">
-          <div style="font-size:26px;line-height:1;flex-shrink:0;">{_it['icon']}</div>
-          <div>
-            <div style="font-size:22px;font-weight:900;color:{_it['color']};line-height:1.1;">{_it['val']}</div>
-            <div style="font-size:11px;font-weight:700;color:#1e293b;margin-top:1px;">{_it['label']}</div>
-            <div style="font-size:9px;color:#64748b;margin-top:2px;">{_it['sub']}</div>
-          </div></div>"""
-
-    _ticker_html = f"""<!DOCTYPE html><html><head><meta charset="utf-8"/>
-<style>
-*{{margin:0;padding:0;box-sizing:border-box;}}
-html,body{{overflow:hidden;background:transparent;}}
-@keyframes kpiScroll{{
-  0%  {{transform:translateX(0);}}
-  100%{{transform:translateX(-50%);}}
-}}
-#wrap{{overflow:hidden;width:100%;}}
-#ticker{{
-  display:flex;gap:14px;width:max-content;
-  animation:kpiScroll 30s linear infinite;
-}}
-#ticker:hover{{animation-play-state:paused;}}
-</style></head><body>
-<div id="wrap"><div id="ticker">{_cards}</div></div>
-</body></html>"""
-    st.components.v1.html(_ticker_html, height=110, scrolling=False)
+    icon_total = KPI_ILLUSTRATIONS["total_ideas"]
+    icon_completed = KPI_ILLUSTRATIONS["trophy"]
+    icon_hours = KPI_ILLUSTRATIONS["clock"]
+    icon_roi = KPI_ILLUSTRATIONS["growth"]
+    st.markdown(f"""
+    <style>
+      .km-board{{position:relative;overflow:hidden;margin-bottom:22px;border-radius:24px;border:1px solid rgba(255,255,255,.12);background:rgba(15,23,42,.85);box-shadow:0 18px 50px rgba(15,23,42,.25);}}
+      .km-track{{display:flex;gap:12px;width:max-content;animation:km-scroll-left 20s linear infinite;}}
+      .km-copy{{display:flex;gap:12px;}}
+      .km-card{{flex:0 0 250px;min-width:250px;padding:18px 20px;border-radius:18px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);}}
+      .km-icon{{width:40px;height:40px;margin-bottom:14px;}}
+      .km-icon svg{{width:100%;height:100%;}}
+      .km-label{{font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:rgba(255,255,255,.72);margin-bottom:8px;}}
+      .km-value{{font-size:20px;font-weight:800;color:#fff;line-height:1.1;}}
+      .km-sub{{font-size:11px;color:rgba(255,255,255,.68);margin-top:6px;}}
+      @keyframes km-scroll-left{{0%{{transform:translateX(0);}}100%{{transform:translateX(-50%);}}}}
+    </style>
+    <div class="km-board">
+      <div class="km-track">
+        <div class="km-copy">
+          <div class="km-card"><div class="km-icon" style="color:#1a4fad;">{icon_total}</div><div class="km-label">Total Ideas</div><div class="km-value">{total}</div><div class="km-sub">All ideas in the current view</div></div>
+          <div class="km-card"><div class="km-icon" style="color:#059669;">{icon_completed}</div><div class="km-label">Completed</div><div class="km-value">{completed}</div><div class="km-sub">Ideas marked completed</div></div>
+          <div class="km-card"><div class="km-icon" style="color:#0d9488;">{icon_hours}</div><div class="km-label">Total Hrs Saved / yr</div><div class="km-value">{cust_hrs+int_hrs:,.0f}</div><div class="km-sub">Customer + Internal hours</div></div>
+          <div class="km-card"><div class="km-icon" style="color:#b45309;">{icon_roi}</div><div class="km-label">Total ROI</div><div class="km-value">{cust_roi+int_roi}</div><div class="km-sub">Customer + Internal ROI</div></div>
+        </div>
+        <div class="km-copy">
+          <div class="km-card"><div class="km-icon" style="color:#1a4fad;">{icon_total}</div><div class="km-label">Total Ideas</div><div class="km-value">{total}</div><div class="km-sub">All ideas in the current view</div></div>
+          <div class="km-card"><div class="km-icon" style="color:#059669;">{icon_completed}</div><div class="km-label">Completed</div><div class="km-value">{completed}</div><div class="km-sub">Ideas marked completed</div></div>
+          <div class="km-card"><div class="km-icon" style="color:#0d9488;">{icon_hours}</div><div class="km-label">Total Hrs Saved / yr</div><div class="km-value">{cust_hrs+int_hrs:,.0f}</div><div class="km-sub">Customer + Internal hours</div></div>
+          <div class="km-card"><div class="km-icon" style="color:#b45309;">{icon_roi}</div><div class="km-label">Total ROI</div><div class="km-value">{cust_roi+int_roi}</div><div class="km-sub">Customer + Internal ROI</div></div>
+        </div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     # second KPI row removed
 
@@ -1503,6 +1473,14 @@ html,body{{overflow:hidden;background:transparent;}}
     ai_wip     = len([i for i in ideas if i.get("automation_category","") in AI_CATS and i.get("status")=="WIP"])
     auto_roi   = round(sum(float(i.get("roi",0) or 0) for i in ideas if i.get("automation_category","") in AUTOMATION_CATS),1)
     ai_roi     = round(sum(float(i.get("roi",0) or 0) for i in ideas if i.get("automation_category","") in AI_CATS),1)
+
+    selected_category = ""
+    if hasattr(st, "query_params"):
+        qp = st.query_params
+        if qp and qp.get("selected_category"):
+            selected_category = qp.get("selected_category", [""])[0]
+    if selected_category and selected_category not in AUTOMATION_CATS + AI_CATS:
+        selected_category = ""
 
     def _cat_stats(cat):
         subset = [i for i in ideas if i.get("automation_category") == cat]
@@ -1531,22 +1509,26 @@ html,body{{overflow:hidden;background:transparent;}}
     left_category_html = "".join(_category_card(cat) for cat in AUTOMATION_CATS)
     right_category_html = "".join(_category_card(cat) for cat in AI_CATS)
 
-    import json as _json
-    _all_stats = {}
-    for _c in AUTOMATION_CATS + AI_CATS:
-        _t,_cd,_w,_u,_r,_h = _cat_stats(_c)
-        _all_stats[_c] = {"label":_c.split("-",1)[-1],"total":_t,"completed":_cd,"wip":_w,"uat":_u,"roi":_r,"hrs":_h}
-    _cat_stats_json = _json.dumps(_all_stats)
-    selected_category = ""
-    selected_detail_html = '''
-      <div id="globe-detail" class="detail-overlay">
-        <div class="detail-card" id="gb-card">
-          <div class="detail-title" id="gb-title">Select a category</div>
-          <div class="detail-value" id="gb-val" style="display:none;"></div>
-          <div class="detail-meta"  id="gb-meta" style="display:none;"></div>
-          <div class="detail-sub"   id="gb-sub">Click any category to see details here.</div>
-        </div>
-      </div>'''
+    if selected_category:
+        total, completed, wip, uat, roi, hrs = _cat_stats(selected_category)
+        selected_label = selected_category.split("-",1)[-1]
+        selected_detail_html = f'''
+          <div class="detail-overlay">
+            <div class="detail-card">
+              <div class="detail-title">{selected_label}</div>
+              <div class="detail-value">{total}</div>
+              <div class="detail-meta">ROI <strong>{roi}</strong> · {hrs:,.0f} hrs saved</div>
+              <div class="detail-sub">{completed} Done · {wip} WIP · {uat} UAT</div>
+            </div>
+          </div>'''
+    else:
+        selected_detail_html = '''
+          <div class="detail-overlay">
+            <div class="detail-card">
+              <div class="detail-title">Select a category</div>
+              <div class="detail-sub">Click any Automation or AI category to show details here.</div>
+            </div>
+          </div>'''
 
     _canvas_html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"/>
@@ -1583,6 +1565,14 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 .tagline{{font-size:12px;color:rgba(255,255,255,.7);text-align:center;
           margin-bottom:12px;line-height:1.6;letter-spacing:.2px;}}
 .tagline b{{color:rgba(255,255,255,.95);}}
+#running-board{{position:absolute;top:18px;left:36px;right:36px;height:86px;overflow:hidden;z-index:6;}}
+.board-track{{display:flex;gap:12px;width:max-content;animation:scroll-left 22s linear infinite;}}
+.board-copy{{display:flex;gap:12px;}}
+.board-chip{{flex:0 0 240px;min-width:240px;padding:14px 18px;border-radius:18px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.12);backdrop-filter:blur(14px);box-shadow:0 18px 45px rgba(15,23,42,.2);}}
+.board-label{{font-size:10px;letter-spacing:.22em;text-transform:uppercase;color:rgba(255,255,255,.72);margin-bottom:8px;}}
+.board-value{{font-size:20px;font-weight:800;color:#fff;line-height:1.05;}}
+.board-sub{{font-size:11px;color:rgba(255,255,255,.7);margin-top:6px;}}
+@keyframes scroll-left{{0%{{transform:translateX(0);}}100%{{transform:translateX(-50%);}}}}
 #nexbot-wrap{{
   width:260px;height:260px;cursor:crosshair;overflow:hidden;
   border-radius:50%;
@@ -1621,20 +1611,9 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 <body>
 <div id="scene">
 
-  <!-- LEFT: Automation with robot arm SVG icon -->
   <div class="panel">
-    <div style="display:flex;align-items:center;gap:8px;margin-bottom:3px;">
-      <svg width="26" height="26" viewBox="0 0 64 64" style="flex-shrink:0;">
-        <rect x="10" y="50" width="44" height="8" rx="2" fill="#c084fc" opacity=".85"/>
-        <rect x="27" y="34" width="10" height="18" rx="2" fill="#c084fc"/>
-        <circle cx="32" cy="30" r="7" fill="#c084fc" opacity=".9"/>
-        <rect x="32" y="18" width="18" height="6" rx="3" fill="#c084fc" transform="rotate(-25 32 21)" opacity=".9"/>
-        <circle cx="48" cy="12" r="4.5" fill="#c084fc" opacity=".75"/>
-        <path d="M44 10 l10-4 l2 5 l-10 4z" fill="#e879f9"/>
-      </svg>
-      <div class="ptitle" style="color:#c084fc;text-shadow:0 0 18px #c084fc88;margin:0;">AUTOMATION</div>
-    </div>
-    <div class="psub" style="color:#c084fc;">&#9881;&#65039; Robotic Process &amp; Workflow</div>
+    <div class="ptitle" style="color:#c084fc;text-shadow:0 0 18px #c084fc88;">AUTOMATION</div>
+    <div class="psub" style="color:#c084fc;">⚙️ Robotic Process &amp; Workflow</div>
     <div class="category-grid">{left_category_html}</div>
   </div>
 
@@ -1656,7 +1635,12 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 
   <!-- CENTRE -->
   <div class="centre">
-    <div class="tagline" style="font-size:10px;opacity:.55;">Click a category to explore</div>
+    <div class="tagline">
+      <b>Move your cursor across</b><br>
+      <span style="color:#c084fc;">&#8592;</span>
+      <span style="color:rgba(255,255,255,.6);"> to explore the synergy </span>
+      <span style="color:#38bdf8;">&#8594;</span>
+    </div>
     <div id="nexbot-wrap">
       <spline-viewer id="spline-nexbot"
         url="https://prod.spline.design/kZDDjO5HmRHKWMYo/scene.splinecode"
@@ -1684,22 +1668,10 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
     </svg>
   </div>
 
-  <!-- RIGHT: AI panel mirrors left -->
+  <!-- RIGHT -->
   <div class="panel right">
-    <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:3px;">
-      <div class="ptitle" style="color:#38bdf8;text-shadow:0 0 18px #38bdf888;margin:0;">AI</div>
-      <svg width="26" height="26" viewBox="0 0 64 64" style="flex-shrink:0;">
-        <rect x="18" y="20" width="28" height="24" rx="7" fill="#38bdf8" opacity=".9"/>
-        <circle cx="27" cy="31" r="3.5" fill="#fff"/>
-        <circle cx="37" cy="31" r="3.5" fill="#fff"/>
-        <rect x="26" y="38" width="12" height="2.5" rx="1.25" fill="#fff" opacity=".75"/>
-        <line x1="32" y1="20" x2="32" y2="10" stroke="#38bdf8" stroke-width="3"/>
-        <circle cx="32" cy="7" r="3.5" fill="#38bdf8"/>
-        <rect x="50" y="26" width="5" height="12" rx="2.5" fill="#38bdf8" opacity=".7"/>
-        <rect x="9" y="26" width="5" height="12" rx="2.5" fill="#38bdf8" opacity=".7"/>
-      </svg>
-    </div>
-    <div class="psub" style="color:#38bdf8;text-align:right;">&#129504; Cognitive Intelligence &amp; ML</div>
+    <div class="ptitle" style="color:#38bdf8;text-shadow:0 0 18px #38bdf888;">AI</div>
+    <div class="psub" style="color:#38bdf8;">🧠 Cognitive Intelligence &amp; ML</div>
     <div class="category-grid">{right_category_html}</div>
   </div>
 
@@ -1727,30 +1699,14 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
       }}));
     }});
   }});
-  var _CAT_STATS = {_cat_stats_json};
-  var _active = null;
   window.selectCategory = function(cat) {{
-    if (_active === cat) {{
-      _active = null;
-      document.querySelectorAll('.category-card').forEach(function(el){{el.classList.remove('selected');}});
-      document.getElementById('gb-title').textContent = 'Select a category';
-      document.getElementById('gb-val').style.display  = 'none';
-      document.getElementById('gb-meta').style.display = 'none';
-      document.getElementById('gb-sub').innerHTML = 'Click any category to see details here.';
-      return;
+    var params = new URLSearchParams(window.location.search);
+    if (params.get('selected_category') === cat) {{
+      params.delete('selected_category');
+    }} else {{
+      params.set('selected_category', cat);
     }}
-    _active = cat;
-    document.querySelectorAll('.category-card').forEach(function(el){{el.classList.remove('selected');}});
-    document.querySelectorAll('.category-card').forEach(function(el){{
-      if((el.getAttribute('onclick')||'').indexOf(cat)!==-1) el.classList.add('selected');
-    }});
-    var d = _CAT_STATS[cat]; if(!d) return;
-    document.getElementById('gb-title').textContent = d.label;
-    document.getElementById('gb-val').textContent   = d.total;
-    document.getElementById('gb-val').style.display  = 'block';
-    document.getElementById('gb-meta').innerHTML    = 'ROI <strong>'+d.roi+'</strong> · '+d.hrs.toLocaleString()+' hrs saved';
-    document.getElementById('gb-meta').style.display = 'block';
-    document.getElementById('gb-sub').innerHTML      = d.completed+' Done &nbsp;·&nbsp; '+d.wip+' WIP &nbsp;·&nbsp; '+d.uat+' UAT';
+    window.location.search = params.toString();
   }};
 }})();
 </script>
