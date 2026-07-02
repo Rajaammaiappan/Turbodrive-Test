@@ -1483,20 +1483,25 @@ def page_dashboard():
           </div>
         </div>"""
 
+    # Inject the animation CSS separately (avoids Streamlit stripping <style> inside markdown)
+    st.markdown("""
+    <style>
+    @keyframes kpiScroll {
+      0%   { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+    #kpi-ticker { animation: kpiScroll 28s linear infinite; }
+    #kpi-ticker:hover { animation-play-state: paused; }
+    .kpi-ticker-wrap { overflow:hidden; width:100%; margin-bottom:14px; }
+    </style>
+    """, unsafe_allow_html=True)
+
     ticker_html = f"""
-    <div style="overflow:hidden;width:100%;margin-bottom:14px;">
-      <div id="kpi-ticker" style="display:flex;gap:14px;width:max-content;
-           animation:kpiScroll 28s linear infinite;">
+    <div class="kpi-ticker-wrap">
+      <div id="kpi-ticker" style="display:flex;gap:14px;width:max-content;">
         {card_html}
       </div>
-    </div>
-    <style>
-    @keyframes kpiScroll {{
-      0%   {{ transform: translateX(0); }}
-      100% {{ transform: translateX(-50%); }}
-    }}
-    #kpi-ticker:hover {{ animation-play-state: paused; }}
-    </style>"""
+    </div>"""
     st.markdown(ticker_html, unsafe_allow_html=True)
 
     # second KPI row removed
