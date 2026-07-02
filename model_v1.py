@@ -2090,7 +2090,644 @@ def page_workflow():
     # TODO: replace this dummy placeholder with the real workflow HTML
     st.markdown("""
     <div style="padding:24px;border:1px dashed #94a3b8;border-radius:8px;text-align:center;color:#64748b;">
-        #
+        <!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>EFS Turbo Drive — Automation Workflow</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{background:#070b14;color:#e2e8f0;font-family:'Inter',sans-serif;min-height:100vh;overflow-x:hidden;}
+#bg{position:fixed;inset:0;z-index:0;opacity:.28;pointer-events:none;}
+
+/* ── Page shell ── */
+.page{position:relative;z-index:1;padding:32px 40px 72px;max-width:1120px;margin:0 auto;}
+
+/* ── Header ── */
+.hdr{display:flex;align-items:flex-start;justify-content:space-between;
+     margin-bottom:36px;padding-bottom:22px;
+     border-bottom:1px solid rgba(0,212,255,.13);}
+.hdr-left{}
+.badge{display:inline-block;padding:5px 13px;border-radius:20px;
+       background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.28);
+       font-family:'Space Grotesk',sans-serif;font-size:10px;font-weight:700;
+       letter-spacing:2px;color:#00D4FF;text-transform:uppercase;margin-bottom:10px;}
+.hdr-title{font-family:'Space Grotesk',sans-serif;font-size:clamp(20px,2.6vw,30px);
+           font-weight:800;background:linear-gradient(100deg,#00D4FF,#8B5CF6 55%,#10B981);
+           -webkit-background-clip:text;background-clip:text;color:transparent;line-height:1.2;}
+.hdr-sub{font-size:12px;color:#475569;margin-top:5px;}
+.legend{display:flex;flex-direction:column;gap:7px;align-items:flex-end;}
+.leg{display:flex;align-items:center;gap:7px;font-size:10.5px;color:#64748b;font-weight:500;}
+.ld{width:11px;height:11px;border-radius:3px;}
+
+/* ── SVG wrapper ── */
+.svg-wrap{background:rgba(255,255,255,.016);border:1px solid rgba(0,212,255,.08);
+          border-radius:20px;padding:28px 20px;overflow:hidden;}
+
+/* ── Bottom row cards ── */
+.outcome-row{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:22px;}
+.ocard{background:rgba(255,255,255,.03);border-radius:14px;padding:16px 18px;
+       border:1.5px solid rgba(255,255,255,.07);
+       display:flex;align-items:center;gap:13px;
+       transition:border-color .25s,box-shadow .25s;}
+.ocard:hover{border-color:rgba(0,212,255,.35);box-shadow:0 0 22px rgba(0,212,255,.12);}
+.ocard.v:hover{border-color:rgba(139,92,246,.35);box-shadow:0 0 22px rgba(139,92,246,.12);}
+.ocard.g:hover{border-color:rgba(16,185,129,.35);box-shadow:0 0 22px rgba(16,185,129,.12);}
+.ocard-icon{font-size:26px;flex-shrink:0;}
+.ocard-title{font-family:'Space Grotesk',sans-serif;font-size:13px;font-weight:700;}
+.ocard-sub{font-size:10px;color:#475569;margin-top:3px;line-height:1.5;}
+
+/* ── Step strip ── */
+.step-strip{display:flex;margin-top:22px;
+            background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);
+            border-radius:14px;overflow:hidden;}
+.step{flex:1;text-align:center;padding:12px 6px;
+      border-right:1px solid rgba(255,255,255,.05);}
+.step:last-child{border-right:none;}
+.step-n{font-family:'Space Grotesk',sans-serif;font-size:17px;font-weight:800;}
+.step-l{font-size:9px;color:#475569;margin-top:2px;font-weight:500;line-height:1.4;}
+
+/* ── Footer ── */
+.foot{display:flex;justify-content:space-between;align-items:center;
+      margin-top:40px;padding-top:16px;border-top:1px solid rgba(255,255,255,.04);
+      font-size:10.5px;color:#1e293b;flex-wrap:wrap;gap:8px;}
+
+/* ── Animations ── */
+@keyframes gPulse{0%,100%{filter:drop-shadow(0 0 4px rgba(0,212,255,.3));}
+                  50%{filter:drop-shadow(0 0 12px rgba(0,212,255,.7));}}
+@keyframes vPulse{0%,100%{filter:drop-shadow(0 0 4px rgba(139,92,246,.3));}
+                  50%{filter:drop-shadow(0 0 12px rgba(139,92,246,.7));}}
+@keyframes spin{from{transform-origin:50% 50%;transform:rotate(0deg);}
+                to{transform-origin:50% 50%;transform:rotate(360deg);}}
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<div class="page">
+
+  <!-- Header -->
+  <div class="hdr">
+    <div class="hdr-left">
+      <div class="badge">EFS · ALTEN Engineering Services</div>
+      <div class="hdr-title">Turbo Drive — Automation Workflow</div>
+      <div class="hdr-sub">Agile · Sprint-based · Continuous Improvement &nbsp;|&nbsp; Sensitivity: C1-Internal</div>
+    </div>
+    <div class="legend">
+      <div class="leg"><div class="ld" style="background:#00D4FF;box-shadow:0 0 5px #00D4FF;"></div>Process / Action</div>
+      <div class="leg"><div class="ld" style="background:#8B5CF6;border-radius:50%;box-shadow:0 0 5px #8B5CF6;"></div>Decision Gate</div>
+      <div class="leg"><div class="ld" style="background:#10B981;box-shadow:0 0 5px #10B981;"></div>Outcome</div>
+      <div class="leg"><div class="ld" style="background:#ef4444;box-shadow:0 0 5px #ef4444;"></div>Reject / Park</div>
+    </div>
+  </div>
+
+  <!-- SVG Diagram -->
+  <div class="svg-wrap">
+  <svg id="wf" viewBox="0 0 1060 1910" xmlns="http://www.w3.org/2000/svg"
+       style="width:100%;height:auto;display:block;">
+  <defs>
+    <!-- Arrow markers -->
+    <marker id="ab" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+      <path d="M0,0.5 L0,6.5 L7,3.5z" fill="#00D4FF"/>
+    </marker>
+    <marker id="av" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+      <path d="M0,0.5 L0,6.5 L7,3.5z" fill="#8B5CF6"/>
+    </marker>
+    <marker id="ag" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+      <path d="M0,0.5 L0,6.5 L7,3.5z" fill="#10B981"/>
+    </marker>
+    <marker id="ar" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+      <path d="M0,0.5 L0,6.5 L7,3.5z" fill="#ef4444"/>
+    </marker>
+    <marker id="ao" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+      <path d="M0,0.5 L0,6.5 L7,3.5z" fill="#fb923c"/>
+    </marker>
+
+    <!-- Filters -->
+    <filter id="fb" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="fv" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="fg" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="fr" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+
+    <!-- Gradients -->
+    <linearGradient id="cylg" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#021a30"/>
+      <stop offset="45%" stop-color="#0a2d4a"/>
+      <stop offset="100%" stop-color="#021a30"/>
+    </linearGradient>
+    <radialGradient id="globeg" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#1a0a3d"/>
+      <stop offset="100%" stop-color="#0a0618"/>
+    </radialGradient>
+    <linearGradient id="arrowg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#00D4FF" stop-opacity="0.7"/>
+      <stop offset="50%" stop-color="#8B5CF6" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#10B981" stop-opacity="0.7"/>
+    </linearGradient>
+  </defs>
+
+  <!-- ================================================================ -->
+  <!-- COLUMN GUIDES: main spine x=530, left branch x=200, right x=780 -->
+  <!-- ================================================================ -->
+
+  <!-- ─── 1. IDEA INTAKE — TURBO DRIVE CYLINDER (top, cx=530, y=30) ─── -->
+  <g filter="url(#fb)" style="animation:gPulse 3s ease-in-out infinite;">
+    <!-- Cylinder top ellipse -->
+    <ellipse cx="530" cy="58" rx="72" ry="22" fill="#0a2d4a" stroke="#00D4FF" stroke-width="1.8"/>
+    <!-- Cylinder body -->
+    <rect x="458" y="58" width="144" height="180" fill="url(#cylg)"/>
+    <!-- Cylinder bottom ellipse -->
+    <ellipse cx="530" cy="238" rx="72" ry="22" fill="#071824" stroke="rgba(0,212,255,.5)" stroke-width="1.5"/>
+    <!-- Side lines -->
+    <line x1="458" y1="58" x2="458" y2="238" stroke="#00D4FF" stroke-width="1.8"/>
+    <line x1="602" y1="58" x2="602" y2="238" stroke="#00D4FF" stroke-width="1.8"/>
+    <!-- Shine -->
+    <line x1="472" y1="70" x2="472" y2="226" stroke="rgba(0,212,255,.18)" stroke-width="3"/>
+    <!-- Labels -->
+    <text x="530" y="140" text-anchor="middle" font-family="Space Grotesk"
+          font-size="17" font-weight="800" fill="#00D4FF">Turbo Drive</text>
+    <text x="530" y="162" text-anchor="middle" font-family="Inter"
+          font-size="10" fill="rgba(0,212,255,.6)">IDEA INTAKE</text>
+  </g>
+
+  <!-- Arrow: Cylinder → Initial Screening -->
+  <line x1="530" y1="260" x2="530" y2="302" stroke="#00D4FF" stroke-width="2"
+        marker-end="url(#ab)"/>
+  <circle r="5" fill="#00D4FF" opacity=".9">
+    <animateMotion dur="1.6s" repeatCount="indefinite"
+      path="M530,260 V302"/>
+    <animate attributeName="opacity" values="0;1;1;0" dur="1.6s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- ─── 2. INITIAL SCREENING — RECTANGLE (y=302) ─── -->
+  <g filter="url(#fv)">
+    <rect x="390" y="302" width="280" height="68" rx="13"
+          fill="#110e28" stroke="#8B5CF6" stroke-width="1.8"/>
+    <text x="530" y="330" text-anchor="middle" font-family="Space Grotesk"
+          font-size="14" font-weight="700" fill="#c4b5fd">🔍 Initial Screening</text>
+    <text x="530" y="349" text-anchor="middle" font-family="Inter"
+          font-size="10" fill="#64748b">PL / SPL Review · Relevance check</text>
+    <text x="530" y="362" text-anchor="middle" font-family="Inter"
+          font-size="10" fill="#64748b">Category · Feasibility signal</text>
+  </g>
+
+  <!-- Arrow: Screening → Decision diamond -->
+  <line x1="530" y1="370" x2="530" y2="412" stroke="#8B5CF6" stroke-width="2"
+        marker-end="url(#av)"/>
+  <circle r="5" fill="#8B5CF6">
+    <animateMotion dur="1.4s" repeatCount="indefinite" begin=".3s"
+      path="M530,370 V412"/>
+    <animate attributeName="opacity" values="0;1;1;0" dur="1.4s" repeatCount="indefinite" begin=".3s"/>
+  </circle>
+
+  <!-- ─── DECISION 1: PL/SPL Approve? (diamond, cx=530, cy=462) ─── -->
+  <g filter="url(#fv)" style="animation:vPulse 3.5s ease-in-out infinite 0.5s;">
+    <polygon points="530,412 620,462 530,512 440,462"
+             fill="#0e0b20" stroke="#8B5CF6" stroke-width="2"/>
+    <text x="530" y="457" text-anchor="middle" font-family="Space Grotesk"
+          font-size="11" font-weight="700" fill="#e2e8f0">Approved?</text>
+    <text x="530" y="472" text-anchor="middle" font-family="Space Grotesk"
+          font-size="10" fill="#8B5CF6">PL/SPL Gate</text>
+    <!-- YES label -->
+    <text x="544" y="504" font-family="Space Grotesk" font-size="10"
+          font-weight="700" fill="#10B981">YES</text>
+    <!-- NO label -->
+    <text x="344" y="466" font-family="Space Grotesk" font-size="10"
+          font-weight="700" fill="#ef4444">NO</text>
+  </g>
+
+  <!-- NO branch → Reject/Park (left) -->
+  <path d="M440,462 H240 V512" stroke="#ef4444" stroke-width="1.6" fill="none"
+        stroke-dasharray="5 3" marker-end="url(#ar)" opacity=".75"/>
+  <text x="310" y="454" font-family="Space Grotesk" font-size="9.5"
+        fill="#ef4444" font-weight="700">NO</text>
+
+  <!-- REJECT/PARK 1 (x=160, y=512) -->
+  <g filter="url(#fr)">
+    <rect x="160" y="512" width="160" height="52" rx="10"
+          fill="#200a0a" stroke="#ef4444" stroke-width="1.6"/>
+    <text x="240" y="534" text-anchor="middle" font-family="Space Grotesk"
+          font-size="12" font-weight="700" fill="#ef4444">✕ Reject / Park</text>
+    <text x="240" y="551" text-anchor="middle" font-family="Inter"
+          font-size="9" fill="#64748b">Idea closed or deferred</text>
+  </g>
+
+  <!-- YES → Business Impact Assessment -->
+  <line x1="530" y1="512" x2="530" y2="558" stroke="#00D4FF" stroke-width="2"
+        marker-end="url(#ab)"/>
+  <circle r="5" fill="#00D4FF">
+    <animateMotion dur="1.3s" repeatCount="indefinite" begin=".6s"
+      path="M530,512 V558"/>
+    <animate attributeName="opacity" values="0;1;1;0" dur="1.3s" repeatCount="indefinite" begin=".6s"/>
+  </circle>
+
+  <!-- ─── 3. BUSINESS IMPACT ASSESSMENT (y=558) ─── -->
+  <g filter="url(#fb)">
+    <rect x="385" y="558" width="290" height="64" rx="13"
+          fill="#061824" stroke="#00D4FF" stroke-width="1.8"/>
+    <text x="530" y="582" text-anchor="middle" font-family="Space Grotesk"
+          font-size="13" font-weight="700" fill="#00D4FF">📊 Business Impact Assessment</text>
+    <text x="530" y="599" text-anchor="middle" font-family="Inter"
+          font-size="9.5" fill="#64748b">Value · Complexity · Priority · Alignment</text>
+    <text x="530" y="613" text-anchor="middle" font-family="Inter"
+          font-size="9.5" fill="#64748b">Sponsor identification · Success criteria</text>
+  </g>
+
+  <!-- Arrow → VSM Required? -->
+  <line x1="530" y1="622" x2="530" y2="664" stroke="#8B5CF6" stroke-width="2"
+        marker-end="url(#av)"/>
+  <circle r="5" fill="#8B5CF6">
+    <animateMotion dur="1.2s" repeatCount="indefinite" begin=".9s"
+      path="M530,622 V664"/>
+    <animate attributeName="opacity" values="0;1;1;0" dur="1.2s" repeatCount="indefinite" begin=".9s"/>
+  </circle>
+
+  <!-- ─── DECISION 2: VSM Required? (cx=530, cy=714) ─── -->
+  <g filter="url(#fv)" style="animation:vPulse 3.5s ease-in-out infinite 1s;">
+    <polygon points="530,664 618,714 530,764 442,714"
+             fill="#0e0b20" stroke="#8B5CF6" stroke-width="2"/>
+    <text x="530" y="709" text-anchor="middle" font-family="Space Grotesk"
+          font-size="11" font-weight="700" fill="#e2e8f0">VSM</text>
+    <text x="530" y="724" text-anchor="middle" font-family="Space Grotesk"
+          font-size="10" fill="#8B5CF6">Required?</text>
+    <!-- Labels -->
+    <text x="462" y="706" font-family="Space Grotesk" font-size="9.5"
+          font-weight="700" fill="#10B981">NO</text>
+    <text x="624" y="706" font-family="Space Grotesk" font-size="9.5"
+          font-weight="700" fill="#10B981">YES</text>
+  </g>
+
+  <!-- YES → VSM Workshop (right branch) -->
+  <path d="M618,714 H760 V788" stroke="#10B981" stroke-width="1.7" fill="none"
+        marker-end="url(#ag)" opacity=".85"/>
+  <circle r="5" fill="#10B981">
+    <animateMotion dur="1.8s" repeatCount="indefinite" begin=".2s"
+      path="M618,714 H760 V788"/>
+    <animate attributeName="opacity" values="0;1;1;0" dur="1.8s" repeatCount="indefinite" begin=".2s"/>
+  </circle>
+
+  <!-- ─── VSM WORKSHOP (right, x=670, y=788) ─── -->
+  <g filter="url(#fg)">
+    <rect x="670" y="788" width="190" height="80" rx="12"
+          fill="#061e14" stroke="#10B981" stroke-width="1.8"/>
+    <text x="765" y="814" text-anchor="middle" font-family="Space Grotesk"
+          font-size="12" font-weight="700" fill="#10B981">🧠 VSM Workshop</text>
+    <text x="765" y="832" text-anchor="middle" font-family="Inter"
+          font-size="9" fill="#64748b">Brainstorming · Value stream map</text>
+    <text x="765" y="847" text-anchor="middle" font-family="Inter"
+          font-size="9" fill="#64748b">Waste identification · Future state</text>
+    <text x="765" y="860" text-anchor="middle" font-family="Inter"
+          font-size="9" fill="#64748b">Stakeholder alignment</text>
+  </g>
+
+  <!-- VSM → Feasibility (merge back to spine) -->
+  <path d="M765,868 V906 H530 V930" stroke="#10B981" stroke-width="1.5" fill="none"
+        stroke-dasharray="5 3" marker-end="url(#ab)" opacity=".6"/>
+
+  <!-- NO → direct to Feasibility -->
+  <line x1="530" y1="764" x2="530" y2="930" stroke="#00D4FF" stroke-width="2"
+        marker-end="url(#ab)"/>
+  <circle r="5" fill="#00D4FF">
+    <animateMotion dur="2s" repeatCount="indefinite" begin="1.1s"
+      path="M530,764 V930"/>
+    <animate attributeName="opacity" values="0;1;1;0" dur="2s" repeatCount="indefinite" begin="1.1s"/>
+  </circle>
+
+  <!-- ─── 4. FEASIBILITY STUDY (y=930) ─── -->
+  <g filter="url(#fb)">
+    <rect x="380" y="930" width="300" height="68" rx="13"
+          fill="#061824" stroke="#00D4FF" stroke-width="1.8"/>
+    <text x="530" y="956" text-anchor="middle" font-family="Space Grotesk"
+          font-size="13" font-weight="700" fill="#00D4FF">📋 Feasibility Study</text>
+    <text x="530" y="973" text-anchor="middle" font-family="Inter"
+          font-size="9.5" fill="#64748b">ROI · Risk · Effort estimation</text>
+    <text x="530" y="988" text-anchor="middle" font-family="Inter"
+          font-size="9.5" fill="#64748b">Automation category · Tech approach</text>
+  </g>
+
+  <!-- Arrow → Prioritization Matrix -->
+  <line x1="530" y1="998" x2="530" y2="1036" stroke="#00D4FF" stroke-width="2"
+        marker-end="url(#ab)"/>
+  <circle r="5" fill="#00D4FF">
+    <animateMotion dur="1.3s" repeatCount="indefinite" begin="1.4s"
+      path="M530,998 V1036"/>
+    <animate attributeName="opacity" values="0;1;1;0" dur="1.3s" repeatCount="indefinite" begin="1.4s"/>
+  </circle>
+
+  <!-- ─── 5. PRIORITIZATION MATRIX (y=1036) ─── -->
+  <g>
+    <rect x="370" y="1036" width="320" height="64" rx="13"
+          fill="#0f0a1e" stroke="#8B5CF6" stroke-width="1.8"/>
+    <text x="530" y="1060" text-anchor="middle" font-family="Space Grotesk"
+          font-size="13" font-weight="700" fill="#a78bfa">📌 Prioritization Matrix</text>
+    <!-- Three priority chips -->
+    <rect x="393" y="1073" width="72" height="18" rx="9"
+          fill="rgba(239,68,68,.15)" stroke="rgba(239,68,68,.4)" stroke-width="1"/>
+    <text x="429" y="1086" text-anchor="middle" font-family="Space Grotesk"
+          font-size="9" font-weight="700" fill="#ef4444">HIGH</text>
+    <rect x="481" y="1073" width="72" height="18" rx="9"
+          fill="rgba(251,146,60,.12)" stroke="rgba(251,146,60,.4)" stroke-width="1"/>
+    <text x="517" y="1086" text-anchor="middle" font-family="Space Grotesk"
+          font-size="9" font-weight="700" fill="#fb923c">MEDIUM</text>
+    <rect x="569" y="1073" width="72" height="18" rx="9"
+          fill="rgba(100,116,139,.15)" stroke="rgba(100,116,139,.4)" stroke-width="1"/>
+    <text x="605" y="1086" text-anchor="middle" font-family="Space Grotesk"
+          font-size="9" font-weight="700" fill="#94a3b8">LOW</text>
+  </g>
+
+  <!-- Arrow → Management Approval -->
+  <line x1="530" y1="1100" x2="530" y2="1136" stroke="#8B5CF6" stroke-width="2"
+        marker-end="url(#av)"/>
+  <circle r="5" fill="#8B5CF6">
+    <animateMotion dur="1.2s" repeatCount="indefinite" begin="1.7s"
+      path="M530,1100 V1136"/>
+    <animate attributeName="opacity" values="0;1;1;0" dur="1.2s" repeatCount="indefinite" begin="1.7s"/>
+  </circle>
+
+  <!-- ─── DECISION 3: Management Approval / PL-SPL Sign-off (cx=530, cy=1186) ─── -->
+  <g filter="url(#fv)" style="animation:vPulse 3.5s ease-in-out infinite 1.5s;">
+    <polygon points="530,1136 628,1186 530,1236 432,1186"
+             fill="#0e0b20" stroke="#8B5CF6" stroke-width="2"/>
+    <text x="530" y="1180" text-anchor="middle" font-family="Space Grotesk"
+          font-size="11" font-weight="700" fill="#e2e8f0">Management</text>
+    <text x="530" y="1196" text-anchor="middle" font-family="Space Grotesk"
+          font-size="10" fill="#8B5CF6">Approval</text>
+    <text x="544" y="1228" font-family="Space Grotesk" font-size="9.5"
+          font-weight="700" fill="#10B981">YES</text>
+    <text x="344" y="1190" font-family="Space Grotesk" font-size="9.5"
+          font-weight="700" fill="#ef4444">NO</text>
+  </g>
+
+  <!-- NO → Reject/Park 2 (left) -->
+  <path d="M432,1186 H240 V1236" stroke="#ef4444" stroke-width="1.6" fill="none"
+        stroke-dasharray="5 3" marker-end="url(#ar)" opacity=".75"/>
+  <g filter="url(#fr)">
+    <rect x="160" y="1236" width="160" height="50" rx="10"
+          fill="#200a0a" stroke="#ef4444" stroke-width="1.6"/>
+    <text x="240" y="1258" text-anchor="middle" font-family="Space Grotesk"
+          font-size="12" font-weight="700" fill="#ef4444">✕ Reject / Park</text>
+    <text x="240" y="1275" text-anchor="middle" font-family="Inter"
+          font-size="9" fill="#64748b">Idea not approved</text>
+  </g>
+  <text x="318" y="1178" font-family="Space Grotesk" font-size="9.5"
+        fill="#ef4444" font-weight="700">NO</text>
+
+  <!-- YES → Requirement Gathering -->
+  <line x1="530" y1="1236" x2="530" y2="1272" stroke="#00D4FF" stroke-width="2"
+        marker-end="url(#ab)"/>
+  <circle r="5" fill="#00D4FF">
+    <animateMotion dur="1.2s" repeatCount="indefinite" begin="2s"
+      path="M530,1236 V1272"/>
+    <animate attributeName="opacity" values="0;1;1;0" dur="1.2s" repeatCount="indefinite" begin="2s"/>
+  </circle>
+
+  <!-- ─── 6. REQUIREMENT GATHERING (y=1272) ─── -->
+  <g filter="url(#fb)">
+    <rect x="378" y="1272" width="304" height="64" rx="13"
+          fill="#061824" stroke="#00D4FF" stroke-width="1.8"/>
+    <text x="530" y="1296" text-anchor="middle" font-family="Space Grotesk"
+          font-size="13" font-weight="700" fill="#00D4FF">📝 Requirement Gathering</text>
+    <text x="530" y="1313" text-anchor="middle" font-family="Inter"
+          font-size="9.5" fill="#64748b">User stories · Acceptance criteria</text>
+    <text x="530" y="1327" text-anchor="middle" font-family="Inter"
+          font-size="9.5" fill="#64748b">Scope · Integration points · Dependencies</text>
+  </g>
+
+  <!-- ================================================================ -->
+  <!-- AGILE SPRINT BLOCK — right side panel from y=1272 →             -->
+  <!-- Sprint Planning, Dev, SIT, UAT, Rework, Go-Live                 -->
+  <!-- ================================================================ -->
+
+  <!-- Arrow: Req Gathering → Sprint Planning -->
+  <line x1="530" y1="1336" x2="530" y2="1370" stroke="#8B5CF6" stroke-width="2"
+        marker-end="url(#av)"/>
+
+  <!-- Sprint container background -->
+  <rect x="340" y="1370" width="380" height="360" rx="16"
+        fill="rgba(139,92,246,.04)" stroke="rgba(139,92,246,.15)" stroke-width="1.5"/>
+  <text x="530" y="1394" text-anchor="middle" font-family="Space Grotesk"
+        font-size="9" font-weight="700" fill="rgba(139,92,246,.45)"
+        letter-spacing="3">2-WEEK SPRINT CYCLE</text>
+
+  <!-- ─── 7. SPRINT PLANNING (y=1402) ─── -->
+  <g filter="url(#fv)">
+    <rect x="396" y="1402" width="268" height="56" rx="12"
+          fill="#0f0a1e" stroke="#8B5CF6" stroke-width="1.8"/>
+    <text x="530" y="1426" text-anchor="middle" font-family="Space Grotesk"
+          font-size="13" font-weight="700" fill="#a78bfa">🗓 Sprint Planning</text>
+    <text x="530" y="1444" text-anchor="middle" font-family="Inter"
+          font-size="9.5" fill="#64748b">Backlog grooming · Velocity · Sprint goals</text>
+  </g>
+  <line x1="530" y1="1458" x2="530" y2="1492" stroke="#8B5CF6" stroke-width="2"
+        marker-end="url(#av)"/>
+  <circle r="4.5" fill="#8B5CF6">
+    <animateMotion dur="1s" repeatCount="indefinite" path="M530,1458 V1492"/>
+    <animate attributeName="opacity" values="0;1;1;0" dur="1s" repeatCount="indefinite"/>
+  </circle>
+
+  <!-- ─── 8. AGILE DEVELOPMENT (y=1492) ─── -->
+  <g filter="url(#fb)">
+    <rect x="396" y="1492" width="268" height="56" rx="12"
+          fill="#061824" stroke="#00D4FF" stroke-width="1.8"/>
+    <text x="530" y="1516" text-anchor="middle" font-family="Space Grotesk"
+          font-size="13" font-weight="700" fill="#00D4FF">⚙️ Agile Development</text>
+    <text x="530" y="1534" text-anchor="middle" font-family="Inter"
+          font-size="9.5" fill="#64748b">Code · Build · Review · Daily standups</text>
+  </g>
+  <line x1="530" y1="1548" x2="530" y2="1582" stroke="#00D4FF" stroke-width="2"
+        marker-end="url(#ab)"/>
+  <circle r="4.5" fill="#00D4FF">
+    <animateMotion dur="1s" repeatCount="indefinite" begin=".3s"
+      path="M530,1548 V1582"/>
+    <animate attributeName="opacity" values="0;1;1;0" dur="1s" repeatCount="indefinite" begin=".3s"/>
+  </circle>
+
+  <!-- ─── 9. SIT TESTING (y=1582) ─── -->
+  <g filter="url(#fb)">
+    <rect x="396" y="1582" width="268" height="56" rx="12"
+          fill="#061824" stroke="#00D4FF" stroke-width="1.8"/>
+    <text x="530" y="1607" text-anchor="middle" font-family="Space Grotesk"
+          font-size="13" font-weight="700" fill="#00D4FF">🧪 SIT Testing</text>
+    <text x="530" y="1624" text-anchor="middle" font-family="Inter"
+          font-size="9.5" fill="#64748b">System integration · Regression · Defect log</text>
+  </g>
+  <line x1="530" y1="1638" x2="530" y2="1672" stroke="#00D4FF" stroke-width="2"
+        marker-end="url(#ab)"/>
+  <circle r="4.5" fill="#00D4FF">
+    <animateMotion dur="1s" repeatCount="indefinite" begin=".6s"
+      path="M530,1638 V1672"/>
+    <animate attributeName="opacity" values="0;1;1;0" dur="1s" repeatCount="indefinite" begin=".6s"/>
+  </circle>
+
+  <!-- ─── 10. UAT (y=1672) ─── -->
+  <g filter="url(#fg)">
+    <rect x="396" y="1672" width="268" height="56" rx="12"
+          fill="#061e14" stroke="#10B981" stroke-width="1.8"/>
+    <text x="530" y="1697" text-anchor="middle" font-family="Space Grotesk"
+          font-size="13" font-weight="700" fill="#10B981">✅ UAT</text>
+    <text x="530" y="1715" text-anchor="middle" font-family="Inter"
+          font-size="9.5" fill="#64748b">User Acceptance Testing · Sign-off</text>
+  </g>
+
+  <!-- UAT decision: Pass / Fail -->
+  <line x1="530" y1="1728" x2="530" y2="1762" stroke="#10B981" stroke-width="2"
+        marker-end="url(#ag)"/>
+  <circle r="4.5" fill="#10B981">
+    <animateMotion dur="1s" repeatCount="indefinite" begin=".9s"
+      path="M530,1728 V1762"/>
+    <animate attributeName="opacity" values="0;1;1;0" dur="1s" repeatCount="indefinite" begin=".9s"/>
+  </circle>
+
+  <!-- Implicit decision here — show as branch lines, no extra diamond for cleanliness -->
+  <!-- FAIL branch left → Rework Sprint -->
+  <path d="M490,1762 H350 V1820" stroke="#ef4444" stroke-width="1.5" fill="none"
+        stroke-dasharray="5 3" marker-end="url(#ar)" opacity=".7"/>
+  <text x="342" y="1754" font-family="Space Grotesk" font-size="9"
+        fill="#ef4444" font-weight="700">FAIL</text>
+
+  <!-- REWORK SPRINT (left) -->
+  <g filter="url(#fr)">
+    <rect x="210" y="1820" width="160" height="54" rx="11"
+          fill="#1a0a10" stroke="#ef4444" stroke-width="1.5"/>
+    <text x="290" y="1843" text-anchor="middle" font-family="Space Grotesk"
+          font-size="11.5" font-weight="700" fill="#f87171">🔁 Rework Sprint</text>
+    <text x="290" y="1860" text-anchor="middle" font-family="Inter"
+          font-size="9" fill="#64748b">Fix defects · Retest</text>
+  </g>
+  <!-- Rework → loops back to SIT -->
+  <path d="M290,1820 V1610 H396" stroke="#ef4444" stroke-width="1.2" fill="none"
+        stroke-dasharray="4 3" marker-end="url(#ab)" opacity=".45"/>
+
+  <!-- PASS → continues straight down (main spine continues from UAT) -->
+  <text x="545" y="1780" font-family="Space Grotesk" font-size="9"
+        fill="#10B981" font-weight="700">PASS</text>
+  <line x1="530" y1="1762" x2="530" y2="1888" stroke="#10B981" stroke-width="2"
+        stroke-dasharray="1 0" marker-end="url(#ag)" opacity=".9"/>
+  <circle r="5" fill="#10B981">
+    <animateMotion dur="1.6s" repeatCount="indefinite" begin="1.1s"
+      path="M530,1762 V1888"/>
+    <animate attributeName="opacity" values="0;1;1;0" dur="1.6s" repeatCount="indefinite" begin="1.1s"/>
+  </circle>
+  <text x="530" y="1905" text-anchor="middle" font-family="Inter" font-size="9"
+        fill="rgba(16,185,129,.55)" letter-spacing="2">↓ continues to Go-Live below ↓</text>
+
+  </svg><!-- end SVG -->
+  </div><!-- end svg-wrap -->
+
+  <!-- ── Outcome row (Go Live → Hypercare → Benefits → CI) ── -->
+  <div class="outcome-row" style="grid-template-columns:repeat(4,1fr);margin-top:22px;">
+    <div class="ocard g">
+      <div class="ocard-icon">🚀</div>
+      <div>
+        <div class="ocard-title" style="color:#10B981;">Go Live</div>
+        <div class="ocard-sub">Solution deployed to production · Handover to operations</div>
+      </div>
+    </div>
+    <div class="ocard">
+      <div class="ocard-icon">🛡️</div>
+      <div>
+        <div class="ocard-title" style="color:#00D4FF;">Hypercare Support</div>
+        <div class="ocard-sub">Post-go-live monitoring · Hotfixes · User support</div>
+      </div>
+    </div>
+    <div class="ocard">
+      <div class="ocard-icon">📈</div>
+      <div>
+        <div class="ocard-title" style="color:#00D4FF;">Benefits Tracking</div>
+        <div class="ocard-sub">KPI · Hours saved · Cost saved · ROI validation</div>
+      </div>
+    </div>
+    <div class="ocard v">
+      <div class="ocard-icon">🔄</div>
+      <div>
+        <div class="ocard-title" style="color:#a78bfa;">Continuous Improvement</div>
+        <div class="ocard-sub">New ideas → back to Turbo Drive → next cycle</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Step strip ── -->
+  <div class="step-strip">
+    <div class="step"><div class="step-n" style="color:#00D4FF;">1</div><div class="step-l">Idea<br>Intake</div></div>
+    <div class="step"><div class="step-n" style="color:#8B5CF6;">2</div><div class="step-l">Initial<br>Screening</div></div>
+    <div class="step"><div class="step-n" style="color:#8B5CF6;">3</div><div class="step-l">Business<br>Impact</div></div>
+    <div class="step"><div class="step-n" style="color:#10B981;">4</div><div class="step-l">VSM<br>Workshop</div></div>
+    <div class="step"><div class="step-n" style="color:#00D4FF;">5</div><div class="step-l">Feasibility<br>Study</div></div>
+    <div class="step"><div class="step-n" style="color:#8B5CF6;">6</div><div class="step-l">Prioritization<br>Matrix</div></div>
+    <div class="step"><div class="step-n" style="color:#8B5CF6;">7</div><div class="step-l">Management<br>Approval</div></div>
+    <div class="step"><div class="step-n" style="color:#00D4FF;">8</div><div class="step-l">Requirement<br>Gathering</div></div>
+    <div class="step"><div class="step-n" style="color:#8B5CF6;">9</div><div class="step-l">Sprint<br>Planning</div></div>
+    <div class="step"><div class="step-n" style="color:#00D4FF;">10</div><div class="step-l">Agile<br>Dev</div></div>
+    <div class="step"><div class="step-n" style="color:#00D4FF;">11</div><div class="step-l">SIT<br>Testing</div></div>
+    <div class="step"><div class="step-n" style="color:#10B981;">12</div><div class="step-l">UAT</div></div>
+    <div class="step"><div class="step-n" style="color:#10B981;">13</div><div class="step-l">Go<br>Live</div></div>
+    <div class="step"><div class="step-n" style="color:#a78bfa;">∞</div><div class="step-l">Continuous<br>Improvement</div></div>
+  </div>
+
+  <div class="foot">
+    <span>© 2025 ALTEN Engineering Services · EFS Automation Team · EFS Turbo Drive</span>
+    <span style="background:rgba(255,255,255,.03);padding:4px 12px;border-radius:20px;
+          border:1px solid rgba(255,255,255,.05);">Sensitivity: C1-Internal</span>
+  </div>
+</div>
+
+<script>
+/* Particle canvas */
+(function(){
+  var c=document.getElementById('bg'),ctx=c.getContext('2d'),W,H,pts=[];
+  function resize(){W=c.width=window.innerWidth;H=c.height=window.innerHeight;}
+  resize(); window.addEventListener('resize',resize);
+  for(var i=0;i<80;i++) pts.push({
+    x:Math.random()*1920,y:Math.random()*1080,
+    vx:(Math.random()-.5)*.22,vy:(Math.random()-.5)*.22,
+    r:Math.random()*1.5+.3,
+    col:Math.random()>.5?'0,212,255':'139,92,246'
+  });
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+    pts.forEach(function(p){
+      p.x+=p.vx; p.y+=p.vy;
+      if(p.x<0)p.x=W; if(p.x>W)p.x=0;
+      if(p.y<0)p.y=H; if(p.y>H)p.y=0;
+      ctx.beginPath();
+      ctx.arc(p.x,p.y,p.r,0,Math.PI*2);
+      ctx.fillStyle='rgba('+p.col+',.5)';
+      ctx.shadowColor='rgba('+p.col+',.35)';
+      ctx.shadowBlur=5;
+      ctx.fill();
+    });
+    for(var i=0;i<pts.length;i++)
+      for(var j=i+1;j<pts.length;j++){
+        var dx=pts[i].x-pts[j].x,dy=pts[i].y-pts[j].y,d=Math.sqrt(dx*dx+dy*dy);
+        if(d<110){
+          ctx.beginPath();
+          ctx.moveTo(pts[i].x,pts[i].y);
+          ctx.lineTo(pts[j].x,pts[j].y);
+          ctx.strokeStyle='rgba(0,212,255,'+(1-d/110)*.07+')';
+          ctx.lineWidth=.4; ctx.shadowBlur=0;
+          ctx.stroke();
+        }
+      }
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+</script>
+</body>
+</html>
     </div>
     """, unsafe_allow_html=True)
     render_copyright()
