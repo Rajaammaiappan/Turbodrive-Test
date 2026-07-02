@@ -1072,6 +1072,17 @@ def page_submit():
     idea_name = st.text_input("Idea Name *", placeholder="Short title for the idea")
     idea_desc = st.text_area("Idea Description *", placeholder="Describe the automation idea in detail")
 
+    SHAREPOINT_ATTACH_URL = ("https://altengroup.sharepoint.com/:f:/r/sites/Rolls-RoyceGlobalEfS/Production/25.%20EFS%20Continuous%20Improvements/Turbo%20Drive?csf=1&web=1&e=a63ybE")
+    st.markdown("**Attachments (optional) please rename your file with the idea name**")
+    st.markdown(f"""
+    <a href="{SHAREPOINT_ATTACH_URL}" target="_blank" rel="noopener noreferrer"
+       style="display:inline-flex;align-items:center;gap:8px;border:1px solid #94a3b8;
+              border-radius:8px;padding:8px 16px;text-decoration:none;color:#1e293b;
+              font-size:13px;font-weight:600;background:rgba(148,163,184,.06);">
+        📎 Browse SharePoint Folder
+    </a>
+    """, unsafe_allow_html=True)
+
     sel_otp = st.selectbox(
         "OTP *", otp_options, key="submit_otp_select",
         help="Select the OTP to auto-fill Project Name, Business Unit, PD and SPL/PL below.",
@@ -2079,7 +2090,7 @@ def page_workflow():
     # TODO: replace this dummy placeholder with the real workflow HTML
     st.markdown("""
     <div style="padding:24px;border:1px dashed #94a3b8;border-radius:8px;text-align:center;color:#64748b;">
-        #
+        
     </div>
     """, unsafe_allow_html=True)
     render_copyright()
