@@ -1067,6 +1067,11 @@ def page_submit():
     if not otp_lookup:
         st.warning("⚠️ No OTP entries configured yet — ask an Admin to add them under **OTP List**.")
 
+    name      = st.text_input("Your Full Name", value=ss("name",""))
+    sub_email = st.text_input("Your Email", value=ss("email",""))
+    idea_name = st.text_input("Idea Name *", placeholder="Short title for the idea")
+    idea_desc = st.text_area("Idea Description *", placeholder="Describe the automation idea in detail")
+
     sel_otp = st.selectbox(
         "OTP *", otp_options, key="submit_otp_select",
         help="Select the OTP to auto-fill Project Name, Business Unit, PD and SPL/PL below.",
@@ -1074,12 +1079,6 @@ def page_submit():
     otp_row = otp_lookup.get(sel_otp, {})
 
     with st.form("submit_form", clear_on_submit=True):
-        name      = st.text_input("Your Full Name", value=ss("name",""))
-        sub_email = st.text_input("Your Email", value=ss("email",""))
-        idea_name = st.text_input("Idea Name *", placeholder="Short title for the idea")
-        idea_desc = st.text_area("Idea Description *", placeholder="Describe the automation idea in detail")
-
-        st.markdown("##### OTP *")
         ac1, ac2 = st.columns(2)
         with ac1:
             project_name  = st.text_input("Project name", value=otp_row.get("project_name",""), disabled=True)
