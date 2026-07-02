@@ -48,7 +48,7 @@ BLOCKED_DOMAINS = {
 }
 
 ROLE_PAGES = {
-    "super user":         ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Admin","OTP List"],
+    "super user":         ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Admin","OTP List","Workflow"],
     "normal user":        ["Submit Idea"],
     "automation engineer":["Dashboard","Submit Idea","Feasibility"],
     "automation pl":      ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval"],
@@ -1987,7 +1987,7 @@ def page_otp_list():
     st.caption("Master lookup table. The OTP a user picks on **Submit Idea** auto-fills Project name, Business unit, PD and SPL/PL from this table.")
     otp_rows = get_otp_list()
 
-    tab1, tab2, tab3, tab4 = st.tabs(["📋 OTP Table", "⬆️ Upload CSV", "➕ Add / Edit / Delete", "🔀 Workflow"])
+    tab1, tab2, tab3 = st.tabs(["📋 OTP Table", "⬆️ Upload CSV", "➕ Add / Edit / Delete"])
 
     with tab1:
         st.markdown(f"**{len(otp_rows)} OTP entries**")
@@ -2070,14 +2070,19 @@ def page_otp_list():
                         st.warning(f"Deleted OTP entry: {r.get('otp','')}")
                         st.rerun()
 
-    with tab4:
-        # TODO: replace this dummy placeholder with the real workflow content
-        st.markdown("""
-        <div style="padding:24px;border:1px dashed #94a3b8;border-radius:8px;text-align:center;color:#64748b;">
-            #
-        </div>
-        """, unsafe_allow_html=True)
+    render_copyright()
 
+# ══════════════════════════════════════════════════════════════════════════════
+#  PAGE: WORKFLOW
+# ══════════════════════════════════════════════════════════════════════════════
+def page_workflow():
+    page_header("Workflow 🔀")
+    # TODO: replace this dummy placeholder with the real workflow HTML
+    st.markdown("""
+    <div style="padding:24px;border:1px dashed #94a3b8;border-radius:8px;text-align:center;color:#64748b;">
+        #
+    </div>
+    """, unsafe_allow_html=True)
     render_copyright()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2168,7 +2173,7 @@ def main():
 
         pages = user_pages()
         icons = {"Dashboard":"📊","Submit Idea":"💡","PL Assignment":"🧑‍💼",
-                 "Feasibility":"🔍","Approval":"✅","Admin":"⚙️","OTP List":"🆔"}
+                 "Feasibility":"🔍","Approval":"✅","Admin":"⚙️","OTP List":"🆔","Workflow":"🔀"}
         nav = st.radio("Navigation",
                        [f"{icons.get(p,'')} {p}" for p in pages],
                        label_visibility="collapsed")
@@ -2214,6 +2219,7 @@ def main():
     elif current_page == "Feasibility":   page_feasibility()
     elif current_page == "Approval":      page_approval()
     elif current_page == "OTP List":      page_otp_list()
+    elif current_page == "Workflow":      page_workflow()
     elif current_page == "Admin":         page_admin()
 
 if __name__ == "__main__":
