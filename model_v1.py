@@ -1079,7 +1079,7 @@ def page_submit():
         idea_name = st.text_input("Idea Name *", placeholder="Short title for the idea")
         idea_desc = st.text_area("Idea Description *", placeholder="Describe the automation idea in detail")
 
-        st.markdown("##### 🔑 Auto-filled from OTP")
+        st.markdown("##### OTP *")
         ac1, ac2 = st.columns(2)
         with ac1:
             project_name  = st.text_input("Project name", value=otp_row.get("project_name",""), disabled=True)
@@ -1987,7 +1987,7 @@ def page_otp_list():
     st.caption("Master lookup table. The OTP a user picks on **Submit Idea** auto-fills Project name, Business unit, PD and SPL/PL from this table.")
     otp_rows = get_otp_list()
 
-    tab1, tab2, tab3 = st.tabs(["📋 OTP Table", "⬆️ Upload CSV", "➕ Add / Edit / Delete"])
+    tab1, tab2, tab3, tab4 = st.tabs(["📋 OTP Table", "⬆️ Upload CSV", "➕ Add / Edit / Delete", "🔀 Workflow"])
 
     with tab1:
         st.markdown(f"**{len(otp_rows)} OTP entries**")
@@ -2069,6 +2069,14 @@ def page_otp_list():
                         delete_otp_row(r.get("otp",""))
                         st.warning(f"Deleted OTP entry: {r.get('otp','')}")
                         st.rerun()
+
+    with tab4:
+        # TODO: replace this dummy placeholder with the real workflow content
+        st.markdown("""
+        <div style="padding:24px;border:1px dashed #94a3b8;border-radius:8px;text-align:center;color:#64748b;">
+            #
+        </div>
+        """, unsafe_allow_html=True)
 
     render_copyright()
 
