@@ -570,8 +570,8 @@ def ss(key, default=None):
 #  interaction (button, dropdown, form submit, navigation, kanban move, etc.)
 #  triggers a rerun, and that rerun is what resets the timer here.
 # ══════════════════════════════════════════════════════════════════════════════
-SESSION_TIMEOUT_SECONDS = 300   # 5 minutes
-SESSION_WARNING_AT      = 240   # show warning after 4 minutes (60s before logout)
+SESSION_TIMEOUT_SECONDS = 600   # 5 minutes
+SESSION_WARNING_AT      = 400   # show warning after 4 minutes (60s before logout)
 
 def touch_activity():
     st.session_state["_last_activity"] = datetime.now()
