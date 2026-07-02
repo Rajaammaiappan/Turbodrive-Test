@@ -1073,7 +1073,7 @@ def page_submit():
     idea_desc = st.text_area("Idea Description *", placeholder="Describe the automation idea in detail")
 
     SHAREPOINT_ATTACH_URL = ("https://altengroup.sharepoint.com/:f:/r/sites/Rolls-RoyceGlobalEfS/Production/25.%20EFS%20Continuous%20Improvements/Turbo%20Drive?csf=1&web=1&e=a63ybE")
-    st.markdown("**Attachments (optional)**")
+    st.markdown("**Attachments (optional) please rename your file with the idea name**")
     st.markdown(f"""
     <a href="{SHAREPOINT_ATTACH_URL}" target="_blank" rel="noopener noreferrer"
        style="display:inline-flex;align-items:center;gap:8px;border:1px solid #94a3b8;
