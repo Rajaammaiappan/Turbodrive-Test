@@ -414,7 +414,7 @@ def render_copyright():
 def page_header(title: str):
     st.markdown(f"""
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;">
-      <img src="{ALTEN_LOGO_URL}" style="height:28px;object-fit:contain;" alt="ALTEN"/>
+      <img src="{ALTEN_LOGO_URL}" style="height:36px;object-fit:contain;" alt="ALTEN"/>
       <span style="font-size:24px;font-weight:800;color:#E30613;letter-spacing:0.5px;">
          {title}
       </span>
@@ -570,8 +570,8 @@ def ss(key, default=None):
 #  interaction (button, dropdown, form submit, navigation, kanban move, etc.)
 #  triggers a rerun, and that rerun is what resets the timer here.
 # ══════════════════════════════════════════════════════════════════════════════
-SESSION_TIMEOUT_SECONDS = 300   # 5 minutes
-SESSION_WARNING_AT      = 240   # show warning after 4 minutes (60s before logout)
+SESSION_TIMEOUT_SECONDS = 600   # 5 minutes
+SESSION_WARNING_AT      = 340   # show warning after 4 minutes (60s before logout)
 
 def touch_activity():
     st.session_state["_last_activity"] = datetime.now()
@@ -1490,6 +1490,7 @@ def page_dashboard():
     cust_cnt  = cnt_cat("Customer Requirement")
     int_cnt   = cnt_cat("Internal")
     completed = cnt("Completed")
+    completed_pct = round(completed / total * 100, 1) if total else 0.0
 
     # ── ROW 1: Premium Illustrated KPI Cards ───────────────────────────────
     st.markdown("##### 📦 Key Metrics")
@@ -1506,32 +1507,53 @@ def page_dashboard():
     st.markdown(f"""
     <style>
       .km-board{{position:relative;overflow:hidden;margin-bottom:22px;border-radius:24px;border:1px solid rgba(255,255,255,.12);background:rgba(15,23,42,.85);box-shadow:0 18px 50px rgba(15,23,42,.25);}}
-      .km-track{{display:flex;gap:12px;width:max-content;animation:km-scroll-left 20s linear infinite;}}
+      .km-track{{display:flex;gap:12px;width:max-content;animation:km-scroll-left 20s linear infinite;animation-play-state:running;}}
+      .km-board:hover .km-track{{animation-play-state:paused;}}
+      .km-board.paused .km-track{{animation-play-state:paused;}}
       .km-copy{{display:flex;gap:12px;}}
-      .km-card{{flex:0 0 250px;min-width:250px;padding:18px 20px;border-radius:18px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);}}
-      .km-icon{{width:40px;height:40px;margin-bottom:14px;}}
+      .km-card{{flex:0 0 260px;min-width:260px;padding:18px 20px;border-radius:18px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);display:grid;grid-template-columns:60px 1fr;gap:12px;min-height:140px;align-items:start;}}
+      .km-icon{{width:56px;height:75px;flex:0 0 56px;display:grid;place-items:center;background:rgba(255,255,255,.1);border-radius:18px;}}
       .km-icon svg{{width:100%;height:100%;}}
-      .km-label{{font-size:10px;letter-spacing:.24em;text-transform:uppercase;color:rgba(255,255,255,.72);margin-bottom:8px;}}
-      .km-value{{font-size:20px;font-weight:800;color:#fff;line-height:1.1;}}
-      .km-sub{{font-size:11px;color:rgba(255,255,255,.68);margin-top:6px;}}
+      .km-text{{display:grid;grid-template-rows:auto 1fr auto;gap:8px;min-height:100%;}}
+      .km-header{{font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:rgba(255,255,255,.75);font-weight:700;}}
+      .km-card-body{{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}}
+      .km-value{{font-size:24px;font-weight:900;color:#fff;line-height:1.05;}}
+      .km-pct{{font-size:12px;font-weight:700;color:#f8fafc;opacity:.95;white-space:nowrap;}}
+      .km-footer{{font-size:11px;color:rgba(255,255,255,.68);line-height:1.4;min-height:18px;}}
       @keyframes km-scroll-left{{0%{{transform:translateX(0);}}100%{{transform:translateX(-50%);}}}}
     </style>
-    <div class="km-board">
-      <div class="km-track">
+    <div class="km-board" id="km-board">
+      <div class="km-track" id="km-track">
         <div class="km-copy">
-          <div class="km-card"><div class="km-icon" style="color:#1a4fad;">{icon_total}</div><div class="km-label">Total Ideas</div><div class="km-value">{total}</div><div class="km-sub">All ideas in the current view</div></div>
-          <div class="km-card"><div class="km-icon" style="color:#059669;">{icon_completed}</div><div class="km-label">Completed</div><div class="km-value">{completed}</div><div class="km-sub">Ideas marked completed</div></div>
-          <div class="km-card"><div class="km-icon" style="color:#0d9488;">{icon_hours}</div><div class="km-label">Total Hrs Saved / yr</div><div class="km-value">{cust_hrs+int_hrs:,.0f}</div><div class="km-sub">Customer + Internal hours</div></div>
-          <div class="km-card"><div class="km-icon" style="color:#b45309;">{icon_roi}</div><div class="km-label">Total ROI</div><div class="km-value">{cust_roi+int_roi}</div><div class="km-sub">Customer + Internal ROI</div></div>
+          <div class="km-card"><div class="km-icon" style="color:#facc15;">{icon_total}</div><div class="km-text"><div class="km-header">Total Ideas</div><div class="km-card-body"><div class="km-value">{total}</div><div class="km-pct">All ideas</div></div><div class="km-footer"></div></div></div>
+          <div class="km-card"><div class="km-icon" style="color:#059669;">{icon_completed}</div><div class="km-text"><div class="km-header">Completed</div><div class="km-card-body"><div class="km-value">{completed}</div><div class="km-pct">{completed_pct:.1f}%</div></div><div class="km-footer"></div></div></div>
+          <div class="km-card"><div class="km-icon" style="color:#0d9488;">{icon_hours}</div><div class="km-text"><div class="km-header">Total Hrs Saved / yr</div><div class="km-card-body"><div class="km-value">{cust_hrs+int_hrs:,.0f}</div><div class="km-pct"></div></div><div class="km-footer">Customer + Internal hours</div></div></div>
+          <div class="km-card"><div class="km-icon" style="color:#b45309;">{icon_roi}</div><div class="km-text"><div class="km-header">Total ROI</div><div class="km-card-body"><div class="km-value">{cust_roi+int_roi}</div><div class="km-pct"></div></div><div class="km-footer">Customer + Internal ROI</div></div></div>
         </div>
         <div class="km-copy">
-          <div class="km-card"><div class="km-icon" style="color:#1a4fad;">{icon_total}</div><div class="km-label">Total Ideas</div><div class="km-value">{total}</div><div class="km-sub">All ideas in the current view</div></div>
-          <div class="km-card"><div class="km-icon" style="color:#059669;">{icon_completed}</div><div class="km-label">Completed</div><div class="km-value">{completed}</div><div class="km-sub">Ideas marked completed</div></div>
-          <div class="km-card"><div class="km-icon" style="color:#0d9488;">{icon_hours}</div><div class="km-label">Total Hrs Saved / yr</div><div class="km-value">{cust_hrs+int_hrs:,.0f}</div><div class="km-sub">Customer + Internal hours</div></div>
-          <div class="km-card"><div class="km-icon" style="color:#b45309;">{icon_roi}</div><div class="km-label">Total ROI</div><div class="km-value">{cust_roi+int_roi}</div><div class="km-sub">Customer + Internal ROI</div></div>
+          <div class="km-card"><div class="km-icon" style="color:#facc15;">{icon_total}</div><div class="km-text"><div class="km-header">Total Ideas</div><div class="km-card-body"><div class="km-value">{total}</div><div class="km-pct">All ideas</div></div><div class="km-footer"></div></div></div>
+          <div class="km-card"><div class="km-icon" style="color:#059669;">{icon_completed}</div><div class="km-text"><div class="km-header">Completed</div><div class="km-card-body"><div class="km-value">{completed}</div><div class="km-pct">{completed_pct:.1f}%</div></div><div class="km-footer"></div></div></div>
+          <div class="km-card"><div class="km-icon" style="color:#0d9488;">{icon_hours}</div><div class="km-text"><div class="km-header">Total Hrs Saved / yr</div><div class="km-card-body"><div class="km-value">{cust_hrs+int_hrs:,.0f}</div><div class="km-pct"></div></div><div class="km-footer">Customer + Internal hours</div></div></div>
+          <div class="km-card"><div class="km-icon" style="color:#b45309;">{icon_roi}</div><div class="km-text"><div class="km-header">Total ROI</div><div class="km-card-body"><div class="km-value">{cust_roi+int_roi}</div><div class="km-pct"></div></div><div class="km-footer">Customer + Internal ROI</div></div></div>
         </div>
       </div>
     </div>
+    <script>
+      const board = document.getElementById('km-board');
+      let lastTap = 0;
+      if (board) {{
+        board.addEventListener('dblclick', function() {{ board.classList.toggle('paused'); }});
+        board.addEventListener('touchend', function(event) {{
+          const currentTime = new Date().getTime();
+          const tapLength = currentTime - lastTap;
+          if (tapLength < 500 && tapLength > 0) {{
+            board.classList.toggle('paused');
+            event.preventDefault();
+          }}
+          lastTap = currentTime;
+        }});
+      }}
+    </script>
     """, unsafe_allow_html=True)
 
     # second KPI row removed
@@ -1574,10 +1596,9 @@ def page_dashboard():
         return (
             f'<div class="category-card {active}" onclick="selectCategory(\'{cat}\')">'
             f'<div class="category-icon">{icon}</div>'
-            f'<div class="category-body">'
+            f'<div class="category-count">{count}</div>'
             f'<div class="category-name">{label}</div>'
-            f'<div class="category-count">{count} ideas</div>'
-            '</div></div>'
+            '</div>'
         )
 
     left_category_html = "".join(_category_card(cat) for cat in AUTOMATION_CATS)
@@ -1598,9 +1619,8 @@ def page_dashboard():
     else:
         selected_detail_html = '''
           <div class="detail-overlay">
-            <div class="detail-card">
-              <div class="detail-title">Select a category</div>
-              <div class="detail-sub">Click any Automation or AI category to show details here.</div>
+            <div class="detail-card detail-card--circle">
+              <img class="detail-image" src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcRk5gF2yYSpS4q60kNhN4hLGJ2aoRoseCFJAVrTfN8FSA&s=10" alt="Select a category" />
             </div>
           </div>'''
 
@@ -1662,11 +1682,12 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 .category-card.selected{{background:linear-gradient(135deg,rgba(56,189,248,.18),rgba(124,58,237,.18));border-color:rgba(56,189,248,.35);}}
 .category-icon{{width:38px;height:38px;border-radius:14px;display:grid;place-items:center;
   background:rgba(255,255,255,.08);color:#fff;font-size:18px;}}
-.category-body{{display:flex;flex-direction:column;gap:3px;}}
 .category-name{{font-size:12px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#fff;}}
-.category-count{{font-size:10px;color:rgba(255,255,255,.7);}}
+.category-count{{font-size:14px;font-weight:800;color:#fff;}}
 .detail-overlay{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;}}
 .detail-card{{width:min(220px,90%);padding:16px 18px;border-radius:22px;background:rgba(8,12,30,.92);border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(8px);box-shadow:0 18px 80px rgba(15,23,42,.35);text-align:center;}}
+.detail-card.detail-card--circle{{width:160px;height:160px;padding:0;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;}}
+.detail-image{{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;}}
 .detail-title{{font-size:15px;font-weight:800;color:#f8fafc;margin-bottom:6px;}}
 .detail-value{{font-size:28px;font-weight:900;color:#e0e7ff;margin-bottom:6px;}}
 .detail-meta{{font-size:11px;color:rgba(148,163,184,.95);margin-bottom:4px;}}
@@ -1910,63 +1931,79 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
                        "expandAndCollapse":True,"animationDuration":550,"initialTreeDepth":2}]
         }, height="400px")
 
-    with wl_col:
-        st.markdown("##### 🌍 Region — Word Map")
-        region_data = {}
-        for i in ideas:
-            r = i.get("region","") or ""
-            if not r:
-                continue   # skip ideas with no region set
-            if r not in region_data: region_data[r] = {"count":0,"roi":0.0}
-            region_data[r]["count"] += 1
-            region_data[r]["roi"]   += float(i.get("roi",0) or 0)
+        with wl_col:
+            st.markdown("##### 🌍 Region — World Map")
+            region_data = {}
+            for i in ideas:
+                r = (i.get("region","") or "").strip()
+                if not r:
+                    continue   # skip ideas with no region set
+                key = r.upper()
+                if key not in region_data:
+                    region_data[key] = {"count":0,"roi":0.0}
+                region_data[key]["count"] += 1
+                region_data[key]["roi"]   += float(i.get("roi",0) or 0)
 
-        no_region_count = len([i for i in ideas if not (i.get("region","") or "").strip()])
+            no_region_count = len([i for i in ideas if not (i.get("region","") or "").strip()])
 
-        if not region_data:
-            st.info(f"No region data yet — {no_region_count} idea(s) have no region assigned.")
-        else:
-            # ── Word-map: sized coloured bubbles (true word-cloud feel) ──
-            max_count = max(v["count"] for v in region_data.values()) or 1
-            sorted_regions = sorted(region_data.items(), key=lambda x: -x[1]["count"])
-            colors = [
-                "#E30613","#1a4fad","#059669","#7c3aed",
-                "#0891b2","#b45309","#9333ea","#0d9488",
-                "#0369a1","#16a34a","#dc2626","#d97706",
-            ]
-            wc_html = (
-                '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;' +
-                'justify-content:center;padding:18px 8px;'  +
-                'background:#f8fafc;border-radius:12px;border:1px solid #e2e8f0;'
-                'min-height:180px;">'
-            )
-            for idx,(region,val) in enumerate(sorted_regions):
-                ratio   = val["count"] / max_count          # 0.0 – 1.0
-                fs      = int(13 + ratio * 26)              # 13 – 39 px
-                pad_h   = int(8  + ratio * 14)
-                pad_v   = int(4  + ratio * 8)
-                alpha   = int(18 + ratio * 20)              # hex opacity 18–38
-                col_hex = colors[idx % len(colors)]
-                bg_hex  = col_hex + hex(alpha)[2:].zfill(2) # colour + alpha
-                tooltip = f"{region}: {val['count']} idea(s) · ROI {round(val['roi'],1)}"
-                wc_html += (
-                    f'<span title="{tooltip}" style="' +
-                    f'font-size:{fs}px;font-weight:{600 if ratio>0.5 else 500};' +
-                    f'color:{col_hex};background:{bg_hex};' +
-                    f'border-radius:8px;padding:{pad_v}px {pad_h}px;' +
-                    f'cursor:default;line-height:1.5;white-space:nowrap;'
-                    f'box-shadow:0 1px 3px rgba(0,0,0,.06);">' +
-                    f'{region}'
-                    f'<span style="font-size:{max(9,fs-10)}px;vertical-align:super;'
-                    f'margin-left:3px;opacity:0.7;">{val['count']}</span>'
-                    f'</span>'
-                )
-            wc_html += '</div>'
-            st.markdown(wc_html, unsafe_allow_html=True)
+            region_counts = {
+                "India": region_data.get("INDIA", {"count":0})["count"],
+                "USA": region_data.get("USA", {"count":0})["count"],
+                "UK": region_data.get("UK", {"count":0})["count"],
+                "Germany": region_data.get("GERMANY", {"count":0})["count"],
+            }
+
+            map_html = f"""
+            <style>
+              .region-map-shell {{position:relative;width:100%;min-height:360px;border-radius:22px;overflow:hidden;
+                background:#0b1222;border:1px solid rgba(255,255,255,.08);box-shadow:0 20px 50px rgba(0,0,0,.25);
+              }}
+              .region-map-shell::before {{content:'';position:absolute;inset:0;
+                background-image:url('https://upload.wikimedia.org/wikipedia/commons/8/80/World_map_-_low_resolution.svg');
+                background-size:cover;background-position:center center;opacity:.18;filter:brightness(.95);
+              }}
+              .region-map-shell .region-overlay {{position:relative;z-index:1;padding:16px;display:grid;grid-template-rows:auto 1fr;gap:12px;}}
+              .region-map-shell .region-header {{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:0 6px;}}
+              .region-map-shell .region-title {{font-size:14px;font-weight:700;color:#f8fafc;}}
+              .region-map-shell .region-subtitle {{font-size:12px;color:rgba(248,250,252,.72);}}
+              .region-map-shell .region-pin {{position:absolute;display:inline-flex;align-items:center;justify-content:center;
+                min-width:72px;height:32px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.96);
+                color:#111;font-size:12px;font-weight:700;box-shadow:0 14px 32px rgba(0,0,0,.18);white-space:nowrap;
+              }}
+              .region-map-shell .region-pin.zero {{opacity:.45;}}
+              .region-map-shell .region-pin.india {{top:60%;left:66%;}}
+              .region-map-shell .region-pin.usa {{top:36%;left:18%;}}
+              .region-map-shell .region-pin.uk {{top:26%;left:30%;}}
+              .region-map-shell .region-pin.germany {{top:30%;left:39%;}}
+              .region-map-shell .region-legend {{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}}
+              .region-map-shell .legend-item {{display:flex;align-items:center;gap:8px;font-size:12px;color:#f8fafc;}}
+              .region-map-shell .legend-dot {{width:10px;height:10px;border-radius:50%;background:#facc15;}}
+            </style>
+            <div class="region-map-shell">
+              <div class="region-overlay">
+                <div class="region-header">
+                  <div>
+                    <div class="region-title">World Region Map</div>
+                    <div class="region-subtitle">Counts pinned to each region based on ideas</div>
+                  </div>
+                </div>
+                <div class="region-legend">
+                  <div class="legend-item"><span class="region-dot"></span> India: {region_counts['India']}</div>
+                  <div class="legend-item"><span class="region-dot"></span> USA: {region_counts['USA']}</div>
+                  <div class="legend-item"><span class="region-dot"></span> UK: {region_counts['UK']}</div>
+                  <div class="legend-item"><span class="region-dot"></span> Germany: {region_counts['Germany']}</div>
+                </div>
+              </div>
+              <div class="region-pin india{' zero' if region_counts['India']==0 else ''}" title="India: {region_counts['India']} idea(s)">India {region_counts['India']}</div>
+              <div class="region-pin usa{' zero' if region_counts['USA']==0 else ''}" title="USA: {region_counts['USA']} idea(s)">USA {region_counts['USA']}</div>
+              <div class="region-pin uk{' zero' if region_counts['UK']==0 else ''}" title="UK: {region_counts['UK']} idea(s)">UK {region_counts['UK']}</div>
+              <div class="region-pin germany{' zero' if region_counts['Germany']==0 else ''}" title="Germany: {region_counts['Germany']} idea(s)">Germany {region_counts['Germany']}</div>
+            </div>
+            """
+            st.markdown(map_html, unsafe_allow_html=True)
+
             if no_region_count:
                 st.caption(f"ℹ️ {no_region_count} idea(s) have no region assigned and are excluded.")
-            st.caption("Font size = idea count · Hover for count & ROI")
-
     # ── All Ideas table + CSV (above Kanban) ────────────────────────────
     st.markdown("##### 📄 All Ideas")
     search = st.text_input("🔎 Search ideas", placeholder="Filter by name, project, status…")
@@ -2090,7 +2127,7 @@ def page_workflow():
     # TODO: replace this dummy placeholder with the real workflow HTML
     st.markdown("""
     <div style="padding:24px;border:1px dashed #94a3b8;border-radius:8px;text-align:center;color:#64748b;">
-        
+        #
     </div>
     """, unsafe_allow_html=True)
     render_copyright()
@@ -2171,7 +2208,7 @@ def main():
     with st.sidebar:
         st.markdown(f"""
         <div style="text-align:center;padding:10px 0 6px;">
-          <img src="{ALTEN_LOGO_URL}" style="height:22px;object-fit:contain;margin-bottom:4px;" alt="ALTEN"/><br>
+          <img src="{ALTEN_LOGO_URL}" style="height:36px;object-fit:contain;margin-bottom:4px;" alt="ALTEN"/><br>
           <span style="font-size:clamp(14px,1.5vw,20px);font-weight:900;
                background:linear-gradient(135deg,{t['primary']},{t['secondary']});
                -webkit-background-clip:text;background-clip:text;color:transparent;">
