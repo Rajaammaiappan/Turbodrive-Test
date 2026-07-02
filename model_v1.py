@@ -48,7 +48,7 @@ BLOCKED_DOMAINS = {
 }
 
 ROLE_PAGES = {
-    "super user":         ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Admin","Email"],
+    "super user":         ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Admin","OTP List"],
     "normal user":        ["Submit Idea"],
     "automation engineer":["Dashboard","Submit Idea","Feasibility"],
     "automation pl":      ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval"],
@@ -147,10 +147,21 @@ def init_db():
         ("delivery_date","text"),("vsm_meeting_date","text"),
         ("sprint_meeting_date","text"),("hold_reason","text"),
         ("customer","text"),("region","text"),("parent_id","text"),
+        ("otp","text"),("business_unit","text"),("pd_name","text"),("spl_pl","text"),
     ]
     for col, dtype in idea_cols:
         _run_sql(sb, f"ALTER TABLE ideas ADD COLUMN IF NOT EXISTS {col} {dtype};")
     _run_sql(sb, "ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text;")
+
+    _run_sql(sb, """
+        CREATE TABLE IF NOT EXISTS otp_list (
+            otp            text PRIMARY KEY,
+            project_name   text,
+            business_unit  text,
+            pd             text,
+            spl_pl         text
+        );
+    """)
 
     dh = generate_password_hash(DEFAULT_PW)
     for u in DEFAULT_USERS:
@@ -190,6 +201,8 @@ def add_idea(idea):
         "assigned_date":"","wip_date":"","uat_date":"","completion_date":"",
         "customer":idea.get("customer",""),"region":idea.get("region",""),
         "parent_id":idea.get("parent_id",""),
+        "otp":idea.get("otp",""),"business_unit":idea.get("business_unit",""),
+        "pd_name":idea.get("pd_name",""),"spl_pl":idea.get("spl_pl",""),
     }
     get_supabase().table("ideas").insert(row).execute()
 
@@ -223,6 +236,31 @@ def set_password(email, new_pw):
 
 def reset_password(email):
     set_password(email, DEFAULT_PW)
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  OTP LOOKUP TABLE  (master list feeding Submit Idea autofill)
+# ══════════════════════════════════════════════════════════════════════════════
+def get_otp_list():
+    resp = get_supabase().table("otp_list").select("*").order("otp").execute()
+    return resp.data or []
+
+def upsert_otp_row(otp, project_name, business_unit, pd_name, spl_pl):
+    sb = get_supabase()
+    payload = {
+        "otp":str(otp).strip(),
+        "project_name":project_name or "",
+        "business_unit":business_unit or "",
+        "pd":pd_name or "",
+        "spl_pl":spl_pl or "",
+    }
+    existing = sb.table("otp_list").select("otp").eq("otp", payload["otp"]).execute()
+    if existing.data:
+        sb.table("otp_list").update(payload).eq("otp", payload["otp"]).execute()
+    else:
+        sb.table("otp_list").insert(payload).execute()
+
+def delete_otp_row(otp):
+    get_supabase().table("otp_list").delete().eq("otp", otp).execute()
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  DATE / SPRINT ENGINE
@@ -1021,26 +1059,52 @@ def page_submit():
     page_header("Submit New Idea 💡")
     users     = get_users()
     pl_emails = [u["email"] for u in users if u["role"] in ("pl/spl","automation pl","super user")]
+
+    otp_rows    = get_otp_list()
+    otp_lookup  = {r.get("otp",""): r for r in otp_rows if r.get("otp")}
+    otp_options = [""] + sorted(otp_lookup.keys())
+
+    if not otp_lookup:
+        st.warning("⚠️ No OTP entries configured yet — ask an Admin to add them under **OTP List**.")
+
+    sel_otp = st.selectbox(
+        "OTP *", otp_options, key="submit_otp_select",
+        help="Select the OTP to auto-fill Project Name, Business Unit, PD and SPL/PL below.",
+    )
+    otp_row = otp_lookup.get(sel_otp, {})
+
     with st.form("submit_form", clear_on_submit=True):
         name      = st.text_input("Your Full Name", value=ss("name",""))
         sub_email = st.text_input("Your Email", value=ss("email",""))
         idea_name = st.text_input("Idea Name *", placeholder="Short title for the idea")
         idea_desc = st.text_area("Idea Description *", placeholder="Describe the automation idea in detail")
+
+        st.markdown("##### 🔑 Auto-filled from OTP")
+        ac1, ac2 = st.columns(2)
+        with ac1:
+            project_name  = st.text_input("Project name", value=otp_row.get("project_name",""), disabled=True)
+            business_unit = st.text_input("Business unit", value=otp_row.get("business_unit",""), disabled=True)
+        with ac2:
+            pd_name = st.text_input("PD", value=otp_row.get("pd",""), disabled=True)
+            spl_pl  = st.text_input("SPL/PL (from OTP)", value=otp_row.get("spl_pl",""), disabled=True)
+
         col1, col2 = st.columns(2)
         with col1:
-            project  = st.selectbox("Project", PROJECTS)
             category = st.selectbox("Idea Category", CATEGORIES)
             customer = st.selectbox("Customer *", CUSTOMERS)
         with col2:
             region  = st.selectbox("Region *", REGIONS)
             pl_name = st.selectbox("Assign PL / SPL", pl_emails) if pl_emails else st.text_input("PL/SPL Email")
         if st.form_submit_button("🚀 Submit Idea", use_container_width=True):
-            if not idea_name or not idea_desc:
+            if not sel_otp:
+                st.error("Please select an OTP.")
+            elif not idea_name or not idea_desc:
                 st.error("Idea Name and Description are required.")
             else:
                 new_id = str(uuid.uuid4())
                 add_idea({"id":new_id,"name":name,"submitter_email":sub_email,
-                          "idea_name":idea_name,"idea":idea_desc,"project":project,
+                          "idea_name":idea_name,"idea":idea_desc,"project":project_name,
+                          "otp":sel_otp,"business_unit":business_unit,"pd_name":pd_name,"spl_pl":spl_pl,
                           "category":category,"pl_name":pl_name,"status":"New Idea",
                           "customer":customer,"region":region})
                 st.success("✅ Idea Submitted Successfully")
@@ -1916,64 +1980,96 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
     render_copyright()
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  PAGE: EMAIL
+#  PAGE: OTP LIST  (master lookup table — feeds Submit Idea autofill)
 # ══════════════════════════════════════════════════════════════════════════════
-def page_email():
-    page_header("Send Meeting Invites 📤")
-    st.caption("All dates are auto-computed from sprint scheduling. Click 'Open in Outlook' to review & send manually.")
-    all_ideas = get_all()
-    idea_opts = {f"{i.get('idea_name','(no name)')} — {i.get('status','')}":i for i in all_ideas}
-    if not idea_opts:
-        st.info("No ideas yet."); render_copyright(); return
+def page_otp_list():
+    page_header("OTP List 🔑")
+    st.caption("Master lookup table. The OTP a user picks on **Submit Idea** auto-fills Project name, Business unit, PD and SPL/PL from this table.")
+    otp_rows = get_otp_list()
 
-    col1,col2 = st.columns(2)
-    with col1: sel_name = st.selectbox("Select Idea", list(idea_opts.keys()))
-    with col2:
-        mtype = st.selectbox("Meeting Type",
-                             ["vsm — VSM Session (11:00 AM)",
-                              "sprint — Sprint Planning (10:00 AM)",
-                              "delivery — Delivery/Demo Review (03:00 PM)"])
+    tab1, tab2, tab3 = st.tabs(["📋 OTP Table", "⬆️ Upload CSV", "➕ Add / Edit / Delete"])
 
-    idea  = idea_opts[sel_name]
-    mkey  = mtype.split(" — ")[0]
-    date_map = {"vsm":idea.get("vsm_meeting_date"),"sprint":idea.get("sprint_meeting_date"),"delivery":idea.get("delivery_date")}
-    mdate = parse_d(date_map.get(mkey,""))
+    with tab1:
+        st.markdown(f"**{len(otp_rows)} OTP entries**")
+        if otp_rows:
+            import pandas as pd
+            df = pd.DataFrame([{
+                "OTP":r.get("otp",""),
+                "Project name":r.get("project_name",""),
+                "Business unit":r.get("business_unit",""),
+                "PD":r.get("pd",""),
+                "SPL/PL":r.get("spl_pl",""),
+            } for r in otp_rows])
+            search = st.text_input("🔎 Search OTP list", placeholder="Filter by OTP, project, PD…", key="otp_search")
+            if search:
+                mask = df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)
+                df = df[mask]
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            csv_buf = io.StringIO()
+            df.to_csv(csv_buf, index=False)
+            st.download_button("⬇️ Download CSV", csv_buf.getvalue(), "otp_list.csv", "text/csv")
+        else:
+            st.info("No OTP entries yet — add them via **Upload CSV** or **Add / Edit / Delete**.")
 
-    st.markdown(f"""
-    | Field | Value |
-    |---|---|
-    | Idea | {idea.get('idea_name','-')} |
-    | Project | {idea.get('project','-')} |
-    | Category | {idea.get('category','-')} / {idea.get('automation_category','-')} |
-    | Customer | {idea.get('customer','-')} — Region | {idea.get('region','-')} |
-    | Engineer | {idea.get('assigned_engineer','-')} |
-    | PL/SPL | {idea.get('pl_name','-')} |
-    | Meeting Date | **{fmt_d(mdate) if mdate else '⚠ Not set yet'}** |
-    """)
+    with tab2:
+        st.caption("CSV must include columns: **OTP, Project name, Business unit, PD, SPL/PL** (header names matched case-insensitively). Existing OTPs are updated; new OTPs are inserted.")
+        upload = st.file_uploader("Upload OTP list CSV", type=["csv"], key="otp_csv_upload")
+        if upload is not None:
+            try:
+                text   = upload.getvalue().decode("utf-8-sig")
+                reader = csv.DictReader(io.StringIO(text))
+                col_map = {}
+                for h in (reader.fieldnames or []):
+                    key = h.strip().lower()
+                    if key == "otp": col_map[h] = "otp"
+                    elif key in ("project name","project"): col_map[h] = "project_name"
+                    elif key in ("business unit","businessunit"): col_map[h] = "business_unit"
+                    elif key == "pd": col_map[h] = "pd"
+                    elif key in ("spl/pl","spl_pl","splpl"): col_map[h] = "spl_pl"
+                rows = []
+                for raw in reader:
+                    mapped = {v:(raw.get(k) or "").strip() for k,v in col_map.items()}
+                    if mapped.get("otp"):
+                        rows.append(mapped)
+                if not rows:
+                    st.error("No valid rows found — make sure the CSV has an 'OTP' column.")
+                else:
+                    st.info(f"Found {len(rows)} valid row(s) ready to import.")
+                    if st.button(f"✅ Import {len(rows)} row(s)", key="otp_import_btn"):
+                        for r in rows:
+                            upsert_otp_row(r.get("otp",""), r.get("project_name",""),
+                                          r.get("business_unit",""), r.get("pd",""), r.get("spl_pl",""))
+                        st.success(f"Imported/updated {len(rows)} OTP entries.")
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Could not parse CSV: {e}")
 
-    recips_map = {
-        "vsm":     [idea.get("submitter_email",""),idea.get("assigned_engineer",""),idea.get("pl_name","")],
-        "sprint":  [idea.get("assigned_engineer",""),idea.get("pl_name","")],
-        "delivery":[idea.get("submitter_email",""),idea.get("assigned_engineer",""),idea.get("pl_name","")],
-    }
-    if mdate:
-        url = build_meeting_outlook(mkey, idea, mdate, recips_map[mkey])
-        st.markdown(f'<a href="{url}" target="_blank" class="outlook-btn">📤 Open in Outlook</a>', unsafe_allow_html=True)
-    else:
-        st.warning("⚠️ No date set for this meeting type — complete the workflow first (Feasibility / Approval).")
+    with tab3:
+        st.markdown("##### Add or update a single OTP entry")
+        with st.form("otp_add_form", clear_on_submit=True):
+            otp_val   = st.text_input("OTP *")
+            proj_val  = st.text_input("Project name")
+            bu_val    = st.text_input("Business unit")
+            pd_val    = st.text_input("PD")
+            splpl_val = st.text_input("SPL/PL")
+            if st.form_submit_button("💾 Save OTP Entry"):
+                if not otp_val.strip():
+                    st.error("OTP is required.")
+                else:
+                    upsert_otp_row(otp_val.strip(), proj_val.strip(), bu_val.strip(), pd_val.strip(), splpl_val.strip())
+                    st.success(f"Saved OTP entry: {otp_val.strip()}")
+                    st.rerun()
 
-    st.divider()
-    st.markdown("**Auto-Email Event Reference**")
-    st.markdown("""
-    | Event | Trigger | Recipients |
-    |---|---|---|
-    | ✅ Feasibility Complete | Engineer submits feasibility | PL/SPL (via Outlook button) |
-    | 🎉 Idea Approved (GO) | PL/SPL approves | Submitter + Engineer |
-    | ❌ Idea Rejected (NO-GO) | PL/SPL rejects | Submitter |
-    | 🧩 VSM Session | After feasibility (manual) | Submitter + Engineer + PL/SPL |
-    | 🚀 Sprint Planning | After approval GO (manual) | Engineer + PL/SPL |
-    | 🏁 Delivery/Demo | Sprint end date (manual) | Submitter + Engineer + PL/SPL |
-    """)
+        if otp_rows:
+            st.markdown("##### Existing entries")
+            for r in otp_rows:
+                with st.expander(f"🔑 {r.get('otp','')} — {r.get('project_name','-')}"):
+                    st.markdown(f"**Business Unit:** {r.get('business_unit','-')}  |  **PD:** {r.get('pd','-')}  |  **SPL/PL:** {r.get('spl_pl','-')}")
+                    if st.button("🗑 Delete", key=f"otp_del_{r.get('otp','')}"):
+                        delete_otp_row(r.get("otp",""))
+                        st.warning(f"Deleted OTP entry: {r.get('otp','')}")
+                        st.rerun()
+
     render_copyright()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2064,7 +2160,7 @@ def main():
 
         pages = user_pages()
         icons = {"Dashboard":"📊","Submit Idea":"💡","PL Assignment":"🧑‍💼",
-                 "Feasibility":"🔍","Approval":"✅","Admin":"⚙️","Email":"📤"}
+                 "Feasibility":"🔍","Approval":"✅","Admin":"⚙️","OTP List":"🆔"}
         nav = st.radio("Navigation",
                        [f"{icons.get(p,'')} {p}" for p in pages],
                        label_visibility="collapsed")
@@ -2109,7 +2205,7 @@ def main():
     elif current_page == "PL Assignment": page_pl_assignment()
     elif current_page == "Feasibility":   page_feasibility()
     elif current_page == "Approval":      page_approval()
-    elif current_page == "Email":         page_email()
+    elif current_page == "OTP List":      page_otp_list()
     elif current_page == "Admin":         page_admin()
 
 if __name__ == "__main__":
