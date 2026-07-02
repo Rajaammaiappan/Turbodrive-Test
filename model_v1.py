@@ -9,8 +9,8 @@ from supabase import create_client, Client
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIG / CONSTANTS
 # ══════════════════════════════════════════════════════════════════════════════
-SUPABASE_URL = "https://mvoxhdbcxmmozulenlvh.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im12b3hoZGJjeG1tb3p1bGVubHZoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg5MTczNDIsImV4cCI6MjA5NDQ5MzM0Mn0.6Fhrqo6sfMnO3KklN5dwLup0BVbp0_ga8k5hi3LgXQU"
+SUPABASE_URL = ""
+SUPABASE_KEY = ""
 
 @st.cache_resource
 def get_supabase() -> Client:
@@ -827,15 +827,12 @@ def render_kanban_board(ideas):
             unsafe_allow_html=True,
         )
 
-    # Only standalone cards (no parent) get their own Kanban column slot —
-    # children render nested under their parent's card via expand/collapse.
-    top_level = [i for i in ideas if not i.get("parent_id")]
     id_to_idea = {i["id"]: i for i in ideas}
 
     cols = st.columns(len(STATUSES))
     for col, status in zip(cols, STATUSES):
         color  = STATUS_COLORS.get(status,"#888")
-        bucket = [i for i in top_level if i.get("status")==status]
+        bucket = [i for i in ideas if i.get("status")==status]
         with col:
             if not bucket:
                 st.caption("_Empty_")
@@ -849,11 +846,9 @@ def _render_kanban_card(idea, status, color, all_ideas, id_to_idea, depth=0):
     hold     = idea.get("hold_reason") or ""
     name     = idea.get("name") or "-"
     eng_name = eng.split("@")[0] if "@" in eng else (eng or "—")
-    children = _children_of(idea["id"], all_ideas)
-    summary  = _parent_summary(idea, all_ideas)
-    is_parent = bool(children)
-    icon_prefix = "📁 " if is_parent else ("    └ 📄 " if depth>0 else "📄 ")
-    label = icon_prefix + (idea.get("idea_name") or "No Name")[:26]
+    # Simple label: "Child Card" prefix for nested cards, card icon for top-level
+    label_prefix = "📦 Child Card — " if depth > 0 else "📄 "
+    label = label_prefix + (idea.get("idea_name") or "No Name")[:26]
 
     with st.expander(label, expanded=False):
         st.markdown(
@@ -866,21 +861,7 @@ def _render_kanban_card(idea, status, color, all_ideas, id_to_idea, depth=0):
             +f'</div>', unsafe_allow_html=True,
         )
 
-        # ── Parent summary block ──────────────────────────────────────────
-        if summary:
-            st.markdown(f"""
-            <div style="background:rgba(124,58,237,.08);border-radius:8px;padding:8px 10px;margin-bottom:8px;
-                 border:1px solid rgba(124,58,237,.18);">
-              <div style="font-size:10px;font-weight:700;color:#7c3aed;margin-bottom:4px;">📁 PARENT SUMMARY</div>
-              <div style="font-size:10px;color:#475569;line-height:1.7;">
-                Children: <b>{summary['children']}</b> &nbsp;|&nbsp;
-                Completion: <b>{summary['completion_pct']}%</b><br>
-                Hours Saved: <b>{summary['hours']:,.0f}</b> &nbsp;|&nbsp;
-                ROI: <b>{summary['roi']}</b>
-              </div>
-            </div>""", unsafe_allow_html=True)
-
-        # ── Status update ──────────────────────────────────────────────────
+        # ── Status move ────────────────────────────────────────────────────
         new_status = st.selectbox("Move to", STATUSES,
                                   index=STATUSES.index(status),
                                   key=f"kanban_sel_{idea['id']}",
@@ -889,54 +870,16 @@ def _render_kanban_card(idea, status, color, all_ideas, id_to_idea, depth=0):
         if new_status == "Hold/Park":
             hold_input = st.text_input("Reason *", key=f"kanban_hold_{idea['id']}", placeholder="Hold reason…")
         if st.button("Update", key=f"kanban_btn_{idea['id']}", use_container_width=True):
-            if new_status=="Hold/Park" and not hold_input:
+            if new_status == "Hold/Park" and not hold_input:
                 st.error("Enter a hold reason.")
             else:
-                upd = {"status":new_status}
-                if new_status=="Completed":
+                upd = {"status": new_status}
+                if new_status == "Completed":
                     upd["completion_date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
-                upd["hold_reason"] = hold_input if new_status=="Hold/Park" else ""
+                upd["hold_reason"] = hold_input if new_status == "Hold/Park" else ""
                 update_idea(idea["id"], upd)
                 touch_activity()
                 st.rerun()
-
-        # ── Parent/Child relationship controls ───────────────────────────
-        st.markdown('<div style="font-size:10px;font-weight:700;color:#64748b;margin-top:10px;">🔗 RELATIONSHIP</div>', unsafe_allow_html=True)
-        candidate_parents = [i for i in all_ideas
-                             if i["id"] != idea["id"]
-                             and i.get("parent_id") != idea["id"]   # can't parent your own child
-                             and not i.get("parent_id")              # parents must be top-level themselves (no grandparents)
-                             ]
-        parent_opts = {"— None (standalone) —": ""}
-        for p in candidate_parents:
-            parent_opts[f"{p.get('idea_name','(no name)')[:30]}"] = p["id"]
-
-        current_parent_id = idea.get("parent_id","") or ""
-        current_label = next((k for k,v in parent_opts.items() if v == current_parent_id), "— None (standalone) —")
-
-        new_parent_label = st.selectbox(
-            "Link as Child of", list(parent_opts.keys()),
-            index=list(parent_opts.keys()).index(current_label) if current_label in parent_opts else 0,
-            key=f"parent_sel_{idea['id']}", label_visibility="collapsed",
-        )
-        if st.button("🔗 Apply Relationship", key=f"parent_btn_{idea['id']}", use_container_width=True):
-            new_parent_id = parent_opts[new_parent_label]
-            update_idea(idea["id"], {"parent_id": new_parent_id})
-            touch_activity()
-            if new_parent_id:
-                st.success(f"Linked as child of '{new_parent_label}'.")
-            else:
-                st.success("Converted to standalone card.")
-            st.rerun()
-
-        # ── Nested children (expand/collapse) ────────────────────────────
-        if children:
-            show_kids = st.checkbox(f"▼ Show {len(children)} Child Card(s)", key=f"expand_{idea['id']}", value=False)
-            if show_kids:
-                for child in children:
-                    child_status = child.get("status", "New Idea")
-                    child_color  = STATUS_COLORS.get(child_status, "#888")
-                    _render_kanban_card(child, child_status, child_color, all_ideas, id_to_idea, depth=depth+1)
 
         st.divider()
 
@@ -1379,7 +1322,7 @@ def page_dashboard():
         st.info("No ideas yet.")
         render_copyright(); return
 
-    # ── LIVE USER STATS — top-right badge ────────────────────────────────
+    # ── LIVE USER BADGE — top-right ───────────────────────────────────────
     users            = get_users()
     total_registered = len(users)
     active_count     = 1
@@ -1402,17 +1345,15 @@ def page_dashboard():
         st.markdown(
             f'<div style="background:linear-gradient(135deg,#1a4fad,#0ea5e9);'
             f'border-radius:14px;padding:10px 14px;text-align:center;'
-            f'box-shadow:0 3px 16px rgba(26,79,173,.3);margin-bottom:8px;">'
-            f'<div style="display:flex;gap:16px;justify-content:center;align-items:center;">'
-            f'<div>'
-            f'<div style="font-size:9px;color:rgba(255,255,255,.8);letter-spacing:.6px;text-transform:uppercase;font-weight:600;">👥 Registered</div>'
-            f'<div style="font-size:22px;font-weight:800;color:#fff;line-height:1.1;">{total_registered}</div>'
-            f'</div>'
-            f'<div style="width:1px;height:36px;background:rgba(255,255,255,.3);"></div>'
-            f'<div>'
-            f'<div style="font-size:9px;color:rgba(255,255,255,.8);letter-spacing:.6px;text-transform:uppercase;font-weight:600;">🟢 Active</div>'
-            f'<div style="font-size:22px;font-weight:800;color:#4ade80;line-height:1.1;">{active_count}</div>'
-            f'</div>'
+            f'box-shadow:0 4px 20px rgba(26,79,173,.35);margin-bottom:8px;">'
+            f'<div style="display:flex;gap:18px;justify-content:center;align-items:center;">'
+            f'<div><div style="font-size:8px;color:rgba(255,255,255,.8);letter-spacing:.8px;'
+            f'text-transform:uppercase;font-weight:600;">&#128101; Registered</div>'
+            f'<div style="font-size:24px;font-weight:800;color:#fff;line-height:1.1;">{total_registered}</div></div>'
+            f'<div style="width:1px;height:40px;background:rgba(255,255,255,.3);"></div>'
+            f'<div><div style="font-size:8px;color:rgba(255,255,255,.8);letter-spacing:.8px;'
+            f'text-transform:uppercase;font-weight:600;">&#129001; Active Now</div>'
+            f'<div style="font-size:24px;font-weight:800;color:#4ade80;line-height:1.1;">{active_count}</div></div>'
             f'</div></div>',
             unsafe_allow_html=True
         )
@@ -1496,127 +1437,263 @@ def page_dashboard():
         premium_kpi_card(round(cust_roi+int_roi,1), "Total ROI", "#b45309",
                           f"Customer {cust_roi} · Internal {int_roi}", "growth")
 
-    c5,c6,c7,c8 = st.columns(4)
-    with c5:
-        premium_kpi_card(proj_count, "Active Projects", "#9333ea",
-                          f"Across {len(set(i.get('region','') for i in ideas if i.get('region')))} region(s)", "folder")
-    with c6:
-        premium_kpi_card(auto_total_ideas, "Automation Ideas", "#1a4fad",
-                          f"{len(AUTOMATION_CATS)} sub-categories tracked", "robot_arm")
-    with c7:
-        premium_kpi_card(ai_total_ideas, "AI Ideas", "#0369a1",
-                          f"{len(AI_CATS)} sub-categories tracked", "ai_robot")
-    with c8:
-        premium_kpi_card(f"{cust_hrs:,.0f} hrs", "Customer Hrs Saved / yr", "#00498F",
-                          f"ROI {cust_roi} · {cust_cnt} ideas", "clock")
+    # second KPI row removed
 
-    # ── ROW 2: Automation | NEXBOT | AI breakdown ─────────────────────────
-    st.markdown("##### 🤖 Automation &amp; AI Category Breakdown")
-    pa, _nexbot_col, pb = st.columns([1, 0.55, 1])
+    # -- ROW 2: Cinematic Automation | AI Canvas (exact reference image match) --
+    st.markdown("##### \U0001f916 Automation &amp; AI Category Breakdown")
 
-    # ── CENTRE: Spline 3D NEXBOT — cursor-reactive ─────────────────────
-    with _nexbot_col:
-        st.markdown('''
-        <style>
-        #nexbot-outer {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            width: 100%;
-            padding: 6px 0 0;
-        }
-        #nexbot-label {
-            font-size: 9px;
-            font-weight: 700;
-            color: #64748b;
-            letter-spacing: 2.5px;
-            text-transform: uppercase;
-            margin-bottom: 5px;
-        }
-        #nexbot-wrap {
-            width: 168px;
-            height: 240px;
-            border-radius: 20px;
-            overflow: hidden;
-            box-shadow: 0 8px 32px rgba(0,0,0,.28), 0 0 0 1px rgba(255,255,255,.06);
-            background: linear-gradient(160deg, #0a0f1e 55%, #0d2a4a);
-            position: relative;
-            cursor: crosshair;
-        }
-        #nexbot-caption {
-            font-size: 8px;
-            color: #94a3b8;
-            margin-top: 5px;
-            text-align: center;
-        }
-        </style>
+    auto_total = len([i for i in ideas if i.get("automation_category","") in AUTOMATION_CATS])
+    ai_total   = len([i for i in ideas if i.get("automation_category","") in AI_CATS])
+    auto_done  = len([i for i in ideas if i.get("automation_category","") in AUTOMATION_CATS and i.get("status")=="Completed"])
+    ai_done    = len([i for i in ideas if i.get("automation_category","") in AI_CATS and i.get("status")=="Completed"])
+    auto_wip   = len([i for i in ideas if i.get("automation_category","") in AUTOMATION_CATS and i.get("status")=="WIP"])
+    ai_wip     = len([i for i in ideas if i.get("automation_category","") in AI_CATS and i.get("status")=="WIP"])
+    auto_roi   = round(sum(float(i.get("roi",0) or 0) for i in ideas if i.get("automation_category","") in AUTOMATION_CATS),1)
+    ai_roi     = round(sum(float(i.get("roi",0) or 0) for i in ideas if i.get("automation_category","") in AI_CATS),1)
 
-        <!-- Spline viewer web component loader -->
-        <script type="module"
-            src="https://unpkg.com/@splinetool/viewer@1.0.77/build/spline-viewer.js">
-        </script>
+    selected_category = ""
+    if hasattr(st, "query_params"):
+        qp = st.query_params
+        if qp and qp.get("selected_category"):
+            selected_category = qp.get("selected_category", [""])[0]
+    if selected_category and selected_category not in AUTOMATION_CATS + AI_CATS:
+        selected_category = ""
 
-        <div id="nexbot-outer">
-          <div id="nexbot-label">NEXBOT</div>
-          <div id="nexbot-wrap">
-            <spline-viewer
-              id="nexbot-spline"
-              url="https://prod.spline.design/kZDDjO5HmRHKWMYo/scene.splinecode"
-              style="width:168px;height:240px;display:block;"
-              loading-anim="true">
-            </spline-viewer>
-          </div>
-          <div id="nexbot-caption">Move cursor to interact</div>
-        </div>
+    def _cat_stats(cat):
+        subset = [i for i in ideas if i.get("automation_category") == cat]
+        total = len(subset)
+        completed = len([i for i in subset if i.get("status") == "Completed"])
+        wip = len([i for i in subset if i.get("status") == "WIP"])
+        uat = len([i for i in subset if i.get("status") == "UAT"])
+        roi = round(sum(float(i.get("roi",0) or 0) for i in subset),1)
+        hrs = round(sum(idea_hours(i) for i in subset),1)
+        return total, completed, wip, uat, roi, hrs
 
-        <!-- Forward page mousemove into Spline canvas shadow root -->
-        <script>
-        (function () {
-            var lastRaf = 0;
-            document.addEventListener("mousemove", function (e) {
-                var now = Date.now();
-                if (now - lastRaf < 16) return;   // ~60 fps throttle
-                lastRaf = now;
+    def _category_card(cat):
+        count = len([i for i in ideas if i.get("automation_category") == cat])
+        label = cat.split("-",1)[-1]
+        icon = CATEGORY_ICONS.get(cat, "•")
+        active = "selected" if selected_category == cat else ""
+        return (
+            f'<div class="category-card {active}" onclick="selectCategory(\'{cat}\')">'
+            f'<div class="category-icon">{icon}</div>'
+            f'<div class="category-body">'
+            f'<div class="category-name">{label}</div>'
+            f'<div class="category-count">{count} ideas</div>'
+            '</div></div>'
+        )
 
-                var wrap = document.getElementById("nexbot-wrap");
-                if (!wrap) return;
-                var viewer = document.getElementById("nexbot-spline");
-                if (!viewer) return;
+    left_category_html = "".join(_category_card(cat) for cat in AUTOMATION_CATS)
+    right_category_html = "".join(_category_card(cat) for cat in AI_CATS)
 
-                // Try shadow root first (standard Spline viewer)
-                var root   = viewer.shadowRoot || viewer;
-                var canvas = root.querySelector("canvas");
-                if (!canvas) return;
+    if selected_category:
+        total, completed, wip, uat, roi, hrs = _cat_stats(selected_category)
+        selected_label = selected_category.split("-",1)[-1]
+        selected_detail_html = f'''
+          <div class="detail-overlay">
+            <div class="detail-card">
+              <div class="detail-title">{selected_label}</div>
+              <div class="detail-value">{total}</div>
+              <div class="detail-meta">ROI <strong>{roi}</strong> · {hrs:,.0f} hrs saved</div>
+              <div class="detail-sub">{completed} Done · {wip} WIP · {uat} UAT</div>
+            </div>
+          </div>'''
+    else:
+        selected_detail_html = '''
+          <div class="detail-overlay">
+            <div class="detail-card">
+              <div class="detail-title">Select a category</div>
+              <div class="detail-sub">Click any Automation or AI category to show details here.</div>
+            </div>
+          </div>'''
 
-                var wr = wrap.getBoundingClientRect();
-                var cr = canvas.getBoundingClientRect();
+    _canvas_html = f"""<!DOCTYPE html>
+<html><head><meta charset="utf-8"/>
+<script type="module" src="https://unpkg.com/@splinetool/viewer@1.0.77/build/spline-viewer.js"></script>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box;}}
+html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Inter',sans-serif;}}
+#scene{{
+  position:relative;width:100%;height:420px;
+  background:radial-gradient(ellipse at 20% 70%,#1a0240 0%,#06091a 45%,#030710 100%);
+  overflow:hidden;display:flex;align-items:center;justify-content:space-between;padding:0 36px;
+}}
+#scene::after{{
+  content:"";position:absolute;left:0;right:0;bottom:0;height:48%;
+  background:linear-gradient(rgba(139,92,246,.10) 1px,transparent 1px),
+             linear-gradient(90deg,rgba(56,189,248,.08) 1px,transparent 1px);
+  background-size:44px 44px;
+  transform:perspective(600px) rotateX(52deg);transform-origin:bottom center;
+  pointer-events:none;z-index:0;
+}}
+.panel{{flex:0 0 27%;position:relative;z-index:5;display:flex;flex-direction:column;align-items:flex-start;gap:0;}}
+.panel.right{{align-items:flex-end;text-align:right;}}
+.ptitle{{font-size:13px;font-weight:900;letter-spacing:4px;text-transform:uppercase;margin-bottom:5px;}}
+.psub{{font-size:10px;margin-bottom:10px;opacity:.7;font-style:italic;}}
+.stats{{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px;}}
+.panel.right .stats{{justify-content:flex-end;}}
+.stat{{display:flex;flex-direction:column;align-items:center;
+       background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
+       border-radius:8px;padding:5px 9px;min-width:50px;}}
+.stat-v{{font-size:16px;font-weight:800;color:#fff;line-height:1.1;}}
+.stat-l{{font-size:7px;letter-spacing:.8px;color:rgba(255,255,255,.45);margin-top:2px;}}
+.centre{{flex:0 0 40%;display:flex;flex-direction:column;align-items:center;
+         justify-content:flex-start;padding-top:24px;position:relative;z-index:10;}}
+.tagline{{font-size:12px;color:rgba(255,255,255,.7);text-align:center;
+          margin-bottom:12px;line-height:1.6;letter-spacing:.2px;}}
+.tagline b{{color:rgba(255,255,255,.95);}}
+#nexbot-wrap{{
+  width:260px;height:260px;cursor:crosshair;overflow:hidden;
+  border-radius:50%;
+  box-shadow:0 0 70px #7c3aed55,0 0 130px #7c3aed22,0 0 35px #38bdf833;
+  position:relative;z-index:5;
+  background:radial-gradient(circle,#0d0525 30%,#030712 100%);
+}}
+.category-grid{{display:grid;gap:10px;}}
+.category-card{{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:18px;
+  background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.1);cursor:pointer;transition:transform .18s ease,background .18s ease,border-color .18s ease;
+}}
+.category-card:hover{{transform:translateY(-1px);background:rgba(255,255,255,.1);border-color:rgba(255,255,255,.18);}}
+.category-card.selected{{background:linear-gradient(135deg,rgba(56,189,248,.18),rgba(124,58,237,.18));border-color:rgba(56,189,248,.35);}}
+.category-icon{{width:38px;height:38px;border-radius:14px;display:grid;place-items:center;
+  background:rgba(255,255,255,.08);color:#fff;font-size:18px;}}
+.category-body{{display:flex;flex-direction:column;gap:3px;}}
+.category-name{{font-size:12px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#fff;}}
+.category-count{{font-size:10px;color:rgba(255,255,255,.7);}}
+.detail-overlay{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;}}
+.detail-card{{width:min(220px,90%);padding:16px 18px;border-radius:22px;background:rgba(8,12,30,.92);border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(8px);box-shadow:0 18px 80px rgba(15,23,42,.35);text-align:center;}}
+.detail-title{{font-size:15px;font-weight:800;color:#f8fafc;margin-bottom:6px;}}
+.detail-value{{font-size:28px;font-weight:900;color:#e0e7ff;margin-bottom:6px;}}
+.detail-meta{{font-size:11px;color:rgba(148,163,184,.95);margin-bottom:4px;}}
+.detail-sub{{font-size:11px;color:rgba(148,163,184,.75);line-height:1.4;}}
+.gring1{{width:200px;height:12px;border-radius:50%;margin-top:-4px;
+  background:radial-gradient(ellipse,rgba(124,58,237,.55) 0%,transparent 70%);
+  box-shadow:0 0 28px rgba(124,58,237,.4);}}
+.gring2{{width:140px;height:8px;border-radius:50%;margin-top:3px;
+  background:radial-gradient(ellipse,rgba(56,189,248,.35) 0%,transparent 70%);
+  box-shadow:0 0 16px rgba(56,189,248,.3);}}
+.wave-wrap{{position:absolute;top:50%;z-index:3;pointer-events:none;}}
+.wave-left{{left:28%;transform:translateY(-55%);}}
+.wave-right{{right:28%;transform:translateY(-55%);}}
+.wave-svg{{width:150px;height:80px;overflow:visible;}}
+</style></head>
+<body>
+<div id="scene">
 
-                // Map cursor position relative to wrap → canvas coords
-                var nx = (e.clientX - wr.left) / Math.max(wr.width, 1);
-                var ny = (e.clientY - wr.top)  / Math.max(wr.height, 1);
-                var cx = cr.left + nx * cr.width;
-                var cy = cr.top  + ny * cr.height;
+  <!-- LEFT -->
+  <div class="panel">
+    <div class="ptitle" style="color:#c084fc;text-shadow:0 0 18px #c084fc88;">AUTOMATION</div>
+    <div class="psub" style="color:#c084fc;">\u2699\ufe0f Robotic Process &amp; Workflow</div>
+    <div class="stats">
+      <div class="stat"><div class="stat-v" style="color:#c084fc;">{auto_total}</div><div class="stat-l">TOTAL</div></div>
+      <div class="stat"><div class="stat-v" style="color:#4ade80;">{auto_done}</div><div class="stat-l">DONE</div></div>
+      <div class="stat"><div class="stat-v" style="color:#38bdf8;">{auto_wip}</div><div class="stat-l">WIP</div></div>
+      <div class="stat"><div class="stat-v" style="color:#facc15;">{auto_roi}</div><div class="stat-l">ROI</div></div>
+    </div>
+    <div class="category-grid">{left_category_html}</div>
+  </div>
 
-                // Dispatch both pointermove and mousemove — Spline uses both
-                ["pointermove","mousemove"].forEach(function(evtName) {
-                    canvas.dispatchEvent(new MouseEvent(evtName, {
-                        clientX: cx, clientY: cy,
-                        bubbles: true, cancelable: true,
-                        view: window
-                    }));
-                });
-            });
-        })();
-        </script>
-        ''', unsafe_allow_html=True)
+  <!-- WAVE LEFT -->
+  <div class="wave-wrap wave-left">
+    <svg class="wave-svg" viewBox="0 0 150 80">
+      <defs><filter id="gp"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+      <path d="M0 40 Q37 10,75 40 Q113 70,150 40" stroke="#c084fc" stroke-width="2.5" fill="none" filter="url(#gp)" opacity=".9">
+        <animate attributeName="d" values="M0 40 Q37 10,75 40 Q113 70,150 40;M0 40 Q37 70,75 40 Q113 10,150 40;M0 40 Q37 10,75 40 Q113 70,150 40" dur="2.4s" repeatCount="indefinite"/>
+      </path>
+      <path d="M0 40 Q37 25,75 40 Q113 55,150 40" stroke="#7c3aed" stroke-width="1.5" fill="none" filter="url(#gp)" opacity=".6">
+        <animate attributeName="d" values="M0 40 Q37 25,75 40 Q113 55,150 40;M0 40 Q37 55,75 40 Q113 25,150 40;M0 40 Q37 25,75 40 Q113 55,150 40" dur="1.8s" repeatCount="indefinite"/>
+      </path>
+      <circle r="3.5" fill="#c084fc" opacity=".95"><animateMotion dur="2.4s" repeatCount="indefinite" path="M0 40 Q37 10,75 40 Q113 70,150 40"/></circle>
+      <circle r="2.5" fill="#e879f9" opacity=".8"><animateMotion dur="1.6s" repeatCount="indefinite" begin="0.8s" path="M0 40 Q37 25,75 40 Q113 55,150 40"/></circle>
+      <circle r="2" fill="#a855f7" opacity=".6"><animateMotion dur="2s" repeatCount="indefinite" begin="0.4s" path="M0 40 Q37 10,75 40 Q113 70,150 40"/></circle>
+    </svg>
+  </div>
 
-    with pa:
-        render_category_panel("Automation", "⚙️", AUTOMATION_CATS, ideas,
-                              "_sel_automation_cat", "#1a4fad")
-    with pb:
-        render_category_panel("AI", "🧠", AI_CATS, ideas,
-                              "_sel_ai_cat", "#0369a1")
+  <!-- CENTRE -->
+  <div class="centre">
+    <div class="tagline">
+      <b>Move your cursor across</b><br>
+      <span style="color:#c084fc;">&#8592;</span>
+      <span style="color:rgba(255,255,255,.6);"> to explore the synergy </span>
+      <span style="color:#38bdf8;">&#8594;</span>
+    </div>
+    <div id="nexbot-wrap">
+      <spline-viewer id="spline-nexbot"
+        url="https://prod.spline.design/kZDDjO5HmRHKWMYo/scene.splinecode"
+        style="width:260px;height:260px;display:block;" loading-anim="true">
+      </spline-viewer>
+      {selected_detail_html}
+    </div>
+    <div class="gring1"></div>
+    <div class="gring2"></div>
+  </div>
+
+  <!-- WAVE RIGHT -->
+  <div class="wave-wrap wave-right">
+    <svg class="wave-svg" viewBox="0 0 150 80">
+      <defs><filter id="gc"><feGaussianBlur stdDeviation="3" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>
+      <path d="M0 40 Q37 70,75 40 Q113 10,150 40" stroke="#38bdf8" stroke-width="2.5" fill="none" filter="url(#gc)" opacity=".9">
+        <animate attributeName="d" values="M0 40 Q37 70,75 40 Q113 10,150 40;M0 40 Q37 10,75 40 Q113 70,150 40;M0 40 Q37 70,75 40 Q113 10,150 40" dur="2.4s" repeatCount="indefinite"/>
+      </path>
+      <path d="M0 40 Q37 55,75 40 Q113 25,150 40" stroke="#0ea5e9" stroke-width="1.5" fill="none" filter="url(#gc)" opacity=".6">
+        <animate attributeName="d" values="M0 40 Q37 55,75 40 Q113 25,150 40;M0 40 Q37 25,75 40 Q113 55,150 40;M0 40 Q37 55,75 40 Q113 25,150 40" dur="1.8s" repeatCount="indefinite"/>
+      </path>
+      <circle r="3.5" fill="#38bdf8" opacity=".95"><animateMotion dur="2.4s" repeatCount="indefinite" path="M150 40 Q113 10,75 40 Q37 70,0 40"/></circle>
+      <circle r="2.5" fill="#7dd3fc" opacity=".8"><animateMotion dur="1.6s" repeatCount="indefinite" begin="0.8s" path="M150 40 Q113 25,75 40 Q37 55,0 40"/></circle>
+      <circle r="2" fill="#0ea5e9" opacity=".6"><animateMotion dur="2s" repeatCount="indefinite" begin="0.4s" path="M150 40 Q113 10,75 40 Q37 70,0 40"/></circle>
+    </svg>
+  </div>
+
+  <!-- RIGHT -->
+  <div class="panel right">
+    <div class="ptitle" style="color:#38bdf8;text-shadow:0 0 18px #38bdf888;">AI</div>
+    <div class="psub" style="color:#38bdf8;">🧠 Cognitive Intelligence &amp; ML</div>
+    <div class="stats">
+      <div class="stat"><div class="stat-v" style="color:#38bdf8;">{ai_total}</div><div class="stat-l">TOTAL</div></div>
+      <div class="stat"><div class="stat-v" style="color:#4ade80;">{ai_done}</div><div class="stat-l">DONE</div></div>
+      <div class="stat"><div class="stat-v" style="color:#c084fc;">{ai_wip}</div><div class="stat-l">WIP</div></div>
+      <div class="stat"><div class="stat-v" style="color:#facc15;">{ai_roi}</div><div class="stat-l">ROI</div></div>
+    </div>
+    <div class="category-grid">{right_category_html}</div>
+  </div>
+
+</div>
+<script>
+(function(){{
+  var _last=0;
+  document.addEventListener("mousemove",function(e){{
+    var now=Date.now();if(now-_last<16)return;_last=now;
+    var viewer=document.getElementById("spline-nexbot");
+    if(!viewer)return;
+    var root=viewer.shadowRoot||viewer;
+    var canvas=root.querySelector("canvas");
+    if(!canvas)return;
+    var cr=canvas.getBoundingClientRect();
+    var wr=document.getElementById("nexbot-wrap");
+    if(!wr)return;
+    var wRect=wr.getBoundingClientRect();
+    var nx=(e.clientX-wRect.left)/Math.max(wRect.width,1);
+    var ny=(e.clientY-wRect.top)/Math.max(wRect.height,1);
+    ["pointermove","mousemove"].forEach(function(t){{
+      canvas.dispatchEvent(new MouseEvent(t,{{
+        clientX:cr.left+nx*cr.width,clientY:cr.top+ny*cr.height,
+        bubbles:true,cancelable:true,view:window
+      }}));
+    }});
+  }});
+  window.selectCategory = function(cat) {{
+    var params = new URLSearchParams(window.location.search);
+    if (params.get('selected_category') === cat) {{
+      params.delete('selected_category');
+    }} else {{
+      params.set('selected_category', cat);
+    }}
+    window.location.search = params.toString();
+  }};
+}})();
+</script>
+</body></html>"""
+    st.components.v1.html(_canvas_html, height=440, scrolling=False)
 
     # ── ROW 3: Charts row (Status BAR chart + Customer pie + clean Hours/Project) ─
     st.markdown("##### 📈 Charts")
