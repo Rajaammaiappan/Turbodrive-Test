@@ -457,7 +457,7 @@ def apply_theme(theme_name):
         border-left:5px solid {t['primary']};
         box-shadow:0 2px 12px rgba(0,0,0,.08);margin-bottom:6px;
     }}
-    .kpi-val{{font-size:clamp(16px,1.6vw,22px);font-weight:800;}}
+    .kpi-val{{font-size:clamp(20px,2vw,28px);font-weight:800;}}
     .kpi-lbl{{font-size:clamp(9px,0.85vw,11px);color:#64748b;font-weight:500;margin-top:2px;}}
     .kpi-sub{{font-size:clamp(8px,0.75vw,10px);color:#94a3b8;margin-top:3px;}}
     .idea-card{{
@@ -505,7 +505,7 @@ def apply_theme(theme_name):
         opacity:.92;
     }}
     .kpi-v2-content{{flex:1;min-width:0;}}
-    .kpi-v2-value{{font-size:clamp(17px,1.7vw,23px);font-weight:800;line-height:1.1;}}
+    .kpi-v2-value{{font-size:clamp(22px,2.2vw,30px);font-weight:800;line-height:1.1;}}
     .kpi-v2-label{{font-size:clamp(9px,0.85vw,11px);color:#64748b;font-weight:600;margin-top:2px;}}
     .kpi-v2-sub{{font-size:clamp(8px,0.7vw,9.5px);color:#94a3b8;margin-top:3px;line-height:1.4;}}
 
@@ -554,7 +554,7 @@ def apply_theme(theme_name):
         display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px;
     }}
     .cat-insight-stat{{text-align:center;}}
-    .cat-insight-stat .v{{font-size:clamp(13px,1.3vw,17px);font-weight:800;}}
+    .cat-insight-stat .v{{font-size:clamp(17px,1.7vw,22px);font-weight:800;}}
     .cat-insight-stat .l{{font-size:clamp(7.5px,0.7vw,9px);color:#64748b;font-weight:600;margin-top:1px;}}
     </style>""", unsafe_allow_html=True)
 
@@ -1423,11 +1423,11 @@ def page_dashboard():
             f'<div style="display:flex;gap:18px;justify-content:center;align-items:center;">'
             f'<div><div style="font-size:8px;color:rgba(255,255,255,.8);letter-spacing:.8px;'
             f'text-transform:uppercase;font-weight:600;">&#128101; Registered</div>'
-            f'<div style="font-size:24px;font-weight:800;color:#fff;line-height:1.1;">{total_registered}</div></div>'
+            f'<div style="font-size:30px;font-weight:800;color:#fff;line-height:1.1;">{total_registered}</div></div>'
             f'<div style="width:1px;height:40px;background:rgba(255,255,255,.3);"></div>'
             f'<div><div style="font-size:8px;color:rgba(255,255,255,.8);letter-spacing:.8px;'
             f'text-transform:uppercase;font-weight:600;">&#129001; Active Now</div>'
-            f'<div style="font-size:24px;font-weight:800;color:#4ade80;line-height:1.1;">{active_count}</div></div>'
+            f'<div style="font-size:30px;font-weight:800;color:#4ade80;line-height:1.1;">{active_count}</div></div>'
             f'</div></div>',
             unsafe_allow_html=True
         )
@@ -1517,7 +1517,7 @@ def page_dashboard():
       .km-text{{display:grid;grid-template-rows:auto 1fr auto;gap:8px;min-height:100%;}}
       .km-header{{font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:rgba(255,255,255,.75);font-weight:700;}}
       .km-card-body{{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}}
-      .km-value{{font-size:24px;font-weight:900;color:#fff;line-height:1.05;}}
+      .km-value{{font-size:32px;font-weight:900;color:#fff;line-height:1.05;}}
       .km-pct{{font-size:12px;font-weight:700;color:#f8fafc;opacity:.95;white-space:nowrap;}}
       .km-footer{{font-size:11px;color:rgba(255,255,255,.68);line-height:1.4;min-height:18px;}}
       @keyframes km-scroll-left{{0%{{transform:translateX(0);}}100%{{transform:translateX(-50%);}}}}
@@ -1652,7 +1652,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 .stat{{display:flex;flex-direction:column;align-items:center;
        background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);
        border-radius:8px;padding:5px 9px;min-width:50px;}}
-.stat-v{{font-size:16px;font-weight:800;color:#fff;line-height:1.1;}}
+.stat-v{{font-size:22px;font-weight:800;color:#fff;line-height:1.1;}}
 .stat-l{{font-size:7px;letter-spacing:.8px;color:rgba(255,255,255,.45);margin-top:2px;}}
 .centre{{flex:0 0 40%;display:flex;flex-direction:column;align-items:center;
          justify-content:flex-start;padding-top:24px;position:relative;z-index:10;}}
@@ -1683,13 +1683,13 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 .category-icon{{width:38px;height:38px;border-radius:14px;display:grid;place-items:center;
   background:rgba(255,255,255,.08);color:#fff;font-size:18px;}}
 .category-name{{font-size:12px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#fff;}}
-.category-count{{font-size:14px;font-weight:800;color:#fff;}}
+.category-count{{font-size:20px;font-weight:800;color:#fff;}}
 .detail-overlay{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;}}
 .detail-card{{width:min(220px,90%);padding:16px 18px;border-radius:22px;background:rgba(8,12,30,.92);border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(8px);box-shadow:0 18px 80px rgba(15,23,42,.35);text-align:center;}}
 .detail-card.detail-card--circle{{width:160px;height:160px;padding:0;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;}}
 .detail-image{{width:100%;height:100%;object-fit:cover;border-radius:50%;display:block;}}
 .detail-title{{font-size:15px;font-weight:800;color:#f8fafc;margin-bottom:6px;}}
-.detail-value{{font-size:28px;font-weight:900;color:#e0e7ff;margin-bottom:6px;}}
+.detail-value{{font-size:36px;font-weight:900;color:#e0e7ff;margin-bottom:6px;}}
 .detail-meta{{font-size:11px;color:rgba(148,163,184,.95);margin-bottom:4px;}}
 .detail-sub{{font-size:11px;color:rgba(148,163,184,.75);line-height:1.4;}}
 .gring1{{width:200px;height:12px;border-radius:50%;margin-top:-4px;
