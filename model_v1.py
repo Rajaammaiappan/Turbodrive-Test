@@ -1072,10 +1072,7 @@ def page_submit():
     idea_name = st.text_input("Idea Name *", placeholder="Short title for the idea")
     idea_desc = st.text_area("Idea Description *", placeholder="Describe the automation idea in detail")
 
-    SHAREPOINT_ATTACH_URL = ("https://altengroup.sharepoint.com/sites/Rolls-RoyceGlobalEfS/Production/Forms/AllItems.aspx?"
-                              "id=%2Fsites%2FRolls%2DRoyceGlobalEfS%2FProduction%2F25%2E%20EFS%20Continuous%20Improvements%2FTurbo%20Drive"
-                              "&viewid=f000ae74%2De644%2D4a79%2D8bb3%2D974be51b1c53"
-                              "&viewpath=%2Fsites%2FRolls%2DRoyceGlobalEfS%2FProduction%2FForms%2FAllItems%2Easpx")
+    SHAREPOINT_ATTACH_URL = ("https://altengroup.sharepoint.com/:f:/r/sites/Rolls-RoyceGlobalEfS/Production/25.%20EFS%20Continuous%20Improvements/Turbo%20Drive?csf=1&web=1&e=a63ybE")
     st.markdown("**Attachments (optional)**")
     st.markdown(f"""
     <div onclick="window.open('{SHAREPOINT_ATTACH_URL}','_blank')"
