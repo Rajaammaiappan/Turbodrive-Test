@@ -791,26 +791,14 @@ def render_category_panel(panel_title, panel_icon, categories, ideas, state_key,
     </div>""", unsafe_allow_html=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
-#  KANBAN: NATIVE STREAMLIT COLUMN + EXPANDER BOARD  (with Parent/Child links)
-#  Note: true HTML5 drag-and-drop card-to-card linking is not supported by
-#  Streamlit's widget model without a custom JS component. Parent/Child
-#  relationships are created via a "Set Parent" dropdown on each card —
-#  same end result (hierarchy, expand/collapse, aggregated metrics) without
-#  a drag gesture.
+#  KANBAN BOARD — visual parent/child tagging via session_state only.
+#  No DB column required. Tags are visual/in-session for grouping purposes.
 # ══════════════════════════════════════════════════════════════════════════════
-def _children_of(parent_id, all_ideas):
-    return [i for i in all_ideas if i.get("parent_id") == parent_id]
-
-def _parent_summary(parent, all_ideas):
-    kids = _children_of(parent["id"], all_ideas)
-    if not kids:
-        return None
-    n = len(kids)
-    done = len([k for k in kids if k.get("status")=="Completed"])
-    pct  = round(done/n*100, 1) if n else 0
-    roi  = round(sum(float(k.get("roi",0) or 0) for k in kids), 1)
-    hrs  = round(sum(idea_hours(k) for k in kids), 1)
-    return {"children": n, "completion_pct": pct, "roi": roi, "hours": hrs}
+def _kanban_tags():
+    """Return the session-state dict {child_id: parent_id} (visual only)."""
+    if "_kanban_tags" not in st.session_state:
+        st.session_state["_kanban_tags"] = {}
+    return st.session_state["_kanban_tags"]
 
 def render_kanban_board(ideas):
     cols = st.columns(len(STATUSES))
@@ -827,28 +815,43 @@ def render_kanban_board(ideas):
             unsafe_allow_html=True,
         )
 
-    id_to_idea = {i["id"]: i for i in ideas}
+    tags     = _kanban_tags()
+    id_map   = {i["id"]: i for i in ideas}
+    # Cards that are tagged as children render nested under their parent
+    children_ids = set(tags.keys())
 
     cols = st.columns(len(STATUSES))
     for col, status in zip(cols, STATUSES):
         color  = STATUS_COLORS.get(status,"#888")
-        bucket = [i for i in ideas if i.get("status")==status]
+        # Only top-level (non-child) cards at this status
+        bucket = [i for i in ideas if i.get("status")==status and i["id"] not in children_ids]
         with col:
-            if not bucket:
+            if not bucket and not [i for i in ideas if i.get("status")==status]:
                 st.caption("_Empty_")
             for idea in bucket:
-                _render_kanban_card(idea, status, color, ideas, id_to_idea, depth=0)
+                _render_kanban_card(idea, status, color, ideas, id_map, tags, depth=0)
 
-def _render_kanban_card(idea, status, color, all_ideas, id_to_idea, depth=0):
+def _render_kanban_card(idea, status, color, all_ideas, id_map, tags, depth=0):
     eng      = idea.get("assigned_engineer") or ""
     proj     = idea.get("project") or "-"
     delivery = idea.get("delivery_date") or ""
     hold     = idea.get("hold_reason") or ""
     name     = idea.get("name") or "-"
     eng_name = eng.split("@")[0] if "@" in eng else (eng or "—")
-    # Simple label: "Child Card" prefix for nested cards, card icon for top-level
-    label_prefix = "📦 Child Card — " if depth > 0 else "📄 "
-    label = label_prefix + (idea.get("idea_name") or "No Name")[:26]
+    iid      = idea["id"]
+
+    # Find any ideas tagged as children of this card
+    my_children = [id_map[cid] for cid, pid in tags.items() if pid == iid and cid in id_map]
+    is_parent   = bool(my_children)
+    my_parent   = tags.get(iid)
+
+    # Label
+    if depth > 0:
+        label = "    └ 📄 " + (idea.get("idea_name") or "No Name")[:24]
+    elif is_parent:
+        label = f"📁 {(idea.get('idea_name') or 'No Name')[:24]}  ({len(my_children)} child)"
+    else:
+        label = "📄 " + (idea.get("idea_name") or "No Name")[:26]
 
     with st.expander(label, expanded=False):
         st.markdown(
@@ -861,15 +864,15 @@ def _render_kanban_card(idea, status, color, all_ideas, id_to_idea, depth=0):
             +f'</div>', unsafe_allow_html=True,
         )
 
-        # ── Status move ────────────────────────────────────────────────────
+        # ── Status move ──────────────────────────────────────────────────────
         new_status = st.selectbox("Move to", STATUSES,
                                   index=STATUSES.index(status),
-                                  key=f"kanban_sel_{idea['id']}",
+                                  key=f"kanban_sel_{iid}",
                                   label_visibility="collapsed")
         hold_input = ""
         if new_status == "Hold/Park":
-            hold_input = st.text_input("Reason *", key=f"kanban_hold_{idea['id']}", placeholder="Hold reason…")
-        if st.button("Update", key=f"kanban_btn_{idea['id']}", use_container_width=True):
+            hold_input = st.text_input("Reason *", key=f"kanban_hold_{iid}", placeholder="Hold reason…")
+        if st.button("Update", key=f"kanban_btn_{iid}", use_container_width=True):
             if new_status == "Hold/Park" and not hold_input:
                 st.error("Enter a hold reason.")
             else:
@@ -877,10 +880,42 @@ def _render_kanban_card(idea, status, color, all_ideas, id_to_idea, depth=0):
                 if new_status == "Completed":
                     upd["completion_date"] = datetime.now().strftime("%Y-%m-%d %H:%M")
                 upd["hold_reason"] = hold_input if new_status == "Hold/Park" else ""
-                update_idea(idea["id"], upd)
+                update_idea(iid, upd)
                 touch_activity()
                 st.rerun()
 
+        # ── Visual parent/child tagging (session-state only, no DB) ────────
+        st.caption("🔗 Group relationship (visual — in-session only)")
+        other_ideas = [i for i in all_ideas if i["id"] != iid and i["id"] not in [c["id"] for c in my_children]]
+        parent_opts = {"— None (standalone) —": ""}
+        for p in other_ideas:
+            parent_opts[f"{(p.get('idea_name') or '(no name)')[:32]}"] = p["id"]
+
+        current_label = next((k for k,v in parent_opts.items() if v == (my_parent or "")),
+                             "— None (standalone) —")
+        chosen_label  = st.selectbox("Tag as child of", list(parent_opts.keys()),
+                                     index=list(parent_opts.keys()).index(current_label),
+                                     key=f"ptag_{iid}", label_visibility="collapsed")
+        if st.button("🔗 Apply Tag", key=f"ptag_btn_{iid}", use_container_width=True):
+            chosen_pid = parent_opts[chosen_label]
+            if chosen_pid:
+                tags[iid] = chosen_pid
+                st.success("Tagged as child ✅ (visual only — no DB write)")
+            else:
+                tags.pop(iid, None)
+                st.success("Standalone (tag removed)")
+            st.rerun()
+
+        # ── Render children nested below ────────────────────────────────────
+        if my_children:
+            show = st.checkbox(f"▼ Show {len(my_children)} child card(s)",
+                               key=f"expand_{iid}", value=True)
+            if show:
+                for child in my_children:
+                    child_status = child.get("status","New Idea")
+                    child_color  = STATUS_COLORS.get(child_status,"#888")
+                    _render_kanban_card(child, child_status, child_color,
+                                        all_ideas, id_map, tags, depth=depth+1)
         st.divider()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1417,25 +1452,52 @@ def page_dashboard():
     int_cnt   = cnt_cat("Internal")
     completed = cnt("Completed")
 
-    # ── ROW 1: Premium Illustrated KPI Cards ───────────────────────────────
+    # ── ROW 1: Auto-scrolling KPI Ticker (left → right, loops) ────────────
     st.markdown("##### 📦 Key Metrics")
     auto_total_ideas = len([i for i in ideas if i.get("automation_category") in AUTOMATION_CATS])
     ai_total_ideas   = len([i for i in ideas if i.get("automation_category") in AI_CATS])
     proj_count       = len({i.get("project","") for i in ideas if i.get("project")})
 
-    c1,c2,c3,c4 = st.columns(4)
-    with c1:
-        premium_kpi_card(total, "Total Ideas", "#1a4fad",
-                          f"{completed} completed · {cnt('Rejected')} rejected", "total_ideas")
-    with c2:
-        premium_kpi_card(completed, "Completed", "#059669",
-                          f"{round(completed/total*100,1) if total else 0}% completion rate", "trophy")
-    with c3:
-        premium_kpi_card(f"{cust_hrs+int_hrs:,.0f} hrs", "Total Hrs Saved / yr", "#0d9488",
-                          f"Customer {cust_hrs:,.0f} · Internal {int_hrs:,.0f}", "clock")
-    with c4:
-        premium_kpi_card(round(cust_roi+int_roi,1), "Total ROI", "#b45309",
-                          f"Customer {cust_roi} · Internal {int_roi}", "growth")
+    kpi_items = [
+        {"icon":"💡","val":str(total),"label":"Total Ideas","sub":f"{completed} completed · {cnt('Rejected')} rejected","color":"#1a4fad"},
+        {"icon":"🏆","val":str(completed),"label":"Completed","sub":f"{round(completed/total*100,1) if total else 0}% completion rate","color":"#059669"},
+        {"icon":"⏱","val":f"{cust_hrs+int_hrs:,.0f} hrs","label":"Total Hrs Saved / yr","sub":f"Customer {cust_hrs:,.0f} · Internal {int_hrs:,.0f}","color":"#0d9488"},
+        {"icon":"📈","val":str(round(cust_roi+int_roi,1)),"label":"Total ROI","sub":f"Customer {cust_roi} · Internal {int_roi}","color":"#b45309"},
+        {"icon":"🤖","val":str(auto_total_ideas),"label":"Automation Ideas","sub":f"{len(AUTOMATION_CATS)} sub-categories","color":"#7c3aed"},
+        {"icon":"🧠","val":str(ai_total_ideas),"label":"AI Ideas","sub":f"{len(AI_CATS)} sub-categories","color":"#0369a1"},
+        {"icon":"📁","val":str(proj_count),"label":"Active Projects","sub":f"Across {len(set(i.get('region','') for i in ideas if i.get('region')))} regions","color":"#9333ea"},
+        {"icon":"⭐","val":str(cnt('WIP')),"label":"In Progress (WIP)","sub":f"UAT: {cnt('UAT')} · New: {cnt('New Idea')}","color":"#e11d48"},
+    ]
+    # Build a double set of cards so the loop is seamless
+    card_html = ""
+    for item in kpi_items * 2:
+        card_html += f"""
+        <div style="flex:0 0 210px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.12);
+             border-left:4px solid {item['color']};border-radius:14px;padding:14px 16px;
+             display:flex;align-items:center;gap:12px;min-height:80px;">
+          <div style="font-size:28px;line-height:1;">{item['icon']}</div>
+          <div>
+            <div style="font-size:22px;font-weight:900;color:{item['color']};line-height:1.1;">{item['val']}</div>
+            <div style="font-size:11px;font-weight:700;color:#e2e8f0;margin-top:1px;">{item['label']}</div>
+            <div style="font-size:9px;color:#94a3b8;margin-top:2px;">{item['sub']}</div>
+          </div>
+        </div>"""
+
+    ticker_html = f"""
+    <div style="overflow:hidden;width:100%;margin-bottom:14px;">
+      <div id="kpi-ticker" style="display:flex;gap:14px;width:max-content;
+           animation:kpiScroll 28s linear infinite;">
+        {card_html}
+      </div>
+    </div>
+    <style>
+    @keyframes kpiScroll {{
+      0%   {{ transform: translateX(0); }}
+      100% {{ transform: translateX(-50%); }}
+    }}
+    #kpi-ticker:hover {{ animation-play-state: paused; }}
+    </style>"""
+    st.markdown(ticker_html, unsafe_allow_html=True)
 
     # second KPI row removed
 
@@ -1450,14 +1512,6 @@ def page_dashboard():
     ai_wip     = len([i for i in ideas if i.get("automation_category","") in AI_CATS and i.get("status")=="WIP"])
     auto_roi   = round(sum(float(i.get("roi",0) or 0) for i in ideas if i.get("automation_category","") in AUTOMATION_CATS),1)
     ai_roi     = round(sum(float(i.get("roi",0) or 0) for i in ideas if i.get("automation_category","") in AI_CATS),1)
-
-    selected_category = ""
-    if hasattr(st, "query_params"):
-        qp = st.query_params
-        if qp and qp.get("selected_category"):
-            selected_category = qp.get("selected_category", [""])[0]
-    if selected_category and selected_category not in AUTOMATION_CATS + AI_CATS:
-        selected_category = ""
 
     def _cat_stats(cat):
         subset = [i for i in ideas if i.get("automation_category") == cat]
@@ -1486,26 +1540,30 @@ def page_dashboard():
     left_category_html = "".join(_category_card(cat) for cat in AUTOMATION_CATS)
     right_category_html = "".join(_category_card(cat) for cat in AI_CATS)
 
-    if selected_category:
-        total, completed, wip, uat, roi, hrs = _cat_stats(selected_category)
-        selected_label = selected_category.split("-",1)[-1]
-        selected_detail_html = f'''
-          <div class="detail-overlay">
-            <div class="detail-card">
-              <div class="detail-title">{selected_label}</div>
-              <div class="detail-value">{total}</div>
-              <div class="detail-meta">ROI <strong>{roi}</strong> · {hrs:,.0f} hrs saved</div>
-              <div class="detail-sub">{completed} Done · {wip} WIP · {uat} UAT</div>
-            </div>
-          </div>'''
-    else:
-        selected_detail_html = '''
-          <div class="detail-overlay">
-            <div class="detail-card">
-              <div class="detail-title">Select a category</div>
-              <div class="detail-sub">Click any Automation or AI category to show details here.</div>
-            </div>
-          </div>'''
+    # Build all-category stats dict — embedded in HTML so JS can update instantly
+    # without any Streamlit rerun (fully client-side, point 3)
+    all_cat_stats = {}
+    for _cat in AUTOMATION_CATS + AI_CATS:
+        _t,_c,_w,_u,_r,_h = _cat_stats(_cat)
+        all_cat_stats[_cat] = {
+            "label": _cat.split("-",1)[-1],
+            "total": _t, "completed": _c, "wip": _w,
+            "uat": _u, "roi": _r, "hrs": _h
+        }
+    import json as _json
+    cat_stats_json = _json.dumps(all_cat_stats)
+
+    selected_detail_html = '''
+      <div id="globe-detail" class="detail-overlay">
+        <div class="detail-card" id="globe-card">
+          <div class="detail-title" id="gb-title">Select a category</div>
+          <div class="detail-value" id="gb-val" style="display:none;"></div>
+          <div class="detail-meta"  id="gb-meta" style="display:none;"></div>
+          <div class="detail-sub"   id="gb-sub">Click any Automation or AI category<br>to show details here.</div>
+        </div>
+      </div>'''
+
+    selected_category = ""   # no longer driven by query params
 
     _canvas_html = f"""<!DOCTYPE html>
 <html><head><meta charset="utf-8"/>
@@ -1580,18 +1638,23 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 <body>
 <div id="scene">
 
-  <!-- LEFT -->
+  <!-- LEFT: Automation panel — robot arm SVG icon + title (point 1) -->
   <div class="panel">
-    <div class="ptitle" style="color:#c084fc;text-shadow:0 0 18px #c084fc88;">AUTOMATION</div>
-    <div class="psub" style="color:#c084fc;">\u2699\ufe0f Robotic Process &amp; Workflow</div>
-    <div class="stats">
-      <div class="stat"><div class="stat-v" style="color:#c084fc;">{auto_total}</div><div class="stat-l">TOTAL</div></div>
-      <div class="stat"><div class="stat-v" style="color:#4ade80;">{auto_done}</div><div class="stat-l">DONE</div></div>
-      <div class="stat"><div class="stat-v" style="color:#38bdf8;">{auto_wip}</div><div class="stat-l">WIP</div></div>
-      <div class="stat"><div class="stat-v" style="color:#facc15;">{auto_roi}</div><div class="stat-l">ROI</div></div>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:2px;">
+      <svg width="26" height="26" viewBox="0 0 64 64" style="flex-shrink:0;">
+        <rect x="10" y="50" width="44" height="8" rx="2" fill="#c084fc" opacity=".85"/>
+        <rect x="27" y="34" width="10" height="18" rx="2" fill="#c084fc"/>
+        <circle cx="32" cy="30" r="7" fill="#c084fc" opacity=".9"/>
+        <rect x="32" y="18" width="18" height="6" rx="3" fill="#c084fc" transform="rotate(-25 32 21)" opacity=".9"/>
+        <circle cx="48" cy="12" r="4.5" fill="#c084fc" opacity=".75"/>
+        <path d="M44 10 l10-4 l2 5 l-10 4z" fill="#e879f9"/>
+      </svg>
+      <div class="ptitle" style="color:#c084fc;text-shadow:0 0 18px #c084fc88;margin:0;">AUTOMATION</div>
     </div>
+    <div class="psub" style="color:#c084fc;">⚙️ Robotic Process &amp; Workflow</div>
     <div class="category-grid">{left_category_html}</div>
   </div>
+
 
   <!-- WAVE LEFT -->
   <div class="wave-wrap wave-left">
@@ -1611,11 +1674,8 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 
   <!-- CENTRE -->
   <div class="centre">
-    <div class="tagline">
-      <b>Move your cursor across</b><br>
-      <span style="color:#c084fc;">&#8592;</span>
-      <span style="color:rgba(255,255,255,.6);"> to explore the synergy </span>
-      <span style="color:#38bdf8;">&#8594;</span>
+    <div class="tagline" style="font-size:10px;opacity:.65;">
+      Click a category to explore
     </div>
     <div id="nexbot-wrap">
       <spline-viewer id="spline-nexbot"
@@ -1644,22 +1704,34 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
     </svg>
   </div>
 
-  <!-- RIGHT -->
+  <!-- RIGHT: AI panel — mirrors LEFT layout with AI robot icon (point 2) -->
   <div class="panel right">
-    <div class="ptitle" style="color:#38bdf8;text-shadow:0 0 18px #38bdf888;">AI</div>
-    <div class="psub" style="color:#38bdf8;">🧠 Cognitive Intelligence &amp; ML</div>
-    <div class="stats">
-      <div class="stat"><div class="stat-v" style="color:#38bdf8;">{ai_total}</div><div class="stat-l">TOTAL</div></div>
-      <div class="stat"><div class="stat-v" style="color:#4ade80;">{ai_done}</div><div class="stat-l">DONE</div></div>
-      <div class="stat"><div class="stat-v" style="color:#c084fc;">{ai_wip}</div><div class="stat-l">WIP</div></div>
-      <div class="stat"><div class="stat-v" style="color:#facc15;">{ai_roi}</div><div class="stat-l">ROI</div></div>
+    <div style="display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-bottom:2px;">
+      <div class="ptitle" style="color:#38bdf8;text-shadow:0 0 18px #38bdf888;margin:0;">AI</div>
+      <svg width="26" height="26" viewBox="0 0 64 64" style="flex-shrink:0;">
+        <rect x="18" y="20" width="28" height="24" rx="7" fill="#38bdf8" opacity=".9"/>
+        <circle cx="27" cy="31" r="3.5" fill="#fff"/>
+        <circle cx="37" cy="31" r="3.5" fill="#fff"/>
+        <rect x="26" y="38" width="12" height="2.5" rx="1.25" fill="#fff" opacity=".75"/>
+        <line x1="32" y1="20" x2="32" y2="10" stroke="#38bdf8" stroke-width="3"/>
+        <circle cx="32" cy="7" r="3.5" fill="#38bdf8"/>
+        <rect x="50" y="26" width="5" height="12" rx="2.5" fill="#38bdf8" opacity=".7"/>
+        <rect x="9"  y="26" width="5" height="12" rx="2.5" fill="#38bdf8" opacity=".7"/>
+        <rect x="14" y="46" width="36" height="7" rx="3" fill="#38bdf8" opacity=".6"/>
+      </svg>
     </div>
+    <div class="psub" style="color:#38bdf8;text-align:right;">🧠 Cognitive Intelligence &amp; ML</div>
     <div class="category-grid">{right_category_html}</div>
   </div>
 
 </div>
 <script>
 (function(){{
+  // ── Pre-embedded stats for all categories (no page reload needed) ──────────
+  var CAT_STATS = {cat_stats_json};
+  var _active = null;
+
+  // ── Spline globe mouse-follow ──────────────────────────────────────────────
   var _last=0;
   document.addEventListener("mousemove",function(e){{
     var now=Date.now();if(now-_last<16)return;_last=now;
@@ -1681,14 +1753,46 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
       }}));
     }});
   }});
+
+  // ── Category click handler — pure JS, zero page reload (point 3) ──────────
   window.selectCategory = function(cat) {{
-    var params = new URLSearchParams(window.location.search);
-    if (params.get('selected_category') === cat) {{
-      params.delete('selected_category');
-    }} else {{
-      params.set('selected_category', cat);
+    // Toggle off if same category clicked again
+    if (_active === cat) {{
+      _active = null;
+      document.querySelectorAll(".category-card").forEach(function(el){{
+        el.classList.remove("selected");
+      }});
+      document.getElementById("gb-title").textContent = "Select a category";
+      document.getElementById("gb-val").style.display  = "none";
+      document.getElementById("gb-meta").style.display = "none";
+      document.getElementById("gb-sub").style.display  = "block";
+      document.getElementById("gb-sub").innerHTML      = "Click any Automation or AI category<br>to show details here.";
+      return;
     }}
-    window.location.search = params.toString();
+    _active = cat;
+
+    // Highlight selected card
+    document.querySelectorAll(".category-card").forEach(function(el){{
+      el.classList.remove("selected");
+    }});
+    var cards = document.querySelectorAll(".category-card");
+    cards.forEach(function(el){{
+      if (el.getAttribute("onclick") && el.getAttribute("onclick").indexOf(cat) !== -1)
+        el.classList.add("selected");
+    }});
+
+    // Update globe detail panel
+    var d = CAT_STATS[cat];
+    if (!d) return;
+    document.getElementById("gb-title").textContent = d.label;
+    document.getElementById("gb-val").textContent   = d.total;
+    document.getElementById("gb-val").style.display  = "block";
+    document.getElementById("gb-meta").innerHTML     =
+      "ROI <strong>" + d.roi + "</strong> · " + d.hrs.toLocaleString() + " hrs saved";
+    document.getElementById("gb-meta").style.display = "block";
+    document.getElementById("gb-sub").innerHTML      =
+      d.completed + " Done &nbsp;·&nbsp; " + d.wip + " WIP &nbsp;·&nbsp; " + d.uat + " UAT";
+    document.getElementById("gb-sub").style.display  = "block";
   }};
 }})();
 </script>
