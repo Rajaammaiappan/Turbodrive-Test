@@ -1075,16 +1075,12 @@ def page_submit():
     SHAREPOINT_ATTACH_URL = ("https://altengroup.sharepoint.com/:f:/r/sites/Rolls-RoyceGlobalEfS/Production/25.%20EFS%20Continuous%20Improvements/Turbo%20Drive?csf=1&web=1&e=a63ybE")
     st.markdown("**Attachments (optional)**")
     st.markdown(f"""
-    <div onclick="window.open('{SHAREPOINT_ATTACH_URL}','_blank')"
-         ondragover="event.preventDefault(); this.style.borderColor='#00AEEF';"
-         ondragleave="this.style.borderColor='#94a3b8';"
-         ondrop="event.preventDefault(); window.open('{SHAREPOINT_ATTACH_URL}','_blank');"
-         style="border:2px dashed #94a3b8;border-radius:10px;padding:18px;text-align:center;
-                cursor:pointer;color:#64748b;font-size:13px;background:rgba(148,163,184,.06);
-                transition:border-color .15s;">
-        📎 <b>Click to browse or drop files here</b><br>
-        <span style="font-size:11px;">You'll be redirected to the SharePoint folder to upload attachments</span>
-    </div>
+    <a href="{SHAREPOINT_ATTACH_URL}" target="_blank" rel="noopener noreferrer"
+       style="display:inline-flex;align-items:center;gap:8px;border:1px solid #94a3b8;
+              border-radius:8px;padding:8px 16px;text-decoration:none;color:#1e293b;
+              font-size:13px;font-weight:600;background:rgba(148,163,184,.06);">
+        📎 Browse SharePoint Folder
+    </a>
     """, unsafe_allow_html=True)
 
     sel_otp = st.selectbox(
