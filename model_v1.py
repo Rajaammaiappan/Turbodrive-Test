@@ -2072,6 +2072,23 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
                 # visually the most "highlighted" one on the map.
                 return 90 + round((c / max_count) * 70) if c else 60
 
+            # Approximate landmass position (top/left %) for each region's pin.
+            REGION_POS = {
+                "India":   {"top": "38%", "left": "70%"},
+                "USA":     {"top": "30%", "left": "17%"},
+                "UK":      {"top": "18%", "left": "35%"},
+                "Germany": {"top": "22%", "left": "42%"},
+            }
+            active_regions = {k: v for k, v in region_counts.items() if v > 0}
+
+            pins_html = "".join(
+                f'<div class="region-highlight" style="top:{REGION_POS[k]["top"]};left:{REGION_POS[k]["left"]};'
+                f'width:{_highlight_size(v)}px;height:{_highlight_size(v)}px;"></div>'
+                f'<div class="region-pin" style="top:{REGION_POS[k]["top"]};left:{REGION_POS[k]["left"]};" '
+                f'title="{k}: {v} idea(s)">{v}</div>'
+                for k, v in active_regions.items()
+            )
+
             map_html = f"""
             <style>
               .region-map-shell {{position:relative;width:100%;min-height:400px;border-radius:22px;overflow:hidden;
@@ -2090,23 +2107,14 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
                 background:radial-gradient(circle,rgba(250,204,21,.55) 0%,rgba(250,204,21,.18) 55%,rgba(250,204,21,0) 75%);
                 animation:region-pulse 2.4s ease-in-out infinite;pointer-events:none;
               }}
-              .region-map-shell .region-highlight.zero {{background:radial-gradient(circle,rgba(148,163,184,.18) 0%,rgba(148,163,184,0) 70%);animation:none;}}
               @keyframes region-pulse {{
                 0%,100% {{opacity:.75;}} 50% {{opacity:1;}}
               }}
-              .region-map-shell .region-pin {{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;
-                min-width:64px;padding:6px 12px;border-radius:14px;background:rgba(255,255,255,.95);
-                color:#0f172a;white-space:nowrap;text-shadow:none;box-shadow:0 10px 30px rgba(0,0,0,.3);
-                transform:translate(-50%,-50%);border:2px solid #facc15;
+              .region-map-shell .region-pin {{position:absolute;transform:translate(-50%,-50%);
+                font-size:13px;font-weight:800;color:#facc15;
+                text-shadow:0 0 5px rgba(0,0,0,.95),0 0 2px rgba(0,0,0,.95);
+                pointer-events:none;
               }}
-              .region-map-shell .region-pin .rp-name {{font-size:10px;font-weight:700;letter-spacing:.03em;color:#334155;}}
-              .region-map-shell .region-pin .rp-count {{font-size:18px;font-weight:800;line-height:1.1;}}
-              .region-map-shell .region-pin.zero {{opacity:.65;border-color:rgba(255,255,255,.35);}}
-              .region-map-shell .region-pin.zero .rp-count {{color:#64748b;}}
-              .region-map-shell .region-pin.india, .region-map-shell .region-highlight.india {{top:60%;left:66%;}}
-              .region-map-shell .region-pin.usa, .region-map-shell .region-highlight.usa {{top:36%;left:18%;}}
-              .region-map-shell .region-pin.uk, .region-map-shell .region-highlight.uk {{top:26%;left:30%;}}
-              .region-map-shell .region-pin.germany, .region-map-shell .region-highlight.germany {{top:30%;left:39%;}}
             </style>
             <div class="region-map-shell">
               <div class="region-overlay">
@@ -2117,24 +2125,16 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
                   </div>
                 </div>
               </div>
-              <div class="region-highlight india{' zero' if region_counts['India']==0 else ''}" style="width:{_highlight_size(region_counts['India'])}px;height:{_highlight_size(region_counts['India'])}px;"></div>
-              <div class="region-highlight usa{' zero' if region_counts['USA']==0 else ''}" style="width:{_highlight_size(region_counts['USA'])}px;height:{_highlight_size(region_counts['USA'])}px;"></div>
-              <div class="region-highlight uk{' zero' if region_counts['UK']==0 else ''}" style="width:{_highlight_size(region_counts['UK'])}px;height:{_highlight_size(region_counts['UK'])}px;"></div>
-              <div class="region-highlight germany{' zero' if region_counts['Germany']==0 else ''}" style="width:{_highlight_size(region_counts['Germany'])}px;height:{_highlight_size(region_counts['Germany'])}px;"></div>
-              <div class="region-pin india{' zero' if region_counts['India']==0 else ''}" title="India: {region_counts['India']} idea(s)">
-                <span class="rp-name">INDIA</span><span class="rp-count">{region_counts['India']}</span></div>
-              <div class="region-pin usa{' zero' if region_counts['USA']==0 else ''}" title="USA: {region_counts['USA']} idea(s)">
-                <span class="rp-name">USA</span><span class="rp-count">{region_counts['USA']}</span></div>
-              <div class="region-pin uk{' zero' if region_counts['UK']==0 else ''}" title="UK: {region_counts['UK']} idea(s)">
-                <span class="rp-name">UK</span><span class="rp-count">{region_counts['UK']}</span></div>
-              <div class="region-pin germany{' zero' if region_counts['Germany']==0 else ''}" title="Germany: {region_counts['Germany']} idea(s)">
-                <span class="rp-name">GERMANY</span><span class="rp-count">{region_counts['Germany']}</span></div>
+              {pins_html}
             </div>
             """
             st.markdown(map_html, unsafe_allow_html=True)
-            st.caption(
-                "📍 " + "  ·  ".join(f"**{k}**: {v} idea(s)" for k, v in region_counts.items())
-            )
+            if active_regions:
+                st.caption(
+                    "📍 " + "  ·  ".join(f"**{k}**: {v} idea(s)" for k, v in active_regions.items())
+                )
+            else:
+                st.caption("No ideas with a region assigned yet.")
             if no_region_count:
                 st.caption(f"ℹ️ {no_region_count} idea(s) have no region assigned and are excluded.")
     # ── All Ideas table + CSV (above Kanban) ────────────────────────────
