@@ -1967,8 +1967,9 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
               .region-map-shell .region-title {{font-size:14px;font-weight:700;color:#f8fafc;}}
               .region-map-shell .region-subtitle {{font-size:12px;color:rgba(248,250,252,.72);}}
               .region-map-shell .region-pin {{position:absolute;display:inline-flex;align-items:center;justify-content:center;
-                min-width:72px;height:32px;padding:0 12px;border-radius:999px;background:rgba(255,255,255,.96);
-                color:#111;font-size:12px;font-weight:700;box-shadow:0 14px 32px rgba(0,0,0,.18);white-space:nowrap;
+                min-width:34px;height:34px;padding:0 6px;border-radius:50%;background:rgba(255,255,255,.96);
+                color:#111;font-size:13px;font-weight:800;box-shadow:0 14px 32px rgba(0,0,0,.18);white-space:nowrap;
+                transform:translate(-50%,-50%);
               }}
               .region-map-shell .region-pin.zero {{opacity:.45;}}
               .region-map-shell .region-pin.india {{top:60%;left:66%;}}
@@ -1994,10 +1995,10 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
                   <div class="legend-item"><span class="region-dot"></span> Germany: {region_counts['Germany']}</div>
                 </div>
               </div>
-              <div class="region-pin india{' zero' if region_counts['India']==0 else ''}" title="India: {region_counts['India']} idea(s)">India {region_counts['India']}</div>
-              <div class="region-pin usa{' zero' if region_counts['USA']==0 else ''}" title="USA: {region_counts['USA']} idea(s)">USA {region_counts['USA']}</div>
-              <div class="region-pin uk{' zero' if region_counts['UK']==0 else ''}" title="UK: {region_counts['UK']} idea(s)">UK {region_counts['UK']}</div>
-              <div class="region-pin germany{' zero' if region_counts['Germany']==0 else ''}" title="Germany: {region_counts['Germany']} idea(s)">Germany {region_counts['Germany']}</div>
+              <div class="region-pin india{' zero' if region_counts['India']==0 else ''}" title="India: {region_counts['India']} idea(s)">{region_counts['India']}</div>
+              <div class="region-pin usa{' zero' if region_counts['USA']==0 else ''}" title="USA: {region_counts['USA']} idea(s)">{region_counts['USA']}</div>
+              <div class="region-pin uk{' zero' if region_counts['UK']==0 else ''}" title="UK: {region_counts['UK']} idea(s)">{region_counts['UK']}</div>
+              <div class="region-pin germany{' zero' if region_counts['Germany']==0 else ''}" title="Germany: {region_counts['Germany']} idea(s)">{region_counts['Germany']}</div>
             </div>
             """
             st.markdown(map_html, unsafe_allow_html=True)
