@@ -884,13 +884,29 @@ def _render_kanban_card(idea, status, color, all_ideas, id_to_idea, depth=0):
     hold     = idea.get("hold_reason") or ""
     name     = idea.get("name") or "-"
     eng_name = eng.split("@")[0] if "@" in eng else (eng or "—")
-    # Simple label: "Child Card" prefix for nested cards, card icon for top-level
-    label_prefix = "📦 Child Card — " if depth > 0 else "📄 "
+    is_child = depth > 0
+    parent_id = idea.get("parent_id") or ""
+
+    label_prefix = "📦 " if is_child else "📄 "
     label = label_prefix + (idea.get("idea_name") or "No Name")[:26]
+    if is_child:
+        parent = id_to_idea.get(parent_id)
+        parent_name = (parent.get("idea_name","") or "")[:18] if parent else parent_id[:8]
+        label += f"  ↖ {parent_name}"
 
     with st.expander(label, expanded=False):
+        # Child tag pill
+        if is_child:
+            parent = id_to_idea.get(parent_id)
+            parent_name = (parent.get("idea_name","") or parent_id) if parent else parent_id
+            st.markdown(
+                f'<span style="background:#7c3aed;color:#fff;font-size:9px;font-weight:700;'
+                f'border-radius:6px;padding:2px 7px;">📦 CHILD OF: {parent_name[:30]}</span>',
+                unsafe_allow_html=True
+            )
+
         st.markdown(
-            f'<div style="border-left:3px solid {color};padding-left:8px;margin-bottom:6px;">'
+            f'<div style="border-left:3px solid {color};padding-left:8px;margin:6px 0;">'
             f'<span style="font-size:clamp(9px,0.85vw,11px);color:#64748b;">📌 {proj}</span><br>'
             f'<span style="font-size:clamp(9px,0.85vw,11px);color:#64748b;">👤 {name}</span><br>'
             f'<span style="font-size:clamp(9px,0.85vw,11px);color:#64748b;">👷 {eng_name}</span>'
@@ -907,7 +923,7 @@ def _render_kanban_card(idea, status, color, all_ideas, id_to_idea, depth=0):
         hold_input = ""
         if new_status == "Hold/Park":
             hold_input = st.text_input("Reason *", key=f"kanban_hold_{idea['id']}", placeholder="Hold reason…")
-        if st.button("Update", key=f"kanban_btn_{idea['id']}", use_container_width=True):
+        if st.button("✅ Update Status", key=f"kanban_btn_{idea['id']}", use_container_width=True):
             if new_status == "Hold/Park" and not hold_input:
                 st.error("Enter a hold reason.")
             else:
@@ -919,7 +935,61 @@ def _render_kanban_card(idea, status, color, all_ideas, id_to_idea, depth=0):
                 touch_activity()
                 st.rerun()
 
-        st.divider()
+        st.markdown("<div style='border-top:1px solid #e2e8f0;margin:6px 0;'></div>", unsafe_allow_html=True)
+
+        # ── Parent / Child linking ─────────────────────────────────────────
+        # Build candidate parent list: all ideas except self and own children
+        own_children_ids = {i["id"] for i in all_ideas if i.get("parent_id") == idea["id"]}
+        candidates = [i for i in all_ideas
+                      if i["id"] != idea["id"]
+                      and i["id"] not in own_children_ids
+                      and i.get("parent_id") != idea["id"]]
+
+        candidate_labels = ["— None (top-level card) —"] + [
+            f"{(i.get('idea_name') or 'Untitled')[:32]}  [{i['id'][:6]}]"
+            for i in candidates
+        ]
+        current_parent_label = "— None (top-level card) —"
+        if parent_id:
+            p = id_to_idea.get(parent_id)
+            if p:
+                current_parent_label = f"{(p.get('idea_name') or 'Untitled')[:32]}  [{p['id'][:6]}]"
+
+        current_idx = 0
+        if current_parent_label in candidate_labels:
+            current_idx = candidate_labels.index(current_parent_label)
+
+        st.caption("🔗 Nest as child of another card:")
+        chosen_parent_label = st.selectbox(
+            "Set parent card", candidate_labels,
+            index=current_idx,
+            key=f"kanban_parent_{idea['id']}",
+            label_visibility="collapsed"
+        )
+        if st.button("🔗 Set Parent", key=f"kanban_parent_btn_{idea['id']}", use_container_width=True):
+            if chosen_parent_label == "— None (top-level card) —":
+                update_idea(idea["id"], {"parent_id": None})
+                st.success("Card set as top-level.")
+            else:
+                # Extract ID from label  [xxxxxx]
+                new_parent_id = candidates[candidate_labels.index(chosen_parent_label) - 1]["id"]
+                update_idea(idea["id"], {"parent_id": new_parent_id})
+                st.success("Card linked as child ✅")
+            touch_activity()
+            st.rerun()
+
+        # ── Render children ────────────────────────────────────────────────
+        children = _children_of(idea["id"], all_ideas)
+        if children:
+            st.markdown(
+                f'<div style="font-size:10px;font-weight:700;color:#7c3aed;'
+                f'margin:6px 0 2px;">📦 {len(children)} child card(s):</div>',
+                unsafe_allow_html=True
+            )
+            for child in children:
+                child_status = child.get("status","New Idea")
+                child_color  = STATUS_COLORS.get(child_status,"#888")
+                _render_kanban_card(child, child_status, child_color, all_ideas, id_to_idea, depth=depth+1)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PAGE: LOGIN
@@ -1921,12 +1991,12 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
         }, height="400px")
 
         with wl_col:
-            st.markdown("##### 🌍 Region — World Map")
+            st.markdown("##### 🌍 Region — Ideas by Geography")
             region_data = {}
             for i in ideas:
                 r = (i.get("region","") or "").strip()
                 if not r:
-                    continue   # skip ideas with no region set
+                    continue
                 key = r.upper()
                 if key not in region_data:
                     region_data[key] = {"count":0,"roi":0.0}
@@ -1935,62 +2005,104 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 
             no_region_count = len([i for i in ideas if not (i.get("region","") or "").strip()])
 
-            region_counts = {
-                "India": region_data.get("INDIA", {"count":0})["count"],
-                "USA": region_data.get("USA", {"count":0})["count"],
-                "UK": region_data.get("UK", {"count":0})["count"],
-                "Germany": region_data.get("GERMANY", {"count":0})["count"],
+            rc = {
+                "India":   region_data.get("INDIA",   {"count":0,"roi":0})["count"],
+                "USA":     region_data.get("USA",     {"count":0,"roi":0})["count"],
+                "UK":      region_data.get("UK",      {"count":0,"roi":0})["count"],
+                "Germany": region_data.get("GERMANY", {"count":0,"roi":0})["count"],
+            }
+            total_geo = sum(rc.values())
+
+            def _pin_size(n):
+                if n == 0: return 32
+                if n < 5:  return 42
+                if n < 15: return 54
+                return 66
+
+            def _pin_color(n):
+                if n == 0: return "rgba(100,116,139,.45)","#94a3b8"
+                if n < 5:  return "#0ea5e9","#fff"
+                if n < 15: return "#7c3aed","#fff"
+                return "#E30613","#fff"
+
+            pins = {
+                "India":   {"top":"58%","left":"66%"},
+                "USA":     {"top":"34%","left":"17%"},
+                "UK":      {"top":"22%","left":"30%"},
+                "Germany": {"top":"26%","left":"38%"},
             }
 
-            map_html = f"""
-            <style>
-              .region-map-shell {{position:relative;width:100%;min-height:400px;border-radius:22px;overflow:hidden;
-                background:#0b1222;border:1px solid rgba(255,255,255,.08);box-shadow:0 20px 50px rgba(0,0,0,.25);
-              }}
-              .region-map-shell::before {{content:'';position:absolute;inset:0;
-                background-image:url('https://upload.wikimedia.org/wikipedia/commons/8/80/World_map_-_low_resolution.svg');
-                background-size:cover;background-repeat:no-repeat;background-position:center center;
-                opacity:.85;filter:invert(1) brightness(1.6);
-              }}
-              .region-map-shell .region-overlay {{position:relative;z-index:1;padding:16px;display:grid;grid-template-rows:auto 1fr;gap:12px;}}
-              .region-map-shell .region-header {{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:0 6px;}}
-              .region-map-shell .region-title {{font-size:14px;font-weight:700;color:#f8fafc;}}
-              .region-map-shell .region-subtitle {{font-size:12px;color:rgba(248,250,252,.72);}}
-              .region-map-shell .region-pin {{position:absolute;display:inline-flex;align-items:center;justify-content:center;
-                width:62px;height:42px;padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.92);
-                color:#0f172a;font-size:14px;font-weight:800;white-space:nowrap;
-                text-shadow:none;box-shadow:0 10px 30px rgba(0,0,0,.25);
-                transform:translate(-50%,-50%);
-              }}
-              .region-map-shell .region-pin::before {{content:'';position:absolute;inset:0;border-radius:999px;
-                background:radial-gradient(circle,rgba(250,204,21,.45) 0%,rgba(250,204,21,0) 70%);
-                z-index:-1;
-              }}
-              .region-map-shell .region-pin.zero {{opacity:.6;}}
-              .region-map-shell .region-pin.india {{top:60%;left:66%;}}
-              .region-map-shell .region-pin.usa {{top:36%;left:18%;}}
-              .region-map-shell .region-pin.uk {{top:26%;left:30%;}}
-              .region-map-shell .region-pin.germany {{top:30%;left:39%;}}
-            </style>
-            <div class="region-map-shell">
-              <div class="region-overlay">
-                <div class="region-header">
-                  <div>
-                    <div class="region-title"></div>
-                    <div class="region-subtitle"></div>
+            pins_html = ""
+            for region, pos in pins.items():
+                n     = rc[region]
+                sz    = _pin_size(n)
+                bg, fg = _pin_color(n)
+                pct   = f"{round(n/total_geo*100)}%" if total_geo else "0%"
+                pins_html += f"""
+                <div style="position:absolute;top:{pos['top']};left:{pos['left']};
+                            transform:translate(-50%,-50%);text-align:center;z-index:3;">
+                  <div style="width:{sz}px;height:{sz}px;border-radius:50%;
+                              background:{bg};color:{fg};
+                              display:flex;flex-direction:column;align-items:center;
+                              justify-content:center;font-weight:800;
+                              box-shadow:0 0 0 4px rgba(255,255,255,.25),0 8px 24px rgba(0,0,0,.4);
+                              font-size:{max(10,sz//3)}px;line-height:1.1;
+                              transition:transform .2s;">
+                    <span>{n}</span>
                   </div>
+                  <div style="margin-top:4px;background:rgba(0,0,0,.65);
+                              color:#f8fafc;font-size:9px;font-weight:700;
+                              border-radius:6px;padding:2px 6px;white-space:nowrap;">
+                    {region} · {pct}
+                  </div>
+                </div>"""
+
+            # Legend bar
+            legend_html = ""
+            for region in ["India","USA","UK","Germany"]:
+                n = rc[region]
+                bg, fg = _pin_color(n)
+                legend_html += f"""
+                <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#e2e8f0;">
+                  <div style="width:10px;height:10px;border-radius:50%;background:{bg};flex-shrink:0;"></div>
+                  <span style="font-weight:600;">{region}</span>
+                  <span style="color:#94a3b8;margin-left:auto;">{n} idea{'s' if n!=1 else ''}</span>
+                </div>"""
+
+            map_html = f"""
+            <div style="position:relative;width:100%;min-height:400px;border-radius:18px;overflow:hidden;
+                        background:linear-gradient(160deg,#0b1222 0%,#0f2044 60%,#0b1222 100%);
+                        border:1px solid rgba(255,255,255,.1);box-shadow:0 20px 50px rgba(0,0,0,.35);">
+              <!-- World map background -->
+              <div style="position:absolute;inset:0;
+                          background-image:url('https://upload.wikimedia.org/wikipedia/commons/8/80/World_map_-_low_resolution.svg');
+                          background-size:90% auto;background-repeat:no-repeat;background-position:center 48%;
+                          opacity:.18;filter:invert(1) brightness(2);"></div>
+              <!-- Grid lines -->
+              <div style="position:absolute;inset:0;opacity:.06;
+                          background:repeating-linear-gradient(0deg,transparent,transparent 39px,#fff 39px,#fff 40px),
+                                      repeating-linear-gradient(90deg,transparent,transparent 39px,#fff 39px,#fff 40px);"></div>
+              <!-- Title -->
+              <div style="position:relative;z-index:4;padding:14px 18px 0;">
+                <div style="font-size:13px;font-weight:700;color:#f8fafc;">Ideas by Region</div>
+                <div style="font-size:10px;color:#94a3b8;margin-top:1px;">
+                  {total_geo} idea{'s' if total_geo!=1 else ''} across {len([k for k,v in rc.items() if v>0])} region{'s' if len([k for k,v in rc.items() if v>0])!=1 else ''}
+                  {f' · {no_region_count} untagged' if no_region_count else ''}
                 </div>
               </div>
-              <div class="region-pin india{' zero' if region_counts['India']==0 else ''}" title="India: {region_counts['India']} idea(s)">{region_counts['India']}</div>
-              <div class="region-pin usa{' zero' if region_counts['USA']==0 else ''}" title="USA: {region_counts['USA']} idea(s)">{region_counts['USA']}</div>
-              <div class="region-pin uk{' zero' if region_counts['UK']==0 else ''}" title="UK: {region_counts['UK']} idea(s)">{region_counts['UK']}</div>
-              <div class="region-pin germany{' zero' if region_counts['Germany']==0 else ''}" title="Germany: {region_counts['Germany']} idea(s)">{region_counts['Germany']}</div>
+              <!-- Region pins -->
+              {pins_html}
+              <!-- Legend -->
+              <div style="position:absolute;bottom:12px;right:14px;z-index:4;
+                          background:rgba(0,0,0,.6);border-radius:10px;
+                          padding:10px 12px;min-width:130px;
+                          display:flex;flex-direction:column;gap:5px;
+                          border:1px solid rgba(255,255,255,.1);">
+                {legend_html}
+              </div>
             </div>
             """
             st.markdown(map_html, unsafe_allow_html=True)
-
-            if no_region_count:
-                st.caption(f"ℹ️ {no_region_count} idea(s) have no region assigned and are excluded.")
     # ── All Ideas table + CSV (above Kanban) ────────────────────────────
     st.markdown("##### 📄 All Ideas")
     search = st.text_input("🔎 Search ideas", placeholder="Filter by name, project, status…")
@@ -2909,8 +3021,13 @@ def main():
     if override == "change_password": page_change_password(); return
     if not logged_in():           page_login(); return
 
+    # ── Force default theme so all text is always visible ─────────────────
+    if "theme" not in st.session_state:
+        st.session_state["theme"] = "ALTEN Red & Blue"
+    # Ensure theme is always applied before rendering any page
+    apply_theme(st.session_state["theme"])
+
     # ── Session timeout check (every rerun = activity signal) ─────────────
-    touch_activity_flag = True  # any page render past this point counts as activity
     enforce_session_timeout()
     touch_activity()
 
@@ -2944,11 +3061,34 @@ def main():
           <span style="font-size:11px;">{ss('role','')}</span>
         </div>""", unsafe_allow_html=True)
 
-        # Style buttons to use constant black background and white text
+        # Constant sidebar button + selectbox styling (independent of theme)
         st.markdown("""
         <style>
-        div.stButton > button {background-color:#000 !important; color:#fff !important; border: none !important; border-radius:6px !important; padding:6px 10px !important}
-        div.stButton > button:hover {opacity:0.95}
+        [data-testid="stSidebar"] div.stButton > button {
+            background:#1e293b !important;
+            color:#f1f5f9 !important;
+            border:1px solid rgba(255,255,255,.15) !important;
+            border-radius:8px !important;
+            padding:6px 10px !important;
+            font-weight:600 !important;
+            width:100%;
+        }
+        [data-testid="stSidebar"] div.stButton > button:hover {
+            background:#334155 !important;
+            border-color:rgba(255,255,255,.3) !important;
+        }
+        [data-testid="stSidebar"] .stSelectbox > div > div {
+            background:#1e293b !important;
+            color:#f1f5f9 !important;
+            border:1px solid rgba(255,255,255,.2) !important;
+            border-radius:8px !important;
+        }
+        [data-testid="stSidebar"] .stSelectbox label {
+            color:#94a3b8 !important;
+            font-size:11px !important;
+            font-weight:600 !important;
+            letter-spacing:.5px !important;
+        }
         </style>
         """, unsafe_allow_html=True)
 
