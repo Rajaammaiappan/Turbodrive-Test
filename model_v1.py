@@ -3,6 +3,7 @@ from datetime import datetime, date, timedelta
 from urllib.parse import quote
 import streamlit as st
 from streamlit_echarts import st_echarts
+from streamlit_sortables import sort_items
 from werkzeug.security import generate_password_hash, check_password_hash
 from supabase import create_client, Client
 
@@ -48,11 +49,11 @@ BLOCKED_DOMAINS = {
 }
 
 ROLE_PAGES = {
-    "super user":         ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Admin","OTP List","Workflow","Chatbot"],
-    "normal user":        ["Submit Idea","Chatbot"],
-    "automation engineer":["Dashboard","Submit Idea","Feasibility","Chatbot"],
-    "automation pl":      ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Chatbot"],
-    "pl/spl":             ["Dashboard","Submit Idea","Approval","Chatbot"],
+    "super user":         ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Admin","OTP List","Workflow"],
+    "normal user":        ["Submit Idea"],
+    "automation engineer":["Dashboard","Submit Idea","Feasibility"],
+    "automation pl":      ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval"],
+    "pl/spl":             ["Dashboard","Submit Idea","Approval"],
 }
 PW_ROLES = {"super user","automation engineer","automation pl","pl/spl"}
 
@@ -445,6 +446,39 @@ def apply_theme(theme_name):
         transition:background .15s;cursor:pointer;
     }}
     [data-testid="stSidebar"] .stRadio label:hover{{background:rgba(255,255,255,.1);}}
+
+    /* ── Force readable text for native Streamlit chrome on every theme ──
+       Streamlit's own widgets (labels, captions, metrics, alerts, tabs,
+       expanders, inputs) render with Streamlit's built-in light-theme text
+       color regardless of the custom theme picked above — on dark themes
+       (e.g. Midnight Dark) that text goes dark-on-dark and disappears.
+       These rules re-point that native chrome at the active theme's colors.
+       No !important on the bare "> p"/li rules so any element that already
+       sets its own inline color (all the custom cards in this file) keeps
+       winning the cascade — only truly unstyled native text is affected. */
+    h4,h5,h6{{color:{text_color};}}
+    [data-testid="stCaptionContainer"], [data-testid="stCaptionContainer"] *{{color:{text_color} !important;opacity:.75;}}
+    [data-testid="stMetricValue"]{{color:{text_color} !important;}}
+    [data-testid="stMetricLabel"]{{color:{text_color} !important;opacity:.75;}}
+    [data-testid="stMetricDelta"]{{color:{text_color} !important;}}
+    [data-testid="stWidgetLabel"] p{{color:{text_color} !important;}}
+    [data-testid="stMarkdownContainer"] > p,
+    [data-testid="stMarkdownContainer"] > ul li,
+    [data-testid="stMarkdownContainer"] > ol li{{color:{text_color};}}
+    [data-testid="stExpander"] summary,
+    [data-testid="stExpander"] summary p{{color:{text_color} !important;}}
+    [data-testid="stTabs"] button p{{color:{text_color} !important;}}
+    [data-testid="stAlertContent"], [data-testid="stAlertContent"] p{{color:{text_color} !important;}}
+    [data-testid="stTextInput"] input,
+    [data-testid="stTextArea"] textarea,
+    [data-testid="stNumberInput"] input,
+    [data-testid="stDateInput"] input,
+    [data-testid="stSelectbox"] [data-baseweb="select"] > div,
+    [data-testid="stMultiSelect"] [data-baseweb="select"] > div{{
+        background-color:{surface} !important;color:{text_color} !important;
+    }}
+    [data-testid="stDataFrame"]{{color:{text_color};}}
+
     h1{{
         background:linear-gradient(135deg,{t['primary']},{t['secondary']});
         -webkit-background-clip:text;background-clip:text;color:transparent;
@@ -830,11 +864,12 @@ def render_category_panel(panel_title, panel_icon, categories, ideas, state_key,
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  KANBAN: NATIVE STREAMLIT COLUMN + EXPANDER BOARD  (with Parent/Child links)
-#  Note: true HTML5 drag-and-drop card-to-card linking is not supported by
-#  Streamlit's widget model without a custom JS component. Parent/Child
-#  relationships are created via a "Set Parent" dropdown on each card —
-#  same end result (hierarchy, expand/collapse, aggregated metrics) without
-#  a drag gesture.
+#  Nesting a card inside another (parent/child) is done via real drag-and-drop,
+#  powered by the streamlit-sortables component (pip install streamlit-sortables).
+#  Dropping a card into another card's box tags it (parent_id) as that card's
+#  child. Nesting is one level deep and scoped to a single status lane — a
+#  card that already has children becomes a drop target (its box) rather than
+#  a draggable item itself, so grandchildren can't be created.
 # ══════════════════════════════════════════════════════════════════════════════
 def _children_of(parent_id, all_ideas):
     return [i for i in all_ideas if i.get("parent_id") == parent_id]
@@ -871,11 +906,17 @@ def render_kanban_board(ideas):
     for col, status in zip(cols, STATUSES):
         color  = STATUS_COLORS.get(status,"#888")
         bucket = [i for i in ideas if i.get("status")==status]
+        bucket_ids = {i["id"] for i in bucket}
         with col:
             if not bucket:
                 st.caption("_Empty_")
-            for idea in bucket:
+            top_level = [i for i in bucket if not i.get("parent_id") or i.get("parent_id") not in bucket_ids]
+            for idea in top_level:
                 _render_kanban_card(idea, status, color, ideas, id_to_idea, depth=0)
+                for child in _children_of(idea["id"], bucket):
+                    _render_kanban_card(child, status, color, ideas, id_to_idea, depth=1)
+
+    _render_kanban_nesting_ui(ideas)
 
 def _render_kanban_card(idea, status, color, all_ideas, id_to_idea, depth=0):
     eng      = idea.get("assigned_engineer") or ""
@@ -884,36 +925,33 @@ def _render_kanban_card(idea, status, color, all_ideas, id_to_idea, depth=0):
     hold     = idea.get("hold_reason") or ""
     name     = idea.get("name") or "-"
     eng_name = eng.split("@")[0] if "@" in eng else (eng or "—")
-    is_child = depth > 0
-    parent_id = idea.get("parent_id") or ""
-
-    label_prefix = "📦 " if is_child else "📄 "
+    # Simple label: "Child Card" prefix for nested cards, card icon for top-level
+    label_prefix = "↳ 📦 Child Card — " if depth > 0 else "📄 "
     label = label_prefix + (idea.get("idea_name") or "No Name")[:26]
-    if is_child:
-        parent = id_to_idea.get(parent_id)
-        parent_name = (parent.get("idea_name","") or "")[:18] if parent else parent_id[:8]
-        label += f"  ↖ {parent_name}"
 
     with st.expander(label, expanded=False):
-        # Child tag pill
-        if is_child:
-            parent = id_to_idea.get(parent_id)
-            parent_name = (parent.get("idea_name","") or parent_id) if parent else parent_id
-            st.markdown(
-                f'<span style="background:#7c3aed;color:#fff;font-size:9px;font-weight:700;'
-                f'border-radius:6px;padding:2px 7px;">📦 CHILD OF: {parent_name[:30]}</span>',
-                unsafe_allow_html=True
-            )
-
+        parent_name = ""
+        if depth > 0 and idea.get("parent_id") in id_to_idea:
+            parent_name = id_to_idea[idea["parent_id"]].get("idea_name","") or "Untitled"
         st.markdown(
-            f'<div style="border-left:3px solid {color};padding-left:8px;margin:6px 0;">'
+            f'<div style="border-left:3px solid {color};padding-left:8px;margin-bottom:6px;">'
             f'<span style="font-size:clamp(9px,0.85vw,11px);color:#64748b;">📌 {proj}</span><br>'
             f'<span style="font-size:clamp(9px,0.85vw,11px);color:#64748b;">👤 {name}</span><br>'
             f'<span style="font-size:clamp(9px,0.85vw,11px);color:#64748b;">👷 {eng_name}</span>'
+            +(f'<br><span style="font-size:clamp(9px,0.85vw,11px);color:#7c3aed;">🔗 Child of: {parent_name}</span>' if parent_name else "")
             +(f'<br><span style="font-size:clamp(8px,0.75vw,10px);color:#0369a1;">📅 {delivery}</span>' if delivery else "")
             +(f'<br><span style="font-size:clamp(8px,0.75vw,10px);color:#b45309;">⏸ {hold[:30]}</span>' if hold else "")
             +f'</div>', unsafe_allow_html=True,
         )
+
+        summary = _parent_summary(idea, all_ideas) if depth == 0 else None
+        if summary:
+            st.markdown(
+                f'<div style="font-size:10px;color:#64748b;margin-bottom:6px;">'
+                f'🧩 {summary["children"]} child card(s) · {summary["completion_pct"]}% complete · '
+                f'ROI {summary["roi"]} · {summary["hours"]:,.0f} hrs saved</div>',
+                unsafe_allow_html=True,
+            )
 
         # ── Status move ────────────────────────────────────────────────────
         new_status = st.selectbox("Move to", STATUSES,
@@ -923,7 +961,7 @@ def _render_kanban_card(idea, status, color, all_ideas, id_to_idea, depth=0):
         hold_input = ""
         if new_status == "Hold/Park":
             hold_input = st.text_input("Reason *", key=f"kanban_hold_{idea['id']}", placeholder="Hold reason…")
-        if st.button("✅ Update Status", key=f"kanban_btn_{idea['id']}", use_container_width=True):
+        if st.button("Update", key=f"kanban_btn_{idea['id']}", use_container_width=True):
             if new_status == "Hold/Park" and not hold_input:
                 st.error("Enter a hold reason.")
             else:
@@ -935,61 +973,77 @@ def _render_kanban_card(idea, status, color, all_ideas, id_to_idea, depth=0):
                 touch_activity()
                 st.rerun()
 
-        st.markdown("<div style='border-top:1px solid #e2e8f0;margin:6px 0;'></div>", unsafe_allow_html=True)
+        if depth > 0:
+            if st.button("↩ Remove from parent card", key=f"kanban_unnest_{idea['id']}", use_container_width=True):
+                update_idea(idea["id"], {"parent_id": ""})
+                touch_activity()
+                st.rerun()
 
-        # ── Parent / Child linking ─────────────────────────────────────────
-        # Build candidate parent list: all ideas except self and own children
-        own_children_ids = {i["id"] for i in all_ideas if i.get("parent_id") == idea["id"]}
-        candidates = [i for i in all_ideas
-                      if i["id"] != idea["id"]
-                      and i["id"] not in own_children_ids
-                      and i.get("parent_id") != idea["id"]]
+        st.divider()
 
-        candidate_labels = ["— None (top-level card) —"] + [
-            f"{(i.get('idea_name') or 'Untitled')[:32]}  [{i['id'][:6]}]"
-            for i in candidates
-        ]
-        current_parent_label = "— None (top-level card) —"
-        if parent_id:
-            p = id_to_idea.get(parent_id)
-            if p:
-                current_parent_label = f"{(p.get('idea_name') or 'Untitled')[:32]}  [{p['id'][:6]}]"
-
-        current_idx = 0
-        if current_parent_label in candidate_labels:
-            current_idx = candidate_labels.index(current_parent_label)
-
-        st.caption("🔗 Nest as child of another card:")
-        chosen_parent_label = st.selectbox(
-            "Set parent card", candidate_labels,
-            index=current_idx,
-            key=f"kanban_parent_{idea['id']}",
-            label_visibility="collapsed"
+def _render_kanban_nesting_ui(ideas):
+    """Real drag-and-drop: drag a card into another card's box to tag it as
+    that card's child (parent_id). Drag it into "Top-Level" to un-nest it."""
+    st.markdown("---")
+    with st.expander("🧩 Nest Cards — Drag & Drop", expanded=False):
+        st.caption(
+            "Pick a status lane, then drag a card into another card's box to "
+            "tag it as that card's **child card**. Drag it back into "
+            "**Top-Level** to un-nest it."
         )
-        if st.button("🔗 Set Parent", key=f"kanban_parent_btn_{idea['id']}", use_container_width=True):
-            if chosen_parent_label == "— None (top-level card) —":
-                update_idea(idea["id"], {"parent_id": None})
-                st.success("Card set as top-level.")
-            else:
-                # Extract ID from label  [xxxxxx]
-                new_parent_id = candidates[candidate_labels.index(chosen_parent_label) - 1]["id"]
-                update_idea(idea["id"], {"parent_id": new_parent_id})
-                st.success("Card linked as child ✅")
+        status = st.selectbox("Lane", STATUSES, key="kanban_nest_status")
+        bucket = [i for i in ideas if i.get("status") == status]
+        bucket_ids = {i["id"] for i in bucket}
+        id_to_idea = {i["id"]: i for i in bucket}
+
+        if len(bucket) < 2:
+            st.caption("_Need at least 2 cards in this lane to nest one inside another._")
+            return
+
+        top_level = [i for i in bucket if not i.get("parent_id") or i.get("parent_id") not in bucket_ids]
+        parents_with_kids = {p["id"] for p in top_level if _children_of(p["id"], bucket)}
+        draggable = [i for i in bucket if i["id"] not in parents_with_kids]
+
+        def _label(i):
+            nm = (i.get("idea_name") or "No Name")[:28]
+            return f"{nm} · {i['id'][:6]}"
+
+        label_to_id = {_label(i): i["id"] for i in draggable}
+
+        containers = [{
+            "header": "🗂️ Top-Level (drag here to un-nest)",
+            "items": [_label(i) for i in draggable
+                      if not i.get("parent_id") or i.get("parent_id") not in bucket_ids],
+        }]
+        header_to_parent = {containers[0]["header"]: None}
+        for parent in top_level:
+            header = f"📦 Inside: {(parent.get('idea_name') or 'No Name')[:24]} · {parent['id'][:6]}"
+            header_to_parent[header] = parent["id"]
+            containers.append({
+                "header": header,
+                "items": [_label(k) for k in _children_of(parent["id"], bucket)],
+            })
+
+        result = sort_items(containers, multi_containers=True, direction="vertical",
+                             key=f"kanban_sort_{status}")
+
+        changed = False
+        for c in result:
+            new_parent = header_to_parent.get(c["header"])
+            for label in c["items"]:
+                idea_id = label_to_id.get(label)
+                if not idea_id:
+                    continue
+                target = new_parent or ""
+                if idea_id == target:
+                    continue  # dropped a card into its own box — ignore
+                current = (id_to_idea.get(idea_id) or {}).get("parent_id") or ""
+                if current != target:
+                    update_idea(idea_id, {"parent_id": target})
+                    changed = True
+        if changed:
             touch_activity()
             st.rerun()
-
-        # ── Render children ────────────────────────────────────────────────
-        children = _children_of(idea["id"], all_ideas)
-        if children:
-            st.markdown(
-                f'<div style="font-size:10px;font-weight:700;color:#7c3aed;'
-                f'margin:6px 0 2px;">📦 {len(children)} child card(s):</div>',
-                unsafe_allow_html=True
-            )
-            for child in children:
-                child_status = child.get("status","New Idea")
-                child_color  = STATUS_COLORS.get(child_status,"#888")
-                _render_kanban_card(child, child_status, child_color, all_ideas, id_to_idea, depth=depth+1)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PAGE: LOGIN
@@ -1321,7 +1375,7 @@ def page_pl_assignment():
                         "Category":i.get("category",""),"Priority":i.get("priority_label",""),
                         "Sprint Start":fmt_d(i["sprint_start"]),"Delivery (Sprint End)":fmt_d(i["sprint_end"]),
                     } for i in queue])
-                    st.dataframe(df, width="stretch", hide_index=True)
+                    st.dataframe(df, use_container_width=True, hide_index=True)
 
     render_copyright()
 
@@ -1470,8 +1524,8 @@ def page_dashboard():
     try:
         sb       = get_supabase()
         my_email = ss("email","")
-        now_ts   = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
-        cutoff   = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=5)).isoformat()
+        now_ts   = datetime.utcnow().isoformat()
+        cutoff   = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
         if my_email:
             sb.table("active_sessions").upsert(
                 {"email": my_email, "last_seen": now_ts}, on_conflict="email"
@@ -1865,7 +1919,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 }})();
 </script>
 </body></html>"""
-    st.iframe(_canvas_html, height=440, scrolling=False)
+    st.components.v1.html(_canvas_html, height=440, scrolling=False)
 
     # ── ROW 3: Charts row (Status BAR chart + Customer pie + clean Hours/Project) ─
     st.markdown("##### 📈 Charts")
@@ -1991,12 +2045,12 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
         }, height="400px")
 
         with wl_col:
-            st.markdown("##### 🌍 Region — Ideas by Geography")
+            st.markdown("##### 🌍 Region — World Map")
             region_data = {}
             for i in ideas:
                 r = (i.get("region","") or "").strip()
                 if not r:
-                    continue
+                    continue   # skip ideas with no region set
                 key = r.upper()
                 if key not in region_data:
                     region_data[key] = {"count":0,"roi":0.0}
@@ -2005,104 +2059,84 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 
             no_region_count = len([i for i in ideas if not (i.get("region","") or "").strip()])
 
-            rc = {
-                "India":   region_data.get("INDIA",   {"count":0,"roi":0})["count"],
-                "USA":     region_data.get("USA",     {"count":0,"roi":0})["count"],
-                "UK":      region_data.get("UK",      {"count":0,"roi":0})["count"],
-                "Germany": region_data.get("GERMANY", {"count":0,"roi":0})["count"],
+            region_counts = {
+                "India": region_data.get("INDIA", {"count":0})["count"],
+                "USA": region_data.get("USA", {"count":0})["count"],
+                "UK": region_data.get("UK", {"count":0})["count"],
+                "Germany": region_data.get("GERMANY", {"count":0})["count"],
             }
-            total_geo = sum(rc.values())
+            max_count = max(region_counts.values()) or 1
 
-            def _pin_size(n):
-                if n == 0: return 32
-                if n < 5:  return 42
-                if n < 15: return 54
-                return 66
-
-            def _pin_color(n):
-                if n == 0: return "rgba(100,116,139,.45)","#94a3b8"
-                if n < 5:  return "#0ea5e9","#fff"
-                if n < 15: return "#7c3aed","#fff"
-                return "#E30613","#fff"
-
-            pins = {
-                "India":   {"top":"58%","left":"66%"},
-                "USA":     {"top":"34%","left":"17%"},
-                "UK":      {"top":"22%","left":"30%"},
-                "Germany": {"top":"26%","left":"38%"},
-            }
-
-            pins_html = ""
-            for region, pos in pins.items():
-                n     = rc[region]
-                sz    = _pin_size(n)
-                bg, fg = _pin_color(n)
-                pct   = f"{round(n/total_geo*100)}%" if total_geo else "0%"
-                pins_html += f"""
-                <div style="position:absolute;top:{pos['top']};left:{pos['left']};
-                            transform:translate(-50%,-50%);text-align:center;z-index:3;">
-                  <div style="width:{sz}px;height:{sz}px;border-radius:50%;
-                              background:{bg};color:{fg};
-                              display:flex;flex-direction:column;align-items:center;
-                              justify-content:center;font-weight:800;
-                              box-shadow:0 0 0 4px rgba(255,255,255,.25),0 8px 24px rgba(0,0,0,.4);
-                              font-size:{max(10,sz//3)}px;line-height:1.1;
-                              transition:transform .2s;">
-                    <span>{n}</span>
-                  </div>
-                  <div style="margin-top:4px;background:rgba(0,0,0,.65);
-                              color:#f8fafc;font-size:9px;font-weight:700;
-                              border-radius:6px;padding:2px 6px;white-space:nowrap;">
-                    {region} · {pct}
-                  </div>
-                </div>"""
-
-            # Legend bar
-            legend_html = ""
-            for region in ["India","USA","UK","Germany"]:
-                n = rc[region]
-                bg, fg = _pin_color(n)
-                legend_html += f"""
-                <div style="display:flex;align-items:center;gap:6px;font-size:10px;color:#e2e8f0;">
-                  <div style="width:10px;height:10px;border-radius:50%;background:{bg};flex-shrink:0;"></div>
-                  <span style="font-weight:600;">{region}</span>
-                  <span style="color:#94a3b8;margin-left:auto;">{n} idea{'s' if n!=1 else ''}</span>
-                </div>"""
+            def _highlight_size(c):
+                # Glow ring scales with idea count so the busiest region is
+                # visually the most "highlighted" one on the map.
+                return 90 + round((c / max_count) * 70) if c else 60
 
             map_html = f"""
-            <div style="position:relative;width:100%;min-height:400px;border-radius:18px;overflow:hidden;
-                        background:linear-gradient(160deg,#0b1222 0%,#0f2044 60%,#0b1222 100%);
-                        border:1px solid rgba(255,255,255,.1);box-shadow:0 20px 50px rgba(0,0,0,.35);">
-              <!-- World map background -->
-              <div style="position:absolute;inset:0;
-                          background-image:url('https://upload.wikimedia.org/wikipedia/commons/8/80/World_map_-_low_resolution.svg');
-                          background-size:90% auto;background-repeat:no-repeat;background-position:center 48%;
-                          opacity:.18;filter:invert(1) brightness(2);"></div>
-              <!-- Grid lines -->
-              <div style="position:absolute;inset:0;opacity:.06;
-                          background:repeating-linear-gradient(0deg,transparent,transparent 39px,#fff 39px,#fff 40px),
-                                      repeating-linear-gradient(90deg,transparent,transparent 39px,#fff 39px,#fff 40px);"></div>
-              <!-- Title -->
-              <div style="position:relative;z-index:4;padding:14px 18px 0;">
-                <div style="font-size:13px;font-weight:700;color:#f8fafc;">Ideas by Region</div>
-                <div style="font-size:10px;color:#94a3b8;margin-top:1px;">
-                  {total_geo} idea{'s' if total_geo!=1 else ''} across {len([k for k,v in rc.items() if v>0])} region{'s' if len([k for k,v in rc.items() if v>0])!=1 else ''}
-                  {f' · {no_region_count} untagged' if no_region_count else ''}
+            <style>
+              .region-map-shell {{position:relative;width:100%;min-height:400px;border-radius:22px;overflow:hidden;
+                background:#0b1222;border:1px solid rgba(255,255,255,.08);box-shadow:0 20px 50px rgba(0,0,0,.25);
+              }}
+              .region-map-shell::before {{content:'';position:absolute;inset:0;
+                background-image:url('https://upload.wikimedia.org/wikipedia/commons/8/80/World_map_-_low_resolution.svg');
+                background-size:cover;background-repeat:no-repeat;background-position:center center;
+                opacity:.85;filter:invert(1) brightness(1.6);
+              }}
+              .region-map-shell .region-overlay {{position:relative;z-index:1;padding:16px;display:grid;grid-template-rows:auto 1fr;gap:12px;}}
+              .region-map-shell .region-header {{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:0 6px;}}
+              .region-map-shell .region-title {{font-size:14px;font-weight:700;color:#f8fafc;}}
+              .region-map-shell .region-subtitle {{font-size:12px;color:rgba(248,250,252,.72);}}
+              .region-map-shell .region-highlight {{position:absolute;border-radius:999px;transform:translate(-50%,-50%);
+                background:radial-gradient(circle,rgba(250,204,21,.55) 0%,rgba(250,204,21,.18) 55%,rgba(250,204,21,0) 75%);
+                animation:region-pulse 2.4s ease-in-out infinite;pointer-events:none;
+              }}
+              .region-map-shell .region-highlight.zero {{background:radial-gradient(circle,rgba(148,163,184,.18) 0%,rgba(148,163,184,0) 70%);animation:none;}}
+              @keyframes region-pulse {{
+                0%,100% {{opacity:.75;}} 50% {{opacity:1;}}
+              }}
+              .region-map-shell .region-pin {{position:absolute;display:flex;flex-direction:column;align-items:center;justify-content:center;
+                min-width:64px;padding:6px 12px;border-radius:14px;background:rgba(255,255,255,.95);
+                color:#0f172a;white-space:nowrap;text-shadow:none;box-shadow:0 10px 30px rgba(0,0,0,.3);
+                transform:translate(-50%,-50%);border:2px solid #facc15;
+              }}
+              .region-map-shell .region-pin .rp-name {{font-size:10px;font-weight:700;letter-spacing:.03em;color:#334155;}}
+              .region-map-shell .region-pin .rp-count {{font-size:18px;font-weight:800;line-height:1.1;}}
+              .region-map-shell .region-pin.zero {{opacity:.65;border-color:rgba(255,255,255,.35);}}
+              .region-map-shell .region-pin.zero .rp-count {{color:#64748b;}}
+              .region-map-shell .region-pin.india, .region-map-shell .region-highlight.india {{top:60%;left:66%;}}
+              .region-map-shell .region-pin.usa, .region-map-shell .region-highlight.usa {{top:36%;left:18%;}}
+              .region-map-shell .region-pin.uk, .region-map-shell .region-highlight.uk {{top:26%;left:30%;}}
+              .region-map-shell .region-pin.germany, .region-map-shell .region-highlight.germany {{top:30%;left:39%;}}
+            </style>
+            <div class="region-map-shell">
+              <div class="region-overlay">
+                <div class="region-header">
+                  <div>
+                    <div class="region-title">🌍 Ideas by Region</div>
+                    <div class="region-subtitle">Glow size = idea volume for that region</div>
+                  </div>
                 </div>
               </div>
-              <!-- Region pins -->
-              {pins_html}
-              <!-- Legend -->
-              <div style="position:absolute;bottom:12px;right:14px;z-index:4;
-                          background:rgba(0,0,0,.6);border-radius:10px;
-                          padding:10px 12px;min-width:130px;
-                          display:flex;flex-direction:column;gap:5px;
-                          border:1px solid rgba(255,255,255,.1);">
-                {legend_html}
-              </div>
+              <div class="region-highlight india{' zero' if region_counts['India']==0 else ''}" style="width:{_highlight_size(region_counts['India'])}px;height:{_highlight_size(region_counts['India'])}px;"></div>
+              <div class="region-highlight usa{' zero' if region_counts['USA']==0 else ''}" style="width:{_highlight_size(region_counts['USA'])}px;height:{_highlight_size(region_counts['USA'])}px;"></div>
+              <div class="region-highlight uk{' zero' if region_counts['UK']==0 else ''}" style="width:{_highlight_size(region_counts['UK'])}px;height:{_highlight_size(region_counts['UK'])}px;"></div>
+              <div class="region-highlight germany{' zero' if region_counts['Germany']==0 else ''}" style="width:{_highlight_size(region_counts['Germany'])}px;height:{_highlight_size(region_counts['Germany'])}px;"></div>
+              <div class="region-pin india{' zero' if region_counts['India']==0 else ''}" title="India: {region_counts['India']} idea(s)">
+                <span class="rp-name">INDIA</span><span class="rp-count">{region_counts['India']}</span></div>
+              <div class="region-pin usa{' zero' if region_counts['USA']==0 else ''}" title="USA: {region_counts['USA']} idea(s)">
+                <span class="rp-name">USA</span><span class="rp-count">{region_counts['USA']}</span></div>
+              <div class="region-pin uk{' zero' if region_counts['UK']==0 else ''}" title="UK: {region_counts['UK']} idea(s)">
+                <span class="rp-name">UK</span><span class="rp-count">{region_counts['UK']}</span></div>
+              <div class="region-pin germany{' zero' if region_counts['Germany']==0 else ''}" title="Germany: {region_counts['Germany']} idea(s)">
+                <span class="rp-name">GERMANY</span><span class="rp-count">{region_counts['Germany']}</span></div>
             </div>
             """
             st.markdown(map_html, unsafe_allow_html=True)
+            st.caption(
+                "📍 " + "  ·  ".join(f"**{k}**: {v} idea(s)" for k, v in region_counts.items())
+            )
+            if no_region_count:
+                st.caption(f"ℹ️ {no_region_count} idea(s) have no region assigned and are excluded.")
     # ── All Ideas table + CSV (above Kanban) ────────────────────────────
     st.markdown("##### 📄 All Ideas")
     search = st.text_input("🔎 Search ideas", placeholder="Filter by name, project, status…")
@@ -2120,7 +2154,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
     if search:
         mask = df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)
         df   = df[mask]
-    st.dataframe(df, width="stretch", hide_index=True)
+    st.dataframe(df, use_container_width=True, hide_index=True)
     csv_buf = io.StringIO()
     df.to_csv(csv_buf, index=False)
     st.download_button("⬇️ Download CSV", csv_buf.getvalue(), "turbodrive_ideas.csv", "text/csv")
@@ -2156,7 +2190,7 @@ def page_otp_list():
             if search:
                 mask = df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)
                 df = df[mask]
-            st.dataframe(df, width="stretch", hide_index=True)
+            st.dataframe(df, use_container_width=True, hide_index=True)
             csv_buf = io.StringIO()
             df.to_csv(csv_buf, index=False)
             st.download_button("⬇️ Download CSV", csv_buf.getvalue(), "otp_list.csv", "text/csv")
@@ -2951,7 +2985,7 @@ html,body{background:#070b14;color:#e2e8f0;font-family:'Inter',sans-serif;min-he
 </body>
 </html>
     """
-    st.iframe(_workflow_html, height=2800, scrolling=True)
+    st.components.v1.html(_workflow_html, height=2800, scrolling=True)
     render_copyright()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -3021,13 +3055,8 @@ def main():
     if override == "change_password": page_change_password(); return
     if not logged_in():           page_login(); return
 
-    # ── Force default theme so all text is always visible ─────────────────
-    if "theme" not in st.session_state:
-        st.session_state["theme"] = "ALTEN Red & Blue"
-    # Ensure theme is always applied before rendering any page
-    apply_theme(st.session_state["theme"])
-
     # ── Session timeout check (every rerun = activity signal) ─────────────
+    touch_activity_flag = True  # any page render past this point counts as activity
     enforce_session_timeout()
     touch_activity()
 
@@ -3047,8 +3076,7 @@ def main():
 
         pages = user_pages()
         icons = {"Dashboard":"📊","Submit Idea":"💡","PL Assignment":"🧑‍💼",
-                 "Feasibility":"🔍","Approval":"✅","Admin":"⚙️","OTP List":"🆔","Workflow":"🔀",
-                 "Chatbot":"🤖"}
+                 "Feasibility":"🔍","Approval":"✅","Admin":"⚙️","OTP List":"🆔","Workflow":"🔀"}
         nav = st.radio("Navigation",
                        [f"{icons.get(p,'')} {p}" for p in pages],
                        label_visibility="collapsed")
@@ -3061,34 +3089,15 @@ def main():
           <span style="font-size:11px;">{ss('role','')}</span>
         </div>""", unsafe_allow_html=True)
 
-        # Constant sidebar button + selectbox styling (independent of theme)
+        # Style sidebar buttons + theme dropdown with one constant background
+        # (scoped to the sidebar only — an unscoped selector here previously
+        # forced every button app-wide to plain black).
         st.markdown("""
         <style>
-        [data-testid="stSidebar"] div.stButton > button {
-            background:#1e293b !important;
-            color:#f1f5f9 !important;
-            border:1px solid rgba(255,255,255,.15) !important;
-            border-radius:8px !important;
-            padding:6px 10px !important;
-            font-weight:600 !important;
-            width:100%;
-        }
-        [data-testid="stSidebar"] div.stButton > button:hover {
-            background:#334155 !important;
-            border-color:rgba(255,255,255,.3) !important;
-        }
-        [data-testid="stSidebar"] .stSelectbox > div > div {
-            background:#1e293b !important;
-            color:#f1f5f9 !important;
-            border:1px solid rgba(255,255,255,.2) !important;
-            border-radius:8px !important;
-        }
-        [data-testid="stSidebar"] .stSelectbox label {
-            color:#94a3b8 !important;
-            font-size:11px !important;
-            font-weight:600 !important;
-            letter-spacing:.5px !important;
-        }
+        [data-testid="stSidebar"] div.stButton > button {background-color:#000 !important; color:#fff !important; border: 1px solid #262626 !important; border-radius:6px !important; padding:6px 10px !important}
+        [data-testid="stSidebar"] div.stButton > button:hover {opacity:0.85}
+        [data-testid="stSidebar"] [data-testid="stSelectbox"] [data-baseweb="select"] > div {background-color:#000 !important; color:#fff !important; border: 1px solid #262626 !important; border-radius:6px !important;}
+        [data-testid="stSidebar"] [data-testid="stSelectbox"] svg {fill:#fff !important;}
         </style>
         """, unsafe_allow_html=True)
 
@@ -3103,7 +3112,7 @@ def main():
 
         st.divider()
         st.markdown("**🎨 Theme**")
-        chosen = st.selectbox("🎨 Select Theme", list(THEMES.keys()),
+        chosen = st.selectbox("", list(THEMES.keys()),
                               index=list(THEMES.keys()).index(ss("theme","ALTEN Red & Blue")),
                               label_visibility="collapsed", key="theme_sel")
         if chosen != ss("theme"):
@@ -3127,364 +3136,6 @@ def main():
     elif current_page == "OTP List":      page_otp_list()
     elif current_page == "Workflow":      page_workflow()
     elif current_page == "Admin":         page_admin()
-    elif current_page == "Chatbot":       page_chatbot()
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-#  TURBO DRIVE ASSISTANCE — CHATBOT
-# ══════════════════════════════════════════════════════════════════════════════
-
-def _td_get_all_cached():
-    """Fetch all ideas - uses Streamlit cache for performance."""
-    return get_all()
-
-def _td_fmt_num(n):
-    return f"{n:,}"
-
-def _td_fmt_roi(r):
-    try: return f"{float(r):,.1f} hrs"
-    except: return str(r) if r else "N/A"
-
-def _td_status_counts(ideas):
-    counts = {s: 0 for s in STATUSES}
-    for idea in ideas:
-        s = idea.get("status","")
-        if s in counts: counts[s] += 1
-    return counts
-
-def _td_chatbot_reply(msg, user_email, user_role):
-    """
-    Core intent engine for Turbo Drive Assistance chatbot.
-    Returns a reply string.
-    """
-    import difflib
-    raw = msg.strip()
-    low = raw.lower()
-    ideas = _td_get_all_cached()
-    today = datetime.now()
-
-    # ── Greeting / help ──────────────────────────────────────────────────────
-    if raw == "__greet__":
-        name = user_email.split("@")[0].replace("."," ").title() if user_email else "there"
-        return (
-            f"👋 Hello {name}! I'm **Turbo Drive Assistance**, your AI helper for this automation tracker.\n\n"
-            f"You can ask me things like:\n"
-            f"• \"How many ideas do we have?\"\n"
-            f"• \"Show WIP ideas\"\n"
-            f"• \"How many completed this month?\"\n"
-            f"• \"Total ROI saved\"\n"
-            f"• \"Ideas by project\"\n"
-            f"• \"Pending approval ideas\"\n"
-            f"• \"Show Automation ideas\"\n"
-            f"• \"Today summary\"\n"
-            f"• \"Search <keyword>\" — find by idea name, submitter, or project\n\n"
-            f"Or just type any keyword to search ideas!"
-        )
-
-    if low in ("hi","hello","hey","help","hii","hlo","menu") or "what can you do" in low:
-        return (
-            "👋 Hi! Here's what I can help with:\n"
-            "• Counts by status, project, category\n"
-            "• Ideas in WIP / UAT / Pending Approval\n"
-            "• ROI / time saved summaries\n"
-            "• Monthly/weekly completion stats\n"
-            "• Searching ideas by keyword\n"
-            "• Top ROI ideas, overdue deliveries\n\n"
-            "Just ask naturally — I understand most questions!"
-        )
-
-    # ── Total count ──────────────────────────────────────────────────────────
-    if re.search(r"how many idea|total idea|count idea|number of idea|all idea", low):
-        counts = _td_status_counts(ideas)
-        total = len(ideas)
-        lines = [f"📊 Total ideas in the system: **{total}**\n"]
-        for s in STATUSES:
-            icon = STATUS_ICONS.get(s,"•")
-            lines.append(f"  {icon} {s}: {counts[s]}")
-        return "\n".join(lines)
-
-    # ── Status-specific queries ───────────────────────────────────────────────
-    for status in STATUSES:
-        if status.lower() in low and any(w in low for w in ("show","list","give","ideas","status","how many","count")):
-            matched = [i for i in ideas if i.get("status","") == status]
-            if not matched:
-                return f"{STATUS_ICONS.get(status,'')} No ideas currently in **{status}** status."
-            lines = [f"{STATUS_ICONS.get(status,'')} **{status}** — {len(matched)} idea(s):\n"]
-            for i in matched[:10]:
-                roi = _td_fmt_roi(i.get("roi"))
-                lines.append(f"• [{i.get('id',''[:6])}] {i.get('idea_name','Untitled')} "
-                             f"| {i.get('project','-')} | ROI: {roi}")
-            if len(matched) > 10:
-                lines.append(f"...and {len(matched)-10} more.")
-            return "\n".join(lines)
-
-    # ── Pending approval ─────────────────────────────────────────────────────
-    if "pending" in low and ("approval" in low or "approve" in low):
-        matched = [i for i in ideas if i.get("status","") in ("UAT",)]
-        if not matched:
-            return "✅ No ideas are currently pending approval (in UAT)."
-        lines = [f"🧪 **Pending Approval (UAT)** — {len(matched)} idea(s):\n"]
-        for i in matched[:10]:
-            lines.append(f"• {i.get('idea_name','Untitled')} | {i.get('project','-')} | by {i.get('name','-')}")
-        return "\n".join(lines)
-
-    # ── ROI / time saved ─────────────────────────────────────────────────────
-    if re.search(r"roi|time saved|hours? saved|saving|benefit", low):
-        total_roi = sum(float(i.get("roi") or 0) for i in ideas)
-        completed_roi = sum(float(i.get("roi") or 0) for i in ideas if i.get("status") == "Completed")
-        top5 = sorted([i for i in ideas if i.get("roi")], key=lambda x: float(x.get("roi") or 0), reverse=True)[:5]
-        lines = [
-            f"💰 **ROI Summary:**\n",
-            f"  • Total estimated ROI (all ideas): {_td_fmt_roi(total_roi)}",
-            f"  • ROI from completed ideas: {_td_fmt_roi(completed_roi)}",
-            f"\n🏆 **Top 5 by ROI:**"
-        ]
-        for i in top5:
-            lines.append(f"  • {i.get('idea_name','Untitled')} — {_td_fmt_roi(i.get('roi'))} ({i.get('status','-')})")
-        return "\n".join(lines)
-
-    # ── Ideas by project ─────────────────────────────────────────────────────
-    if re.search(r"by project|per project|project.?wise|each project|project breakdown", low):
-        from collections import Counter
-        proj_counts = Counter(i.get("project","-") for i in ideas)
-        lines = [f"📁 **Ideas by Project:**\n"]
-        for proj, cnt in proj_counts.most_common():
-            completed = sum(1 for i in ideas if i.get("project") == proj and i.get("status") == "Completed")
-            lines.append(f"  • {proj}: {cnt} total ({completed} completed)")
-        return "\n".join(lines)
-
-    # ── Ideas by category ────────────────────────────────────────────────────
-    if re.search(r"by category|category.?wise|automation category|ai idea|automation idea", low):
-        from collections import Counter
-        cat_counts = Counter(i.get("automation_category","-") or i.get("category","-") for i in ideas)
-        lines = [f"🗂️ **Ideas by Category:**\n"]
-        for cat, cnt in cat_counts.most_common():
-            lines.append(f"  • {cat}: {cnt}")
-        return "\n".join(lines)
-
-    # ── Completed this month / this week ─────────────────────────────────────
-    if "complet" in low and ("this month" in low or "month" in low):
-        month_str = today.strftime("%Y-%m")
-        matched = [i for i in ideas if i.get("status") == "Completed"
-                   and str(i.get("completion_date","")).startswith(month_str)]
-        return (f"✅ **Completed this month ({today.strftime('%B %Y')}):** {len(matched)} idea(s)\n" +
-                ("\n".join(f"  • {i.get('idea_name','Untitled')}" for i in matched[:10]) or "  None yet."))
-
-    if "complet" in low and "this week" in low:
-        monday = today - timedelta(days=today.weekday())
-        matched = [i for i in ideas if i.get("status") == "Completed"
-                   and i.get("completion_date","") >= monday.strftime("%Y-%m-%d")]
-        return (f"✅ **Completed this week:** {len(matched)} idea(s)\n" +
-                ("\n".join(f"  • {i.get('idea_name','Untitled')}" for i in matched[:10]) or "  None yet."))
-
-    # ── Today summary ─────────────────────────────────────────────────────────
-    if "today" in low and ("summary" in low or low.strip() == "today"):
-        today_str = today.strftime("%Y-%m-%d")
-        new_today = [i for i in ideas if str(i.get("created_date","")).startswith(today_str)]
-        comp_today = [i for i in ideas if str(i.get("completion_date","")).startswith(today_str)]
-        wip = [i for i in ideas if i.get("status") == "WIP"]
-        uat = [i for i in ideas if i.get("status") == "UAT"]
-        return (
-            f"📅 **Today's Summary ({today_str}):**\n"
-            f"  • New ideas submitted today: {len(new_today)}\n"
-            f"  • Completed today: {len(comp_today)}\n"
-            f"  • Currently in WIP: {len(wip)}\n"
-            f"  • Pending approval (UAT): {len(uat)}\n"
-            f"  • Total ideas: {len(ideas)}"
-        )
-
-    # ── Overdue deliveries ────────────────────────────────────────────────────
-    if re.search(r"overdue|late|behind|miss.{0,10}deadline|delay", low):
-        today_str = today.strftime("%Y-%m-%d")
-        overdue = [i for i in ideas
-                   if i.get("delivery_date","") and i.get("delivery_date","") < today_str
-                   and i.get("status","") not in ("Completed","Rejected","Hold/Park")]
-        if not overdue:
-            return "✅ No overdue deliveries — all active ideas are within their deadlines!"
-        lines = [f"⏰ **Overdue ideas ({len(overdue)}):**\n"]
-        for i in sorted(overdue, key=lambda x: x.get("delivery_date",""))[:10]:
-            days_late = (today.date() - datetime.strptime(i["delivery_date"], "%Y-%m-%d").date()).days
-            lines.append(f"  • {i.get('idea_name','Untitled')} | Due: {i['delivery_date']} ({days_late}d late) | {i.get('status','-')}")
-        return "\n".join(lines)
-
-    # ── My ideas (for logged-in user) ────────────────────────────────────────
-    if re.search(r"my idea|ideas? i submit|what did i submit|my submission", low):
-        matched = [i for i in ideas if i.get("submitter_email","").lower() == user_email.lower()
-                   or i.get("name","").lower() in user_email.lower().split("@")[0].lower()]
-        if not matched:
-            return f"📭 I couldn't find any ideas submitted by {user_email}."
-        counts = _td_status_counts(matched)
-        lines = [f"💡 **Your ideas: {len(matched)} total**\n"]
-        for s in STATUSES:
-            if counts[s]: lines.append(f"  {STATUS_ICONS.get(s,'')} {s}: {counts[s]}")
-        lines.append(f"\n**Latest:**")
-        for i in matched[:5]:
-            lines.append(f"  • {i.get('idea_name','Untitled')} ({i.get('status','-')})")
-        return "\n".join(lines)
-
-    # ── Search by keyword ────────────────────────────────────────────────────
-    # Strip search prefix if used
-    search_term = low
-    for prefix in ("search ","find ","look for ","show me ","tell me about "):
-        if low.startswith(prefix):
-            search_term = low[len(prefix):]
-            break
-
-    matched = [i for i in ideas if
-               search_term in (i.get("idea_name","") or "").lower() or
-               search_term in (i.get("idea","") or "").lower() or
-               search_term in (i.get("name","") or "").lower() or
-               search_term in (i.get("project","") or "").lower() or
-               search_term in (i.get("automation_category","") or "").lower() or
-               search_term in (i.get("submitter_email","") or "").lower()]
-
-    if matched:
-        lines = [f"🔍 Found **{len(matched)}** idea(s) matching \"{search_term}\":\n"]
-        for i in matched[:8]:
-            roi = _td_fmt_roi(i.get("roi"))
-            lines.append(f"  • {i.get('idea_name','Untitled')} | {i.get('status','-')} | "
-                        f"{i.get('project','-')} | ROI: {roi} | by {i.get('name','-')}")
-        if len(matched) > 8:
-            lines.append(f"  ...and {len(matched)-8} more.")
-        return "\n".join(lines)
-
-    # ── Fallback ─────────────────────────────────────────────────────────────
-    return (
-        f"🤔 I'm not sure how to answer that. Try:\n"
-        f"• \"How many ideas?\"\n"
-        f"• \"Show WIP ideas\"\n"
-        f"• \"Total ROI\"\n"
-        f"• \"Ideas by project\"\n"
-        f"• \"Overdue ideas\"\n"
-        f"• \"Search <keyword>\"\n"
-        f"• Or just type a project name or idea keyword!"
-    )
-
-
-def page_chatbot():
-    """Turbo Drive Assistance — full-page chatbot (all roles can access)."""
-    t = THEMES.get(st.session_state.get("theme","ALTEN Red & Blue"), THEMES["ALTEN Red & Blue"])
-    primary = t["primary"]
-    secondary = t["secondary"]
-
-    user_email = st.session_state.get("email","")
-    user_role  = st.session_state.get("role","")
-
-    st.markdown(f"""
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
-      <div style="width:44px;height:44px;border-radius:50%;
-                  background:linear-gradient(135deg,{primary},{secondary});
-                  display:flex;align-items:center;justify-content:center;
-                  font-size:22px;flex-shrink:0;">🤖</div>
-      <div>
-        <div style="font-size:22px;font-weight:800;
-                    background:linear-gradient(135deg,{primary},{secondary});
-                    -webkit-background-clip:text;background-clip:text;color:transparent;">
-          Turbo Drive Assistance
-        </div>
-        <div style="font-size:12px;color:#94a3b8;margin-top:1px;">AI-powered insights for your automation pipeline</div>
-      </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ── Init chat history ────────────────────────────────────────────────────
-    if "td_chat_history" not in st.session_state:
-        st.session_state["td_chat_history"] = []
-        # Auto-greet on first open
-        greet = _td_chatbot_reply("__greet__", user_email, user_role)
-        st.session_state["td_chat_history"].append({"role":"assistant","text":greet})
-
-    # ── Quick-action chips ───────────────────────────────────────────────────
-    st.markdown(f"""
-    <div style="font-size:12px;color:#64748b;font-weight:600;
-                letter-spacing:.5px;margin-bottom:8px;">QUICK QUESTIONS</div>
-    """, unsafe_allow_html=True)
-
-    quick_cols = st.columns(4)
-    quick_questions = [
-        ("📊 Total Ideas",       "How many ideas do we have?"),
-        ("⚙️ WIP Ideas",          "Show WIP ideas"),
-        ("💰 Total ROI",          "Total ROI saved"),
-        ("📁 By Project",         "Ideas by project"),
-        ("🔴 Overdue",            "Overdue ideas"),
-        ("✅ Completed Month",    "How many completed this month?"),
-        ("📅 Today Summary",      "Today summary"),
-        ("🗂️ By Category",        "Ideas by category"),
-    ]
-    for idx, (label, question) in enumerate(quick_questions):
-        with quick_cols[idx % 4]:
-            if st.button(label, key=f"td_quick_{idx}", use_container_width=True):
-                st.session_state["td_chat_history"].append({"role":"user","text":question})
-                reply = _td_chatbot_reply(question, user_email, user_role)
-                st.session_state["td_chat_history"].append({"role":"assistant","text":reply})
-                st.rerun()
-
-    st.markdown("---")
-
-    # ── Chat history display ─────────────────────────────────────────────────
-    chat_container = st.container()
-    with chat_container:
-        for msg in st.session_state["td_chat_history"]:
-            if msg["role"] == "user":
-                st.markdown(f"""
-                <div style="display:flex;justify-content:flex-end;margin:6px 0;">
-                  <div style="background:linear-gradient(135deg,{primary},{secondary});
-                              color:#fff;border-radius:14px 14px 2px 14px;
-                              padding:10px 14px;max-width:75%;font-size:13.5px;
-                              line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,.12);">
-                    {msg['text']}
-                  </div>
-                </div>
-                """, unsafe_allow_html=True)
-            else:
-                # Format reply — bold **text**, bullet points, line breaks
-                formatted = msg['text']
-                formatted = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', formatted)
-                formatted = formatted.replace('\n','<br>')
-                st.markdown(f"""
-                <div style="display:flex;justify-content:flex-start;margin:6px 0;gap:8px;align-items:flex-start;">
-                  <div style="width:30px;height:30px;border-radius:50%;flex-shrink:0;
-                              background:linear-gradient(135deg,{primary},{secondary});
-                              display:flex;align-items:center;justify-content:center;
-                              font-size:15px;margin-top:2px;">🤖</div>
-                  <div style="background:#fff;border:1px solid #e2e8f0;
-                              border-radius:14px 14px 14px 2px;
-                              padding:10px 14px;max-width:80%;font-size:13.5px;
-                              line-height:1.6;color:#1e293b;
-                              box-shadow:0 2px 8px rgba(0,0,0,.06);">
-                    {formatted}
-                  </div>
-                </div>
-                """, unsafe_allow_html=True)
-
-    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-
-    # ── Input row ────────────────────────────────────────────────────────────
-    with st.form("td_chat_form", clear_on_submit=True):
-        col_inp, col_btn = st.columns([5, 1])
-        with col_inp:
-            user_input = st.text_input(
-                "Ask Turbo Drive Assistance…",
-                placeholder="e.g. Show WIP ideas, Total ROI, Ideas by project…",
-                label_visibility="collapsed",
-                key="td_chat_input"
-            )
-        with col_btn:
-            submitted = st.form_submit_button("➤ Send", use_container_width=True)
-
-        if submitted and user_input.strip():
-            q = user_input.strip()
-            st.session_state["td_chat_history"].append({"role":"user","text":q})
-            reply = _td_chatbot_reply(q, user_email, user_role)
-            st.session_state["td_chat_history"].append({"role":"assistant","text":reply})
-            st.rerun()
-
-    # ── Clear chat ───────────────────────────────────────────────────────────
-    if len(st.session_state.get("td_chat_history",[])) > 2:
-        if st.button("🗑️ Clear Chat", key="td_clear_chat"):
-            greet = _td_chatbot_reply("__greet__", user_email, user_role)
-            st.session_state["td_chat_history"] = [{"role":"assistant","text":greet}]
-            st.rerun()
-
-
+if __name__ == "__main__":
     main()
