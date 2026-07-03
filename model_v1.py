@@ -1251,7 +1251,7 @@ def page_pl_assignment():
                         "Category":i.get("category",""),"Priority":i.get("priority_label",""),
                         "Sprint Start":fmt_d(i["sprint_start"]),"Delivery (Sprint End)":fmt_d(i["sprint_end"]),
                     } for i in queue])
-                    st.dataframe(df, use_container_width=True, hide_index=True)
+                    st.dataframe(df, width="stretch", hide_index=True)
 
     render_copyright()
 
@@ -1400,8 +1400,8 @@ def page_dashboard():
     try:
         sb       = get_supabase()
         my_email = ss("email","")
-        now_ts   = datetime.utcnow().isoformat()
-        cutoff   = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
+        now_ts   = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
+        cutoff   = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=5)).isoformat()
         if my_email:
             sb.table("active_sessions").upsert(
                 {"email": my_email, "last_seen": now_ts}, on_conflict="email"
@@ -1795,7 +1795,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 }})();
 </script>
 </body></html>"""
-    st.components.v1.html(_canvas_html, height=440, scrolling=False)
+    st.iframe(_canvas_html, height=440, scrolling=False)
 
     # ── ROW 3: Charts row (Status BAR chart + Customer pie + clean Hours/Project) ─
     st.markdown("##### 📈 Charts")
@@ -2008,7 +2008,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
     if search:
         mask = df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)
         df   = df[mask]
-    st.dataframe(df, use_container_width=True, hide_index=True)
+    st.dataframe(df, width="stretch", hide_index=True)
     csv_buf = io.StringIO()
     df.to_csv(csv_buf, index=False)
     st.download_button("⬇️ Download CSV", csv_buf.getvalue(), "turbodrive_ideas.csv", "text/csv")
@@ -2044,7 +2044,7 @@ def page_otp_list():
             if search:
                 mask = df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)
                 df = df[mask]
-            st.dataframe(df, use_container_width=True, hide_index=True)
+            st.dataframe(df, width="stretch", hide_index=True)
             csv_buf = io.StringIO()
             df.to_csv(csv_buf, index=False)
             st.download_button("⬇️ Download CSV", csv_buf.getvalue(), "otp_list.csv", "text/csv")
@@ -2839,7 +2839,7 @@ html,body{background:#070b14;color:#e2e8f0;font-family:'Inter',sans-serif;min-he
 </body>
 </html>
     """
-    st.components.v1.html(_workflow_html, height=2800, scrolling=True)
+    st.iframe(_workflow_html, height=2800, scrolling=True)
     render_copyright()
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2963,7 +2963,7 @@ def main():
 
         st.divider()
         st.markdown("**🎨 Theme**")
-        chosen = st.selectbox("", list(THEMES.keys()),
+        chosen = st.selectbox("🎨 Select Theme", list(THEMES.keys()),
                               index=list(THEMES.keys()).index(ss("theme","ALTEN Red & Blue")),
                               label_visibility="collapsed", key="theme_sel")
         if chosen != ss("theme"):
