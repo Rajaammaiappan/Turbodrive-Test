@@ -48,11 +48,11 @@ BLOCKED_DOMAINS = {
 }
 
 ROLE_PAGES = {
-    "super user":         ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Admin","OTP List","Workflow"],
-    "normal user":        ["Submit Idea"],
-    "automation engineer":["Dashboard","Submit Idea","Feasibility"],
-    "automation pl":      ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval"],
-    "pl/spl":             ["Dashboard","Submit Idea","Approval"],
+    "super user":         ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Admin","OTP List","Workflow","Chatbot"],
+    "normal user":        ["Submit Idea","Chatbot"],
+    "automation engineer":["Dashboard","Submit Idea","Feasibility","Chatbot"],
+    "automation pl":      ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Chatbot"],
+    "pl/spl":             ["Dashboard","Submit Idea","Approval","Chatbot"],
 }
 PW_ROLES = {"super user","automation engineer","automation pl","pl/spl"}
 
@@ -1073,7 +1073,7 @@ def page_submit():
     st.markdown("**Attachments (optional) please rename your file with the idea name**")
     st.markdown(f"""
     <a href="{SHAREPOINT_ATTACH_URL}" target="_blank" rel="noopener noreferrer"
-       style="display:inline-flex;align-items:center;gap:8px;border:1px solid #FFFFFF;
+       style="display:inline-flex;align-items:center;gap:8px;border:1px solid #94a3b8;
               border-radius:8px;padding:8px 16px;text-decoration:none;color:#1e293b;
               font-size:13px;font-weight:600;background:rgba(148,163,184,.06);">
         📎 Browse SharePoint Folder
@@ -1386,6 +1386,30 @@ def page_approval():
 # ══════════════════════════════════════════════════════════════════════════════
 #  PAGE: DASHBOARD  — with interlinked filters
 # ══════════════════════════════════════════════════════════════════════════════
+def page_dashboard():
+    page_header("Dashboard ")
+    all_ideas_raw = get_all()
+    if not all_ideas_raw:
+        st.info("No ideas yet.")
+        render_copyright(); return
+
+    # ── LIVE USER BADGE — top-right ───────────────────────────────────────
+    users            = get_users()
+    total_registered = len(users)
+    active_count     = 1
+    try:
+        sb       = get_supabase()
+        my_email = ss("email","")
+        now_ts   = datetime.utcnow().isoformat()
+        cutoff   = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
+        if my_email:
+            sb.table("active_sessions").upsert(
+                {"email": my_email, "last_seen": now_ts}, on_conflict="email"
+            ).execute()
+        resp = sb.table("active_sessions").select("email").gte("last_seen", cutoff).execute()
+        active_count = len(resp.data or [])
+    except Exception:
+        pass
 
     # ── FILTER BAR ────────────────────────────────────────────────────────
     all_pls  = sorted({i.get("pl_name","") for i in all_ideas_raw if i.get("pl_name","")})
@@ -2906,7 +2930,8 @@ def main():
 
         pages = user_pages()
         icons = {"Dashboard":"📊","Submit Idea":"💡","PL Assignment":"🧑‍💼",
-                 "Feasibility":"🔍","Approval":"✅","Admin":"⚙️","OTP List":"🆔","Workflow":"🔀"}
+                 "Feasibility":"🔍","Approval":"✅","Admin":"⚙️","OTP List":"🆔","Workflow":"🔀",
+                 "Chatbot":"🤖"}
         nav = st.radio("Navigation",
                        [f"{icons.get(p,'')} {p}" for p in pages],
                        label_visibility="collapsed")
@@ -2962,6 +2987,364 @@ def main():
     elif current_page == "OTP List":      page_otp_list()
     elif current_page == "Workflow":      page_workflow()
     elif current_page == "Admin":         page_admin()
+    elif current_page == "Chatbot":       page_chatbot()
 
-if __name__ == "__main__":
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  TURBO DRIVE ASSISTANCE — CHATBOT
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _td_get_all_cached():
+    """Fetch all ideas - uses Streamlit cache for performance."""
+    return get_all()
+
+def _td_fmt_num(n):
+    return f"{n:,}"
+
+def _td_fmt_roi(r):
+    try: return f"{float(r):,.1f} hrs"
+    except: return str(r) if r else "N/A"
+
+def _td_status_counts(ideas):
+    counts = {s: 0 for s in STATUSES}
+    for idea in ideas:
+        s = idea.get("status","")
+        if s in counts: counts[s] += 1
+    return counts
+
+def _td_chatbot_reply(msg, user_email, user_role):
+    """
+    Core intent engine for Turbo Drive Assistance chatbot.
+    Returns a reply string.
+    """
+    import difflib
+    raw = msg.strip()
+    low = raw.lower()
+    ideas = _td_get_all_cached()
+    today = datetime.now()
+
+    # ── Greeting / help ──────────────────────────────────────────────────────
+    if raw == "__greet__":
+        name = user_email.split("@")[0].replace("."," ").title() if user_email else "there"
+        return (
+            f"👋 Hello {name}! I'm **Turbo Drive Assistance**, your AI helper for this automation tracker.\n\n"
+            f"You can ask me things like:\n"
+            f"• \"How many ideas do we have?\"\n"
+            f"• \"Show WIP ideas\"\n"
+            f"• \"How many completed this month?\"\n"
+            f"• \"Total ROI saved\"\n"
+            f"• \"Ideas by project\"\n"
+            f"• \"Pending approval ideas\"\n"
+            f"• \"Show Automation ideas\"\n"
+            f"• \"Today summary\"\n"
+            f"• \"Search <keyword>\" — find by idea name, submitter, or project\n\n"
+            f"Or just type any keyword to search ideas!"
+        )
+
+    if low in ("hi","hello","hey","help","hii","hlo","menu") or "what can you do" in low:
+        return (
+            "👋 Hi! Here's what I can help with:\n"
+            "• Counts by status, project, category\n"
+            "• Ideas in WIP / UAT / Pending Approval\n"
+            "• ROI / time saved summaries\n"
+            "• Monthly/weekly completion stats\n"
+            "• Searching ideas by keyword\n"
+            "• Top ROI ideas, overdue deliveries\n\n"
+            "Just ask naturally — I understand most questions!"
+        )
+
+    # ── Total count ──────────────────────────────────────────────────────────
+    if re.search(r"how many idea|total idea|count idea|number of idea|all idea", low):
+        counts = _td_status_counts(ideas)
+        total = len(ideas)
+        lines = [f"📊 Total ideas in the system: **{total}**\n"]
+        for s in STATUSES:
+            icon = STATUS_ICONS.get(s,"•")
+            lines.append(f"  {icon} {s}: {counts[s]}")
+        return "\n".join(lines)
+
+    # ── Status-specific queries ───────────────────────────────────────────────
+    for status in STATUSES:
+        if status.lower() in low and any(w in low for w in ("show","list","give","ideas","status","how many","count")):
+            matched = [i for i in ideas if i.get("status","") == status]
+            if not matched:
+                return f"{STATUS_ICONS.get(status,'')} No ideas currently in **{status}** status."
+            lines = [f"{STATUS_ICONS.get(status,'')} **{status}** — {len(matched)} idea(s):\n"]
+            for i in matched[:10]:
+                roi = _td_fmt_roi(i.get("roi"))
+                lines.append(f"• [{i.get('id',''[:6])}] {i.get('idea_name','Untitled')} "
+                             f"| {i.get('project','-')} | ROI: {roi}")
+            if len(matched) > 10:
+                lines.append(f"...and {len(matched)-10} more.")
+            return "\n".join(lines)
+
+    # ── Pending approval ─────────────────────────────────────────────────────
+    if "pending" in low and ("approval" in low or "approve" in low):
+        matched = [i for i in ideas if i.get("status","") in ("UAT",)]
+        if not matched:
+            return "✅ No ideas are currently pending approval (in UAT)."
+        lines = [f"🧪 **Pending Approval (UAT)** — {len(matched)} idea(s):\n"]
+        for i in matched[:10]:
+            lines.append(f"• {i.get('idea_name','Untitled')} | {i.get('project','-')} | by {i.get('name','-')}")
+        return "\n".join(lines)
+
+    # ── ROI / time saved ─────────────────────────────────────────────────────
+    if re.search(r"roi|time saved|hours? saved|saving|benefit", low):
+        total_roi = sum(float(i.get("roi") or 0) for i in ideas)
+        completed_roi = sum(float(i.get("roi") or 0) for i in ideas if i.get("status") == "Completed")
+        top5 = sorted([i for i in ideas if i.get("roi")], key=lambda x: float(x.get("roi") or 0), reverse=True)[:5]
+        lines = [
+            f"💰 **ROI Summary:**\n",
+            f"  • Total estimated ROI (all ideas): {_td_fmt_roi(total_roi)}",
+            f"  • ROI from completed ideas: {_td_fmt_roi(completed_roi)}",
+            f"\n🏆 **Top 5 by ROI:**"
+        ]
+        for i in top5:
+            lines.append(f"  • {i.get('idea_name','Untitled')} — {_td_fmt_roi(i.get('roi'))} ({i.get('status','-')})")
+        return "\n".join(lines)
+
+    # ── Ideas by project ─────────────────────────────────────────────────────
+    if re.search(r"by project|per project|project.?wise|each project|project breakdown", low):
+        from collections import Counter
+        proj_counts = Counter(i.get("project","-") for i in ideas)
+        lines = [f"📁 **Ideas by Project:**\n"]
+        for proj, cnt in proj_counts.most_common():
+            completed = sum(1 for i in ideas if i.get("project") == proj and i.get("status") == "Completed")
+            lines.append(f"  • {proj}: {cnt} total ({completed} completed)")
+        return "\n".join(lines)
+
+    # ── Ideas by category ────────────────────────────────────────────────────
+    if re.search(r"by category|category.?wise|automation category|ai idea|automation idea", low):
+        from collections import Counter
+        cat_counts = Counter(i.get("automation_category","-") or i.get("category","-") for i in ideas)
+        lines = [f"🗂️ **Ideas by Category:**\n"]
+        for cat, cnt in cat_counts.most_common():
+            lines.append(f"  • {cat}: {cnt}")
+        return "\n".join(lines)
+
+    # ── Completed this month / this week ─────────────────────────────────────
+    if "complet" in low and ("this month" in low or "month" in low):
+        month_str = today.strftime("%Y-%m")
+        matched = [i for i in ideas if i.get("status") == "Completed"
+                   and str(i.get("completion_date","")).startswith(month_str)]
+        return (f"✅ **Completed this month ({today.strftime('%B %Y')}):** {len(matched)} idea(s)\n" +
+                ("\n".join(f"  • {i.get('idea_name','Untitled')}" for i in matched[:10]) or "  None yet."))
+
+    if "complet" in low and "this week" in low:
+        monday = today - timedelta(days=today.weekday())
+        matched = [i for i in ideas if i.get("status") == "Completed"
+                   and i.get("completion_date","") >= monday.strftime("%Y-%m-%d")]
+        return (f"✅ **Completed this week:** {len(matched)} idea(s)\n" +
+                ("\n".join(f"  • {i.get('idea_name','Untitled')}" for i in matched[:10]) or "  None yet."))
+
+    # ── Today summary ─────────────────────────────────────────────────────────
+    if "today" in low and ("summary" in low or low.strip() == "today"):
+        today_str = today.strftime("%Y-%m-%d")
+        new_today = [i for i in ideas if str(i.get("created_date","")).startswith(today_str)]
+        comp_today = [i for i in ideas if str(i.get("completion_date","")).startswith(today_str)]
+        wip = [i for i in ideas if i.get("status") == "WIP"]
+        uat = [i for i in ideas if i.get("status") == "UAT"]
+        return (
+            f"📅 **Today's Summary ({today_str}):**\n"
+            f"  • New ideas submitted today: {len(new_today)}\n"
+            f"  • Completed today: {len(comp_today)}\n"
+            f"  • Currently in WIP: {len(wip)}\n"
+            f"  • Pending approval (UAT): {len(uat)}\n"
+            f"  • Total ideas: {len(ideas)}"
+        )
+
+    # ── Overdue deliveries ────────────────────────────────────────────────────
+    if re.search(r"overdue|late|behind|miss.{0,10}deadline|delay", low):
+        today_str = today.strftime("%Y-%m-%d")
+        overdue = [i for i in ideas
+                   if i.get("delivery_date","") and i.get("delivery_date","") < today_str
+                   and i.get("status","") not in ("Completed","Rejected","Hold/Park")]
+        if not overdue:
+            return "✅ No overdue deliveries — all active ideas are within their deadlines!"
+        lines = [f"⏰ **Overdue ideas ({len(overdue)}):**\n"]
+        for i in sorted(overdue, key=lambda x: x.get("delivery_date",""))[:10]:
+            days_late = (today.date() - datetime.strptime(i["delivery_date"], "%Y-%m-%d").date()).days
+            lines.append(f"  • {i.get('idea_name','Untitled')} | Due: {i['delivery_date']} ({days_late}d late) | {i.get('status','-')}")
+        return "\n".join(lines)
+
+    # ── My ideas (for logged-in user) ────────────────────────────────────────
+    if re.search(r"my idea|ideas? i submit|what did i submit|my submission", low):
+        matched = [i for i in ideas if i.get("submitter_email","").lower() == user_email.lower()
+                   or i.get("name","").lower() in user_email.lower().split("@")[0].lower()]
+        if not matched:
+            return f"📭 I couldn't find any ideas submitted by {user_email}."
+        counts = _td_status_counts(matched)
+        lines = [f"💡 **Your ideas: {len(matched)} total**\n"]
+        for s in STATUSES:
+            if counts[s]: lines.append(f"  {STATUS_ICONS.get(s,'')} {s}: {counts[s]}")
+        lines.append(f"\n**Latest:**")
+        for i in matched[:5]:
+            lines.append(f"  • {i.get('idea_name','Untitled')} ({i.get('status','-')})")
+        return "\n".join(lines)
+
+    # ── Search by keyword ────────────────────────────────────────────────────
+    # Strip search prefix if used
+    search_term = low
+    for prefix in ("search ","find ","look for ","show me ","tell me about "):
+        if low.startswith(prefix):
+            search_term = low[len(prefix):]
+            break
+
+    matched = [i for i in ideas if
+               search_term in (i.get("idea_name","") or "").lower() or
+               search_term in (i.get("idea","") or "").lower() or
+               search_term in (i.get("name","") or "").lower() or
+               search_term in (i.get("project","") or "").lower() or
+               search_term in (i.get("automation_category","") or "").lower() or
+               search_term in (i.get("submitter_email","") or "").lower()]
+
+    if matched:
+        lines = [f"🔍 Found **{len(matched)}** idea(s) matching \"{search_term}\":\n"]
+        for i in matched[:8]:
+            roi = _td_fmt_roi(i.get("roi"))
+            lines.append(f"  • {i.get('idea_name','Untitled')} | {i.get('status','-')} | "
+                        f"{i.get('project','-')} | ROI: {roi} | by {i.get('name','-')}")
+        if len(matched) > 8:
+            lines.append(f"  ...and {len(matched)-8} more.")
+        return "\n".join(lines)
+
+    # ── Fallback ─────────────────────────────────────────────────────────────
+    return (
+        f"🤔 I'm not sure how to answer that. Try:\n"
+        f"• \"How many ideas?\"\n"
+        f"• \"Show WIP ideas\"\n"
+        f"• \"Total ROI\"\n"
+        f"• \"Ideas by project\"\n"
+        f"• \"Overdue ideas\"\n"
+        f"• \"Search <keyword>\"\n"
+        f"• Or just type a project name or idea keyword!"
+    )
+
+
+def page_chatbot():
+    """Turbo Drive Assistance — full-page chatbot (all roles can access)."""
+    t = THEMES.get(st.session_state.get("theme","ALTEN Red & Blue"), THEMES["ALTEN Red & Blue"])
+    primary = t["primary"]
+    secondary = t["secondary"]
+
+    user_email = st.session_state.get("email","")
+    user_role  = st.session_state.get("role","")
+
+    st.markdown(f"""
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px;">
+      <div style="width:44px;height:44px;border-radius:50%;
+                  background:linear-gradient(135deg,{primary},{secondary});
+                  display:flex;align-items:center;justify-content:center;
+                  font-size:22px;flex-shrink:0;">🤖</div>
+      <div>
+        <div style="font-size:22px;font-weight:800;
+                    background:linear-gradient(135deg,{primary},{secondary});
+                    -webkit-background-clip:text;background-clip:text;color:transparent;">
+          Turbo Drive Assistance
+        </div>
+        <div style="font-size:12px;color:#94a3b8;margin-top:1px;">AI-powered insights for your automation pipeline</div>
+      </div>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # ── Init chat history ────────────────────────────────────────────────────
+    if "td_chat_history" not in st.session_state:
+        st.session_state["td_chat_history"] = []
+        # Auto-greet on first open
+        greet = _td_chatbot_reply("__greet__", user_email, user_role)
+        st.session_state["td_chat_history"].append({"role":"assistant","text":greet})
+
+    # ── Quick-action chips ───────────────────────────────────────────────────
+    st.markdown(f"""
+    <div style="font-size:12px;color:#64748b;font-weight:600;
+                letter-spacing:.5px;margin-bottom:8px;">QUICK QUESTIONS</div>
+    """, unsafe_allow_html=True)
+
+    quick_cols = st.columns(4)
+    quick_questions = [
+        ("📊 Total Ideas",       "How many ideas do we have?"),
+        ("⚙️ WIP Ideas",          "Show WIP ideas"),
+        ("💰 Total ROI",          "Total ROI saved"),
+        ("📁 By Project",         "Ideas by project"),
+        ("🔴 Overdue",            "Overdue ideas"),
+        ("✅ Completed Month",    "How many completed this month?"),
+        ("📅 Today Summary",      "Today summary"),
+        ("🗂️ By Category",        "Ideas by category"),
+    ]
+    for idx, (label, question) in enumerate(quick_questions):
+        with quick_cols[idx % 4]:
+            if st.button(label, key=f"td_quick_{idx}", use_container_width=True):
+                st.session_state["td_chat_history"].append({"role":"user","text":question})
+                reply = _td_chatbot_reply(question, user_email, user_role)
+                st.session_state["td_chat_history"].append({"role":"assistant","text":reply})
+                st.rerun()
+
+    st.markdown("---")
+
+    # ── Chat history display ─────────────────────────────────────────────────
+    chat_container = st.container()
+    with chat_container:
+        for msg in st.session_state["td_chat_history"]:
+            if msg["role"] == "user":
+                st.markdown(f"""
+                <div style="display:flex;justify-content:flex-end;margin:6px 0;">
+                  <div style="background:linear-gradient(135deg,{primary},{secondary});
+                              color:#fff;border-radius:14px 14px 2px 14px;
+                              padding:10px 14px;max-width:75%;font-size:13.5px;
+                              line-height:1.5;box-shadow:0 2px 8px rgba(0,0,0,.12);">
+                    {msg['text']}
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                # Format reply — bold **text**, bullet points, line breaks
+                formatted = msg['text']
+                formatted = re.sub(r'\*\*(.+?)\*\*', r'<b>\1</b>', formatted)
+                formatted = formatted.replace('\n','<br>')
+                st.markdown(f"""
+                <div style="display:flex;justify-content:flex-start;margin:6px 0;gap:8px;align-items:flex-start;">
+                  <div style="width:30px;height:30px;border-radius:50%;flex-shrink:0;
+                              background:linear-gradient(135deg,{primary},{secondary});
+                              display:flex;align-items:center;justify-content:center;
+                              font-size:15px;margin-top:2px;">🤖</div>
+                  <div style="background:#fff;border:1px solid #e2e8f0;
+                              border-radius:14px 14px 14px 2px;
+                              padding:10px 14px;max-width:80%;font-size:13.5px;
+                              line-height:1.6;color:#1e293b;
+                              box-shadow:0 2px 8px rgba(0,0,0,.06);">
+                    {formatted}
+                  </div>
+                </div>
+                """, unsafe_allow_html=True)
+
+    st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
+
+    # ── Input row ────────────────────────────────────────────────────────────
+    with st.form("td_chat_form", clear_on_submit=True):
+        col_inp, col_btn = st.columns([5, 1])
+        with col_inp:
+            user_input = st.text_input(
+                "Ask Turbo Drive Assistance…",
+                placeholder="e.g. Show WIP ideas, Total ROI, Ideas by project…",
+                label_visibility="collapsed",
+                key="td_chat_input"
+            )
+        with col_btn:
+            submitted = st.form_submit_button("➤ Send", use_container_width=True)
+
+        if submitted and user_input.strip():
+            q = user_input.strip()
+            st.session_state["td_chat_history"].append({"role":"user","text":q})
+            reply = _td_chatbot_reply(q, user_email, user_role)
+            st.session_state["td_chat_history"].append({"role":"assistant","text":reply})
+            st.rerun()
+
+    # ── Clear chat ───────────────────────────────────────────────────────────
+    if len(st.session_state.get("td_chat_history",[])) > 2:
+        if st.button("🗑️ Clear Chat", key="td_clear_chat"):
+            greet = _td_chatbot_reply("__greet__", user_email, user_role)
+            st.session_state["td_chat_history"] = [{"role":"assistant","text":greet}]
+            st.rerun()
+
+
     main()
