@@ -1386,30 +1386,6 @@ def page_approval():
 # ══════════════════════════════════════════════════════════════════════════════
 #  PAGE: DASHBOARD  — with interlinked filters
 # ══════════════════════════════════════════════════════════════════════════════
-def page_dashboard():
-    page_header("Dashboard ")
-    all_ideas_raw = get_all()
-    if not all_ideas_raw:
-        st.info("No ideas yet.")
-        render_copyright(); return
-
-    # ── LIVE USER BADGE — top-right ───────────────────────────────────────
-    users            = get_users()
-    total_registered = len(users)
-    active_count     = 1
-    try:
-        sb       = get_supabase()
-        my_email = ss("email","")
-        now_ts   = datetime.utcnow().isoformat()
-        cutoff   = (datetime.utcnow() - timedelta(minutes=5)).isoformat()
-        if my_email:
-            sb.table("active_sessions").upsert(
-                {"email": my_email, "last_seen": now_ts}, on_conflict="email"
-            ).execute()
-        resp = sb.table("active_sessions").select("email").gte("last_seen", cutoff).execute()
-        active_count = len(resp.data or [])
-    except Exception:
-        pass
 
     # ── FILTER BAR ────────────────────────────────────────────────────────
     all_pls  = sorted({i.get("pl_name","") for i in all_ideas_raw if i.get("pl_name","")})
