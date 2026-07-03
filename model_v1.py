@@ -1073,7 +1073,7 @@ def page_submit():
     st.markdown("**Attachments (optional) please rename your file with the idea name**")
     st.markdown(f"""
     <a href="{SHAREPOINT_ATTACH_URL}" target="_blank" rel="noopener noreferrer"
-       style="display:inline-flex;align-items:center;gap:8px;border:1px solid #94a3b8;
+       style="display:inline-flex;align-items:center;gap:8px;border:1px solid #FFFFFF;
               border-radius:8px;padding:8px 16px;text-decoration:none;color:#1e293b;
               font-size:13px;font-weight:600;background:rgba(148,163,184,.06);">
         📎 Browse SharePoint Folder
