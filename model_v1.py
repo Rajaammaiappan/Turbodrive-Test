@@ -2011,9 +2011,15 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
     search = st.text_input("🔎 Search ideas", placeholder="Filter by name, project, status…")
     import pandas as pd
     cols_show = ["idea_name","name","project","category","automation_category","status",
-                 "priority_label","assigned_engineer","roi","sprint_start","delivery_date",
-                 "customer","region","created_date"]
-    df = pd.DataFrame([{c:i.get(c,"") for c in cols_show} for i in ideas])
+                 "priority_label","assigned_engineer","roi"]
+    cols_show_tail = ["sprint_start","delivery_date","customer","region","created_date"]
+    rows = []
+    for i in ideas:
+        row = {c: i.get(c,"") for c in cols_show}
+        row["Saving Hours"] = round(idea_hours(i), 1)
+        row.update({c: i.get(c,"") for c in cols_show_tail})
+        rows.append(row)
+    df = pd.DataFrame(rows)
     if search:
         mask = df.apply(lambda r: r.astype(str).str.contains(search, case=False).any(), axis=1)
         df   = df[mask]
