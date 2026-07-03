@@ -81,10 +81,10 @@ STATUS_ICONS = {
 
 THEMES = {
     "ALTEN Red & Blue":   {"primary":"#E30613","secondary":"#00AEEF","bg":"#f5f6fa","sidebar":"#0a0a0a"},
-    "Ocean Blue":         {"primary":"#1a4fad","secondary":"#0ea5e9","bg":"#f0f4ff","sidebar":"#0d1b3e"},
-    "Forest Green":       {"primary":"#059669","secondary":"#0d9488","bg":"#f0fdf4","sidebar":"#052e16"},
-    "Purple Haze":        {"primary":"#7c3aed","secondary":"#a855f7","bg":"#faf5ff","sidebar":"#2e1065"},
-    "Midnight Dark":      {"primary":"#e2e8f0","secondary":"#94a3b8","bg":"#0f172a","sidebar":"#020617"},
+    "Ocean Blue":         {"primary":"#1a4fad","secondary":"#0ea5e9","bg":"#f0f4ff","sidebar":"#0a0a0a"},
+    "Forest Green":       {"primary":"#059669","secondary":"#0d9488","bg":"#f0fdf4","sidebar":"#0a0a0a"},
+    "Purple Haze":        {"primary":"#7c3aed","secondary":"#a855f7","bg":"#faf5ff","sidebar":"#0a0a0a"},
+    "Midnight Dark":      {"primary":"#e2e8f0","secondary":"#94a3b8","bg":"#0f172a","sidebar":"#0a0a0a"},
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -414,7 +414,7 @@ def render_copyright():
 def page_header(title: str):
     st.markdown(f"""
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px;">
-      <img src="{ALTEN_LOGO_URL}" style="height:36px;object-fit:contain;" alt="ALTEN"/>
+      <img src="{ALTEN_LOGO_URL}" style="height:45px;object-fit:contain;" alt="ALTEN"/>
       <span style="font-size:24px;font-weight:800;color:#E30613;letter-spacing:0.5px;">
          {title}
       </span>
@@ -427,7 +427,7 @@ def page_header(title: str):
 def apply_theme(theme_name):
     t = THEMES.get(theme_name, THEMES["ALTEN Red & Blue"])
     dark_bg = theme_name == "Midnight Dark"
-    text_color = "#e2e8f0" if dark_bg else "#1e293b"
+    text_color = "#e2e8f0" if dark_bg else "#020202"
     surface = "#1e293b" if dark_bg else "#ffffff"
     st.markdown(f"""
     <style>
@@ -940,11 +940,8 @@ def page_login():
              box-shadow:0 8px 32px rgba(0,0,0,.13);border:1px solid rgba(200,200,200,.2);
              margin-top:20px;">
           <div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:6px;">
-            <img src="{ALTEN_LOGO_URL}" style="height:50px;object-fit:contain;" alt="ALTEN"/>
-            <span style="font-size:clamp(20px,2vw,26px);font-weight:900;
-                 background:linear-gradient(135deg,{t['primary']},{t['secondary']});
-                 -webkit-background-clip:text;background-clip:text;color:transparent;
-                 letter-spacing:1px;"> TURBO DRIVE</span>
+              <img src="{ALTEN_LOGO_URL}" style="height:72px;object-fit:contain;" alt="ALTEN"/>
+              <span style="font-size:clamp(20px,2vw,26px);font-weight:900; color:#000; letter-spacing:1px;"> TURBO DRIVE</span>
           </div>
           <div style="text-align:center;color:#64748b;font-size:clamp(11px,1vw,13px);margin-bottom:2px;">
             Ideation &amp; Automation Workflow Manager
@@ -1414,31 +1411,12 @@ def page_dashboard():
     except Exception:
         pass
 
-    _bl, _br = st.columns([5, 1])
-    with _br:
-        st.markdown(
-            f'<div style="background:linear-gradient(135deg,#1a4fad,#0ea5e9);'
-            f'border-radius:14px;padding:10px 14px;text-align:center;'
-            f'box-shadow:0 4px 20px rgba(26,79,173,.35);margin-bottom:8px;">'
-            f'<div style="display:flex;gap:18px;justify-content:center;align-items:center;">'
-            f'<div><div style="font-size:8px;color:rgba(255,255,255,.8);letter-spacing:.8px;'
-            f'text-transform:uppercase;font-weight:600;">&#128101; Registered</div>'
-            f'<div style="font-size:30px;font-weight:800;color:#fff;line-height:1.1;">{total_registered}</div></div>'
-            f'<div style="width:1px;height:40px;background:rgba(255,255,255,.3);"></div>'
-            f'<div><div style="font-size:8px;color:rgba(255,255,255,.8);letter-spacing:.8px;'
-            f'text-transform:uppercase;font-weight:600;">&#129001; Active Now</div>'
-            f'<div style="font-size:30px;font-weight:800;color:#4ade80;line-height:1.1;">{active_count}</div></div>'
-            f'</div></div>',
-            unsafe_allow_html=True
-        )
-
     # ── FILTER BAR ────────────────────────────────────────────────────────
     all_pls  = sorted({i.get("pl_name","") for i in all_ideas_raw if i.get("pl_name","")})
     all_regs = sorted({i.get("region","")   for i in all_ideas_raw if i.get("region","")})
     all_cats = CATEGORIES
 
-    st.markdown('<div class="filter-bar">', unsafe_allow_html=True)
-    fc1, fc2, fc3, fc4 = st.columns([1.2, 1.2, 1.2, 0.5])
+    fc1, fc2, fc3, fc4, fc5 = st.columns([1.0, 1.0, 1.0, 0.45, 0.6])
     with fc1:
         f_cat = st.multiselect("Category", all_cats, key="f_cat",
                                placeholder="All categories", label_visibility="collapsed")
@@ -1457,7 +1435,18 @@ def page_dashboard():
             for k in ["f_cat","f_pl","f_reg"]: st.session_state.pop(k,None)
             st.rerun()
         st.caption("Reset filters")
-    st.markdown('</div>', unsafe_allow_html=True)
+    with fc5:
+        st.markdown(
+            f'<div style="background:linear-gradient(135deg,#1a4fad,#0ea5e9);'
+            f'border-radius:9px;padding:10px 9px;text-align:center;'
+            f'box-shadow:0 4px 20px rgba(26,79,173,.35);'>
+            f'<div style="display:flex;gap:9px;justify-content:center;align-items:center;">'
+            f'<div><div style="font-size:8px;color:rgba(255,255,255,.8);letter-spacing:.8px;'
+            f'text-transform:uppercase;font-weight:600;">&#128101; Registered</div>'
+            f'<div style="font-size:30px;font-weight:800;color:#fff;line-height:1.1;">{total_registered}</div></div>'
+            f'</div></div>',
+            unsafe_allow_html=True
+        )
 
     # Apply filters — interlinked (all three narrow the same set)
     ideas = all_ideas_raw
@@ -1512,12 +1501,12 @@ def page_dashboard():
       .km-board.paused .km-track{{animation-play-state:paused;}}
       .km-copy{{display:flex;gap:12px;}}
       .km-card{{flex:0 0 260px;min-width:260px;padding:18px 20px;border-radius:18px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.08);display:grid;grid-template-columns:60px 1fr;gap:12px;min-height:140px;align-items:start;}}
-      .km-icon{{width:56px;height:75px;flex:0 0 56px;display:grid;place-items:center;background:rgba(255,255,255,.1);border-radius:18px;}}
+      .km-icon{{width:56px;height:90px;flex:0 0 56px;display:grid;place-items:center;background:rgba(255,255,255,.1);border-radius:18px;}}
       .km-icon svg{{width:100%;height:100%;}}
       .km-text{{display:grid;grid-template-rows:auto 1fr auto;gap:8px;min-height:100%;}}
       .km-header{{font-size:12px;letter-spacing:.24em;text-transform:uppercase;color:rgba(255,255,255,.75);font-weight:700;}}
       .km-card-body{{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;}}
-      .km-value{{font-size:32px;font-weight:900;color:#fff;line-height:1.05;}}
+      .km-value{{font-size:36px;font-weight:900;color:#fff;line-height:1.05;}}
       .km-pct{{font-size:12px;font-weight:700;color:#f8fafc;opacity:.95;white-space:nowrap;}}
       .km-footer{{font-size:11px;color:rgba(255,255,255,.68);line-height:1.4;min-height:18px;}}
       @keyframes km-scroll-left{{0%{{transform:translateX(0);}}100%{{transform:translateX(-50%);}}}}
@@ -1525,14 +1514,14 @@ def page_dashboard():
     <div class="km-board" id="km-board">
       <div class="km-track" id="km-track">
         <div class="km-copy">
-          <div class="km-card"><div class="km-icon" style="color:#facc15;">{icon_total}</div><div class="km-text"><div class="km-header">Total Ideas</div><div class="km-card-body"><div class="km-value">{total}</div><div class="km-pct">All ideas</div></div><div class="km-footer"></div></div></div>
-          <div class="km-card"><div class="km-icon" style="color:#059669;">{icon_completed}</div><div class="km-text"><div class="km-header">Completed</div><div class="km-card-body"><div class="km-value">{completed}</div><div class="km-pct">{completed_pct:.1f}%</div></div><div class="km-footer"></div></div></div>
+          <div class="km-card"><div class="km-icon" style="color:#facc15;">{icon_total}</div><div class="km-text"><div class="km-header">Total Ideas</div><div class="km-card-body"><div class="km-value">{total}</div><div class="km-pct"></div></div><div class="km-footer"></div></div></div>
+          <div class="km-card"><div class="km-icon" style="color:#059669;">{icon_completed}</div><div class="km-text"><div class="km-header">Completed</div><div class="km-card-body"><div class="km-value">{completed}</div><div class="km-pct"></div></div><div class="km-footer"></div></div></div>
           <div class="km-card"><div class="km-icon" style="color:#0d9488;">{icon_hours}</div><div class="km-text"><div class="km-header">Total Hrs Saved / yr</div><div class="km-card-body"><div class="km-value">{cust_hrs+int_hrs:,.0f}</div><div class="km-pct"></div></div><div class="km-footer">Customer + Internal hours</div></div></div>
           <div class="km-card"><div class="km-icon" style="color:#b45309;">{icon_roi}</div><div class="km-text"><div class="km-header">Total ROI</div><div class="km-card-body"><div class="km-value">{cust_roi+int_roi}</div><div class="km-pct"></div></div><div class="km-footer">Customer + Internal ROI</div></div></div>
         </div>
         <div class="km-copy">
-          <div class="km-card"><div class="km-icon" style="color:#facc15;">{icon_total}</div><div class="km-text"><div class="km-header">Total Ideas</div><div class="km-card-body"><div class="km-value">{total}</div><div class="km-pct">All ideas</div></div><div class="km-footer"></div></div></div>
-          <div class="km-card"><div class="km-icon" style="color:#059669;">{icon_completed}</div><div class="km-text"><div class="km-header">Completed</div><div class="km-card-body"><div class="km-value">{completed}</div><div class="km-pct">{completed_pct:.1f}%</div></div><div class="km-footer"></div></div></div>
+          <div class="km-card"><div class="km-icon" style="color:#facc15;">{icon_total}</div><div class="km-text"><div class="km-header">Total Ideas</div><div class="km-card-body"><div class="km-value">{total}</div><div class="km-pct"></div></div><div class="km-footer"></div></div></div>
+          <div class="km-card"><div class="km-icon" style="color:#059669;">{icon_completed}</div><div class="km-text"><div class="km-header">Completed</div><div class="km-card-body"><div class="km-value">{completed}</div><div class="km-pct"></div></div><div class="km-footer"></div></div></div>
           <div class="km-card"><div class="km-icon" style="color:#0d9488;">{icon_hours}</div><div class="km-text"><div class="km-header">Total Hrs Saved / yr</div><div class="km-card-body"><div class="km-value">{cust_hrs+int_hrs:,.0f}</div><div class="km-pct"></div></div><div class="km-footer">Customer + Internal hours</div></div></div>
           <div class="km-card"><div class="km-icon" style="color:#b45309;">{icon_roi}</div><div class="km-text"><div class="km-header">Total ROI</div><div class="km-card-body"><div class="km-value">{cust_roi+int_roi}</div><div class="km-pct"></div></div><div class="km-footer">Customer + Internal ROI</div></div></div>
         </div>
@@ -1597,6 +1586,7 @@ def page_dashboard():
             f'<div class="category-card {active}" onclick="selectCategory(\'{cat}\')">'
             f'<div class="category-icon">{icon}</div>'
             f'<div class="category-count">{count}</div>'
+            f'<div class="category-dash">-</div>'
             f'<div class="category-name">{label}</div>'
             '</div>'
         )
@@ -1682,8 +1672,9 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 .category-card.selected{{background:linear-gradient(135deg,rgba(56,189,248,.18),rgba(124,58,237,.18));border-color:rgba(56,189,248,.35);}}
 .category-icon{{width:38px;height:38px;border-radius:14px;display:grid;place-items:center;
   background:rgba(255,255,255,.08);color:#fff;font-size:18px;}}
-.category-name{{font-size:12px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#fff;}}
 .category-count{{font-size:20px;font-weight:800;color:#fff;}}
+.category-dash{{font-size:20px;font-weight:800;color:#93c5fd;}}
+.category-name{{font-size:12px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;color:#fff;}}
 .detail-overlay{{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;}}
 .detail-card{{width:min(220px,90%);padding:16px 18px;border-radius:22px;background:rgba(8,12,30,.92);border:1px solid rgba(255,255,255,.08);backdrop-filter:blur(8px);box-shadow:0 18px 80px rgba(15,23,42,.35);text-align:center;}}
 .detail-card.detail-card--circle{{width:160px;height:160px;padding:0;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;}}
@@ -1707,8 +1698,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 <div id="scene">
 
   <div class="panel">
-    <div class="ptitle" style="color:#c084fc;text-shadow:0 0 18px #c084fc88;">AUTOMATION</div>
-    <div class="psub" style="color:#c084fc;">⚙️ Robotic Process &amp; Workflow</div>
+    <div class="ptitle" style="color:#c084fc;text-shadow:0 0 18px #c084fc88;">-AUTOMATION-</div>
     <div class="category-grid">{left_category_html}</div>
   </div>
 
@@ -1731,9 +1721,9 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
   <!-- CENTRE -->
   <div class="centre">
     <div class="tagline">
-      <b>Move your cursor across</b><br>
+      <b></b><br>
       <span style="color:#c084fc;">&#8592;</span>
-      <span style="color:rgba(255,255,255,.6);"> to explore the synergy </span>
+      <span style="color:rgba(255,255,255,.6);"> </span>
       <span style="color:#38bdf8;">&#8594;</span>
     </div>
     <div id="nexbot-wrap">
@@ -1765,8 +1755,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 
   <!-- RIGHT -->
   <div class="panel right">
-    <div class="ptitle" style="color:#38bdf8;text-shadow:0 0 18px #38bdf888;">AI</div>
-    <div class="psub" style="color:#38bdf8;">🧠 Cognitive Intelligence &amp; ML</div>
+    <div class="ptitle" style="color:#38bdf8;text-shadow:0 0 18px #38bdf888;">-AI-</div>
     <div class="category-grid">{right_category_html}</div>
   </div>
 
@@ -1955,45 +1944,41 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 
             map_html = f"""
             <style>
-              .region-map-shell {{position:relative;width:100%;aspect-ratio:2/1;min-height:280px;border-radius:22px;overflow:hidden;
+              .region-map-shell {{position:relative;width:100%;min-height:400px;border-radius:22px;overflow:hidden;
                 background:#0b1222;border:1px solid rgba(255,255,255,.08);box-shadow:0 20px 50px rgba(0,0,0,.25);
               }}
               .region-map-shell::before {{content:'';position:absolute;inset:0;
                 background-image:url('https://upload.wikimedia.org/wikipedia/commons/8/80/World_map_-_low_resolution.svg');
-                background-size:contain;background-repeat:no-repeat;background-position:center center;
+                background-size:cover;background-repeat:no-repeat;background-position:center center;
                 opacity:.85;filter:invert(1) brightness(1.6);
               }}
               .region-map-shell .region-overlay {{position:relative;z-index:1;padding:16px;display:grid;grid-template-rows:auto 1fr;gap:12px;}}
-              .region-map-shell .region-header {{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:0 6px;}}
+              .region-map-shell .region-header {{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:0 6px;}}
               .region-map-shell .region-title {{font-size:14px;font-weight:700;color:#f8fafc;}}
               .region-map-shell .region-subtitle {{font-size:12px;color:rgba(248,250,252,.72);}}
               .region-map-shell .region-pin {{position:absolute;display:inline-flex;align-items:center;justify-content:center;
-                color:#facc15;font-size:16px;font-weight:800;white-space:nowrap;
-                text-shadow:0 1px 3px rgba(0,0,0,.9),0 0 6px rgba(0,0,0,.9);
+                width:62px;height:42px;padding:8px 12px;border-radius:999px;background:rgba(255,255,255,.92);
+                color:#0f172a;font-size:14px;font-weight:800;white-space:nowrap;
+                text-shadow:none;box-shadow:0 10px 30px rgba(0,0,0,.25);
                 transform:translate(-50%,-50%);
               }}
-              .region-map-shell .region-pin.zero {{opacity:.45;}}
+              .region-map-shell .region-pin::before {{content:'';position:absolute;inset:0;border-radius:999px;
+                background:radial-gradient(circle,rgba(250,204,21,.45) 0%,rgba(250,204,21,0) 70%);
+                z-index:-1;
+              }}
+              .region-map-shell .region-pin.zero {{opacity:.6;}}
               .region-map-shell .region-pin.india {{top:60%;left:66%;}}
               .region-map-shell .region-pin.usa {{top:36%;left:18%;}}
               .region-map-shell .region-pin.uk {{top:26%;left:30%;}}
               .region-map-shell .region-pin.germany {{top:30%;left:39%;}}
-              .region-map-shell .region-legend {{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}}
-              .region-map-shell .legend-item {{display:flex;align-items:center;gap:8px;font-size:12px;color:#f8fafc;}}
-              .region-map-shell .legend-dot {{width:10px;height:10px;border-radius:50%;background:#facc15;}}
             </style>
             <div class="region-map-shell">
               <div class="region-overlay">
                 <div class="region-header">
                   <div>
-                    <div class="region-title">World Region Map</div>
-                    <div class="region-subtitle">Counts pinned to each region based on ideas</div>
+                    <div class="region-title"></div>
+                    <div class="region-subtitle"></div>
                   </div>
-                </div>
-                <div class="region-legend">
-                  <div class="legend-item"><span class="region-dot"></span> India: {region_counts['India']}</div>
-                  <div class="legend-item"><span class="region-dot"></span> USA: {region_counts['USA']}</div>
-                  <div class="legend-item"><span class="region-dot"></span> UK: {region_counts['UK']}</div>
-                  <div class="legend-item"><span class="region-dot"></span> Germany: {region_counts['Germany']}</div>
                 </div>
               </div>
               <div class="region-pin india{' zero' if region_counts['India']==0 else ''}" title="India: {region_counts['India']} idea(s)">{region_counts['India']}</div>
@@ -2957,6 +2942,14 @@ def main():
           👤 <b style="color:#e2e8f0;">{ss('name','')}</b><br>
           <span style="font-size:11px;">{ss('role','')}</span>
         </div>""", unsafe_allow_html=True)
+
+        # Style buttons to use constant black background and white text
+        st.markdown("""
+        <style>
+        div.stButton > button {background-color:#000 !important; color:#fff !important; border: none !important; border-radius:6px !important; padding:6px 10px !important}
+        div.stButton > button:hover {opacity:0.95}
+        </style>
+        """, unsafe_allow_html=True)
 
         col1,col2 = st.columns(2)
         with col1:
