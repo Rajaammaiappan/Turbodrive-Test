@@ -1679,7 +1679,7 @@ def page_dashboard():
     completed_pct = round(completed / total * 100, 1) if total else 0.0
 
     # ── ROW 1: Premium Illustrated KPI Cards ───────────────────────────────
-    st.markdown("##### 📦 Key Metrics")
+    st.markdown("##### 📦 Total projected Hrs Saved / yr")
     auto_total_ideas = len([i for i in ideas if i.get("automation_category") in AUTOMATION_CATS])
     ai_total_ideas   = len([i for i in ideas if i.get("automation_category") in AI_CATS])
     proj_count       = len({i.get("project","") for i in ideas if i.get("project")})
