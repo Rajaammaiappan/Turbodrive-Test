@@ -2018,7 +2018,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
                 "yAxis":{"type":"value","name":"Ideas","nameTextStyle":{"fontSize":8}},
                 "series":[{"type":"bar","data":[v for v in proj_counts.values()],
                            "itemStyle":{"color":"#7c3aed"},"barMaxWidth":32,
-                           "label":{"show":True,"position":"top","fontSize":9,"fontWeight":700}}]},
+                           "label":{"show":True,"position":"top","fontSize":9,"fontWeight":700,"color":"#ffffff"}}]},
                 height="220px")
         else:
             st.caption("No projects with valid idea count data yet.")
