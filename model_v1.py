@@ -2017,7 +2017,8 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
                          "axisLabel":{"rotate":30,"fontSize":8,"interval":0}},
                 "yAxis":{"type":"value","name":"Ideas","nameTextStyle":{"fontSize":8}},
                 "series":[{"type":"bar","data":[v for v in proj_counts.values()],
-                           "itemStyle":{"color":"#7c3aed"},"barMaxWidth":32}]},
+                           "itemStyle":{"color":"#7c3aed"},"barMaxWidth":32,
+                           "label":{"show":True,"position":"top","fontSize":9,"fontWeight":700}}]},
                 height="220px")
         else:
             st.caption("No projects with valid idea count data yet.")
@@ -3219,12 +3220,13 @@ def main():
         )
 
         # Style sidebar buttons + theme dropdown with one constant background
-        # (scoped to the sidebar only — an unscoped selector here previously
-        # forced every button app-wide to plain black).
+        # (scoped to the sidebar only — ensures both Change Password and Logout match.)
         st.markdown("""
         <style>
-        [data-testid="stSidebar"] div.stButton > button {background-color:#000 !important; color:#fff !important; border: 1px solid #262626 !important; border-radius:6px !important; padding:6px 10px !important}
-        [data-testid="stSidebar"] div.stButton > button:hover {opacity:0.85}
+        [data-testid="stSidebar"] div.stButton > button {background-color:#000 !important; color:#fff !important; border: 1px solid #262626 !important; border-radius:6px !important; padding:6px 10px !important;}
+        [data-testid="stSidebar"] div.stButton > button:hover {opacity:0.85 !important;}
+        [data-testid="stSidebar"] div.stButton > button:first-of-type,
+        [data-testid="stSidebar"] div.stButton > button:nth-of-type(2) {background-color:#000 !important; color:#fff !important;}
         [data-testid="stSidebar"] [data-testid="stSelectbox"] [data-baseweb="select"] > div {background-color:#000 !important; color:#fff !important; border: 1px solid #262626 !important; border-radius:6px !important;}
         [data-testid="stSidebar"] [data-testid="stSelectbox"] svg {fill:#fff !important;}
         </style>
