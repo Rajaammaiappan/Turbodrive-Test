@@ -2001,26 +2001,25 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
         }, height="220px")
 
     with ch3:
-        st.markdown("<span style='font-size:clamp(10px,1vw,13px);font-weight:600;'>Hours Saved by Project</span>", unsafe_allow_html=True)
-        proj_hrs = {}
+        st.markdown("<span style='font-size:clamp(10px,1vw,13px);font-weight:600;'>Ideas by Project</span>", unsafe_allow_html=True)
+        proj_counts = {}
         for i in ideas:
             proj = i.get("project","")
             if not proj:                  # skip only ideas missing a project
                 continue
-            h = idea_hours(i)             # 0 is a valid value — don't drop it
-            proj_hrs[proj] = proj_hrs.get(proj, 0) + h
-        if proj_hrs:
+            proj_counts[proj] = proj_counts.get(proj, 0) + 1
+        if proj_counts:
             st_echarts({
                 "tooltip":{"trigger":"axis"},
                 "grid":{"left":"3%","right":"4%","bottom":"28%","containLabel":True},
-                "xAxis":{"type":"category","data":list(proj_hrs.keys()),
+                "xAxis":{"type":"category","data":list(proj_counts.keys()),
                          "axisLabel":{"rotate":30,"fontSize":8,"interval":0}},
-                "yAxis":{"type":"value","name":"hrs/yr","nameTextStyle":{"fontSize":8}},
-                "series":[{"type":"bar","data":[round(v,1) for v in proj_hrs.values()],
+                "yAxis":{"type":"value","name":"Ideas","nameTextStyle":{"fontSize":8}},
+                "series":[{"type":"bar","data":[v for v in proj_counts.values()],
                            "itemStyle":{"color":"#7c3aed"},"barMaxWidth":32}]},
                 height="220px")
         else:
-            st.caption("No projects with valid Hours Saved data yet.")
+            st.caption("No projects with valid idea count data yet.")
 
     # ── ROW 4: Ideation Tree + Region chart ──────────────────────────────
     tr_col, wl_col = st.columns([1.4, 1])
@@ -3246,9 +3245,6 @@ def main():
                               label_visibility="collapsed", key="theme_sel")
         if chosen != ss("theme"):
             st.session_state["theme"] = chosen; st.rerun()
-
-        st.divider()
-        render_session_countdown()
 
         st.markdown("---")
         st.markdown(
