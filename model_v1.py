@@ -2254,6 +2254,13 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
         row["New (hrs)"] = newp if newp is not None else ""
         row["Savings/occ (hrs)"] = round(savings_per_occ, 2)
         row["Annual Saved Hrs"] = round(annual_saved, 1)
+        # automation effort stored as 'eng' in feasibility_data
+        try:
+            auto_eff_raw = fd.get("eng", None)
+            auto_eff = float(auto_eff_raw) if auto_eff_raw not in (None, "") else None
+        except:
+            auto_eff = None
+        row["Automation Effort (hrs)"] = round(auto_eff, 1) if auto_eff is not None else ""
         row["Saving Hours"] = round(idea_hours(i), 1)
         row.update({c: i.get(c,"") for c in cols_show_tail})
         rows.append(row)
