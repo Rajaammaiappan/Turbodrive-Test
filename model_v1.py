@@ -49,11 +49,11 @@ BLOCKED_DOMAINS = {
 }
 
 ROLE_PAGES = {
-    "super user":         ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Admin","OTP List","Workflow"],
+    "super user":         ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Admin","OTP List","Workflow","Deployed Tools"],
     "normal user":        ["Submit Idea"],
-    "automation engineer":["Dashboard","Submit Idea","Feasibility"],
-    "automation pl":      ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval"],
-    "pl/spl":             ["Dashboard","Submit Idea","Approval"],
+    "automation engineer":["Dashboard","Submit Idea","Feasibility","Deployed Tools"],
+    "automation pl":      ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Deployed Tools"],
+    "pl/spl":             ["Dashboard","Submit Idea","Approval","Deployed Tools"],
 }
 PW_ROLES = {"super user","automation engineer","automation pl","pl/spl"}
 
@@ -164,6 +164,18 @@ def init_db():
         );
     """)
 
+    _run_sql(sb, """
+        CREATE TABLE IF NOT EXISTS deployed_tools (
+            id            text PRIMARY KEY,
+            tool_name     text,
+            description   text,
+            idea_id       text,
+            project       text,
+            deployed_by   text,
+            created_date  text
+        );
+    """)
+
     dh = generate_password_hash(DEFAULT_PW)
     for u in DEFAULT_USERS:
         try:
@@ -262,6 +274,31 @@ def upsert_otp_row(otp, project_name, business_unit, pd_name, spl_pl):
 
 def delete_otp_row(otp):
     get_supabase().table("otp_list").delete().eq("otp", otp).execute()
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  DEPLOYED TOOLS  (tracker for tools/automations shipped to production)
+# ══════════════════════════════════════════════════════════════════════════════
+def get_deployed_tools():
+    resp = get_supabase().table("deployed_tools").select("*").order("created_date", desc=True).execute()
+    return resp.data or []
+
+def add_deployed_tool(tool_name, description, idea_id="", project="", deployed_by=""):
+    row = {
+        "id": str(uuid.uuid4()),
+        "tool_name": tool_name or "",
+        "description": description or "",
+        "idea_id": idea_id or "",
+        "project": project or "",
+        "deployed_by": deployed_by or "",
+        "created_date": datetime.now().strftime("%Y-%m-%d %H:%M"),
+    }
+    get_supabase().table("deployed_tools").insert(row).execute()
+
+def update_deployed_tool(tool_id, fields):
+    get_supabase().table("deployed_tools").update(fields).eq("id", tool_id).execute()
+
+def delete_deployed_tool(tool_id):
+    get_supabase().table("deployed_tools").delete().eq("id", tool_id).execute()
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  DATE / SPRINT ENGINE
@@ -1967,14 +2004,11 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
         st.markdown("<span style='font-size:clamp(10px,1vw,13px);font-weight:600;'>Hours Saved by Project</span>", unsafe_allow_html=True)
         proj_hrs = {}
         for i in ideas:
-            h = idea_hours(i)
-            if not h or h <= 0:           # skip NULL / zero / invalid hours
-                continue
             proj = i.get("project","")
-            if not proj:                  # skip missing project too
+            if not proj:                  # skip only ideas missing a project
                 continue
+            h = idea_hours(i)             # 0 is a valid value — don't drop it
             proj_hrs[proj] = proj_hrs.get(proj, 0) + h
-        proj_hrs = {k: v for k, v in proj_hrs.items() if v and v > 0}
         if proj_hrs:
             st_echarts({
                 "tooltip":{"trigger":"axis"},
@@ -2072,12 +2106,17 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
                 # visually the most "highlighted" one on the map.
                 return 90 + round((c / max_count) * 70) if c else 60
 
-            # Approximate landmass position (top/left %) for each region's pin.
+            # Landmass position (top/left %) for each region's pin, computed
+            # from real lat/long centroids using an equirectangular projection:
+            #   left% = (lon + 180) / 360 * 100
+            #   top%  = (90  - lat) / 180 * 100
+            # This lines the pin up with the actual country on the map
+            # instead of a guessed pixel offset.
             REGION_POS = {
-                "India":   {"top": "38%", "left": "70%"},
-                "USA":     {"top": "30%", "left": "17%"},
-                "UK":      {"top": "18%", "left": "35%"},
-                "Germany": {"top": "22%", "left": "42%"},
+                "India":   {"top": "37.8%", "left": "71.9%"},   # lat 22.0, lon  79.0
+                "USA":     {"top": "28.3%", "left": "22.8%"},   # lat 39.0, lon -98.0
+                "UK":      {"top": "20.0%", "left": "49.4%"},   # lat 54.0, lon  -2.0
+                "Germany": {"top": "21.7%", "left": "52.8%"},   # lat 51.0, lon  10.0
             }
             active_regions = {k: v for k, v in region_counts.items() if v > 0}
 
@@ -2091,13 +2130,13 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 
             map_html = f"""
             <style>
-              .region-map-shell {{position:relative;width:100%;min-height:400px;border-radius:22px;overflow:hidden;
+              .region-map-shell {{position:relative;width:100%;aspect-ratio:2/1;max-height:420px;min-height:260px;border-radius:22px;overflow:hidden;
                 background:#0b1222;border:1px solid rgba(255,255,255,.08);box-shadow:0 20px 50px rgba(0,0,0,.25);
               }}
-              .region-map-shell::before {{content:'';position:absolute;inset:0;
-                background-image:url('https://upload.wikimedia.org/wikipedia/commons/8/80/World_map_-_low_resolution.svg');
-                background-size:cover;background-repeat:no-repeat;background-position:center center;
+              .region-map-shell .region-map-bg {{position:absolute;inset:0;
+                width:100%;height:100%;object-fit:cover;
                 opacity:.85;filter:invert(1) brightness(1.6);
+                z-index:0;
               }}
               .region-map-shell .region-overlay {{position:relative;z-index:1;padding:16px;display:grid;grid-template-rows:auto 1fr;gap:12px;}}
               .region-map-shell .region-header {{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;padding:0 6px;}}
@@ -2105,7 +2144,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
               .region-map-shell .region-subtitle {{font-size:12px;color:rgba(248,250,252,.72);}}
               .region-map-shell .region-highlight {{position:absolute;border-radius:999px;transform:translate(-50%,-50%);
                 background:radial-gradient(circle,rgba(250,204,21,.55) 0%,rgba(250,204,21,.18) 55%,rgba(250,204,21,0) 75%);
-                animation:region-pulse 2.4s ease-in-out infinite;pointer-events:none;
+                animation:region-pulse 2.4s ease-in-out infinite;pointer-events:none;z-index:2;
               }}
               @keyframes region-pulse {{
                 0%,100% {{opacity:.75;}} 50% {{opacity:1;}}
@@ -2113,10 +2152,11 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
               .region-map-shell .region-pin {{position:absolute;transform:translate(-50%,-50%);
                 font-size:13px;font-weight:800;color:#facc15;
                 text-shadow:0 0 5px rgba(0,0,0,.95),0 0 2px rgba(0,0,0,.95);
-                pointer-events:none;
+                pointer-events:none;z-index:3;
               }}
             </style>
             <div class="region-map-shell">
+              <img class="region-map-bg" src="https://upload.wikimedia.org/wikipedia/commons/8/80/World_map_-_low_resolution.svg" alt="World map" />
               <div class="region-overlay">
                 <div class="region-header">
                   <div>
@@ -2989,6 +3029,81 @@ html,body{background:#070b14;color:#e2e8f0;font-family:'Inter',sans-serif;min-he
     render_copyright()
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  PAGE: DEPLOYED TOOLS  (tracker for tools/automations shipped to production)
+# ══════════════════════════════════════════════════════════════════════════════
+def page_deployed_tools():
+    page_header("Deployed Tools 🛠️")
+    st.caption("Track every tool / automation that has gone live — with a name and a short description of what it does.")
+
+    all_ideas   = get_all()
+    completed   = [i for i in all_ideas if i.get("status") == "Completed"]
+    idea_lookup = {i["id"]: i.get("idea_name","(no name)") for i in completed}
+
+    tools = get_deployed_tools()
+
+    tab1, tab2 = st.tabs(["📋 Deployed Tools List", "➕ Add New Tool"])
+
+    with tab1:
+        st.markdown(f"**{len(tools)} tool(s) deployed**")
+        search = st.text_input("🔎 Search tools", placeholder="Filter by tool name, description, project…", key="tool_search")
+        filtered = tools
+        if search:
+            sl = search.lower()
+            filtered = [t for t in tools if sl in (t.get("tool_name","")+t.get("description","")+t.get("project","")).lower()]
+
+        if not filtered:
+            st.info("No deployed tools recorded yet — add one under **Add New Tool**.")
+        else:
+            import pandas as pd
+            df = pd.DataFrame([{
+                "Tool Name": t.get("tool_name",""),
+                "Description": t.get("description",""),
+                "Project": t.get("project",""),
+                "Linked Idea": idea_lookup.get(t.get("idea_id",""), "-" if not t.get("idea_id") else "(idea not found)"),
+                "Deployed By": t.get("deployed_by",""),
+                "Date Added": t.get("created_date",""),
+            } for t in filtered])
+            st.dataframe(df, use_container_width=True, hide_index=True)
+            csv_buf = io.StringIO()
+            df.to_csv(csv_buf, index=False)
+            st.download_button("⬇️ Download CSV", csv_buf.getvalue(), "deployed_tools.csv", "text/csv")
+
+            st.markdown("##### Manage entries")
+            for t in filtered:
+                with st.expander(f"🛠️ {t.get('tool_name','(no name)')}"):
+                    st.markdown(f"**Description:** {t.get('description','-')}")
+                    st.markdown(f"**Project:** {t.get('project','-')}  |  **Deployed by:** {t.get('deployed_by','-')}")
+                    if t.get("idea_id"):
+                        st.markdown(f"**Linked Idea:** {idea_lookup.get(t.get('idea_id'), '(idea not found)')}")
+                    st.caption(f"Added: {t.get('created_date','-')}")
+                    if st.button("🗑 Delete", key=f"tool_del_{t.get('id')}"):
+                        delete_deployed_tool(t.get("id"))
+                        st.warning(f"Deleted: {t.get('tool_name','')}")
+                        st.rerun()
+
+    with tab2:
+        st.markdown("##### Add a newly deployed tool")
+        idea_options = [""] + [i["id"] for i in completed]
+        with st.form("add_tool_form", clear_on_submit=True):
+            tool_name   = st.text_input("Tool Name *", placeholder="e.g. Invoice Auto-Extractor")
+            description = st.text_area("Description *", placeholder="What does this tool do? What problem does it solve?")
+            project     = st.selectbox("Project (optional)", [""] + PROJECTS)
+            linked_idea = st.selectbox(
+                "Link to a Completed Idea (optional)", idea_options,
+                format_func=lambda x: "— none —" if not x else idea_lookup.get(x, x),
+            )
+            deployed_by = st.text_input("Deployed By (optional)", value=ss("name",""))
+            if st.form_submit_button("✅ Save Tool"):
+                if not tool_name.strip() or not description.strip():
+                    st.error("Tool Name and Description are required.")
+                else:
+                    add_deployed_tool(tool_name.strip(), description.strip(), linked_idea, project, deployed_by.strip())
+                    st.success(f"✅ Saved: {tool_name.strip()}")
+                    st.rerun()
+
+    render_copyright()
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  PAGE: ADMIN
 # ══════════════════════════════════════════════════════════════════════════════
 def page_admin():
@@ -3076,7 +3191,8 @@ def main():
 
         pages = user_pages()
         icons = {"Dashboard":"📊","Submit Idea":"💡","PL Assignment":"🧑‍💼",
-                 "Feasibility":"🔍","Approval":"✅","Admin":"⚙️","OTP List":"🆔","Workflow":"🔀"}
+                 "Feasibility":"🔍","Approval":"✅","Admin":"⚙️","OTP List":"🆔","Workflow":"🔀",
+                 "Deployed Tools":"🛠️"}
         nav = st.radio("Navigation",
                        [f"{icons.get(p,'')} {p}" for p in pages],
                        label_visibility="collapsed")
@@ -3088,6 +3204,19 @@ def main():
           👤 <b style="color:#e2e8f0;">{ss('name','')}</b><br>
           <span style="font-size:11px;">{ss('role','')}</span>
         </div>""", unsafe_allow_html=True)
+
+        # ── Small registered-users count badge (live from Supabase) ────────
+        try:
+            _reg_count = len(get_users())
+        except Exception:
+            _reg_count = 0
+        st.markdown(
+            f'<div style="text-align:center;margin-top:8px;background:rgba(255,255,255,.05);'
+            f'border-radius:8px;padding:6px 8px;">'
+            f'<span style="font-size:9px;color:#64748b;letter-spacing:.5px;">👥 REGISTERED USERS</span><br>'
+            f'<span style="font-size:18px;font-weight:800;color:#00AEEF;">{_reg_count}</span></div>',
+            unsafe_allow_html=True
+        )
 
         # Style sidebar buttons + theme dropdown with one constant background
         # (scoped to the sidebar only — an unscoped selector here previously
@@ -3135,7 +3264,9 @@ def main():
     elif current_page == "Approval":      page_approval()
     elif current_page == "OTP List":      page_otp_list()
     elif current_page == "Workflow":      page_workflow()
+    elif current_page == "Deployed Tools":page_deployed_tools()
     elif current_page == "Admin":         page_admin()
 
 if __name__ == "__main__":
     main()
+
