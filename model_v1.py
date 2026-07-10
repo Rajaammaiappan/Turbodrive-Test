@@ -725,7 +725,14 @@ def check_login(email, password):
 def idea_hours(i):
     fd = i.get("feasibility_data",{}) or {}
     try:
-        return float(fd.get("manual",0) or 0)*float(fd.get("fte",0) or 0)*FREQ_MULT.get(fd.get("freq","Daily"),1)
+        # Prefer explicit baseline/new process times when available: savings per occurrence
+        baseline = float(fd.get("baseline_process_time", 0) or 0)
+        newp = float(fd.get("new_process_time", 0) or 0)
+        if baseline and baseline > newp:
+            per_occurrence_savings = baseline - newp
+        else:
+            per_occurrence_savings = float(fd.get("manual",0) or 0)
+        return per_occurrence_savings * float(fd.get("fte",0) or 0) * FREQ_MULT.get(fd.get("freq","Daily"),1)
     except: return 0
 
 def kpi_card(value, label, color, sub="", icon=""):
@@ -1449,22 +1456,39 @@ def page_feasibility():
             with st.form(f"feas_{idea['id']}"):
                 st.markdown("##### ROI Calculator")
                 col1,col2,col3 = st.columns(3)
-                with col1: manual = st.number_input("Manual Effort (hrs)", min_value=0.0, step=0.5, key=f"m_{idea['id']}")
-                with col2: fte    = st.number_input("FTE Count", min_value=0.0, step=0.1, key=f"f_{idea['id']}")
-                with col3: eng_ef = st.number_input("Automation Effort (hrs)", min_value=0.01, step=0.5, value=1.0, key=f"e_{idea['id']}")
+                with col1:
+                    baseline = st.number_input("Baseline Process Time (hrs)", min_value=0.0, step=0.1, key=f"b_{idea['id']}")
+                with col2:
+                    newp = st.number_input("New Process Time (hrs)", min_value=0.0, step=0.1, key=f"n_{idea['id']}")
+                with col3:
+                    fte    = st.number_input("FTE Count", min_value=0.0, step=0.1, key=f"f_{idea['id']}")
                 col4,col5 = st.columns(2)
-                with col4: freq     = st.selectbox("Frequency", list(FREQ_MULT.keys()), key=f"fr_{idea['id']}")
-                with col5: auto_cat = st.selectbox("Automation Category *", AUTO_CATS, key=f"ac_{idea['id']}")
+                with col4:
+                    eng_ef = st.number_input("Automation Effort (hrs)", min_value=0.01, step=0.5, value=1.0, key=f"e_{idea['id']}")
+                    freq     = st.selectbox("Frequency", list(FREQ_MULT.keys()), key=f"fr_{idea['id']}")
+                with col5:
+                    auto_cat = st.selectbox("Automation Category *", AUTO_CATS, key=f"ac_{idea['id']}")
                 comments = st.text_area("Comments / Observations", key=f"co_{idea['id']}")
-                roi = round((manual*fte*FREQ_MULT[freq])/eng_ef, 2)
-                st.info(f"📈 Computed ROI: **{roi}**")
+                # Compute per-occurrence savings: baseline - new process time
+                per_occurrence = 0.0
+                if baseline and baseline > newp:
+                    per_occurrence = baseline - newp
+                annual_saved = per_occurrence * fte * FREQ_MULT.get(freq, FREQ_MULT["Daily"])
+                roi = round((annual_saved / eng_ef) if eng_ef else 0.0, 2)
+                st.info(f"📈 Computed ROI: **{roi}**  —  Savings per occurrence: {per_occurrence} hrs  —  Annual saved hrs: {annual_saved:,.1f}")
                 if st.form_submit_button("✅ Submit Feasibility & Notify PL via Outlook"):
                     vsm_date = next_workday(date.today()+timedelta(days=1))
                     qi = compute_delivery(all_ideas, idea.get("assigned_engineer",""), {**idea,"roi":roi})
                     update_idea(idea["id"],{
                         "status":"WIP","roi":roi,"automation_category":auto_cat,
                         "feasibility_comments":comments,
-                        "feasibility_data":{"manual":manual,"fte":fte,"eng":eng_ef,"freq":freq},
+                        "feasibility_data":{
+                            "baseline_process_time":baseline,
+                            "new_process_time":newp,
+                            "fte":fte,
+                            "eng":eng_ef,
+                            "freq":freq
+                        },
                         "wip_date":datetime.now().strftime("%Y-%m-%d %H:%M"),
                         "vsm_meeting_date":fmt_d(vsm_date),
                         **({"priority_label":qi["priority_label"],
@@ -1508,7 +1532,18 @@ def page_approval():
                 st.markdown(f"**Category:** {idea.get('category','-')} / {idea.get('automation_category','-')}")
                 st.markdown(f"**Project:** {idea.get('project','-')}")
             with col2:
-                st.markdown(f"**Manual Effort:** {fd.get('manual','-')} hrs | **FTE:** {fd.get('fte','-')} | **Freq:** {fd.get('freq','-')}")
+                baseline = fd.get('baseline_process_time')
+                newp = fd.get('new_process_time')
+                if baseline is not None and newp is not None and baseline != "":
+                    try:
+                        bs = float(baseline)
+                        ns = float(newp or 0)
+                        savings = max(0.0, bs-ns)
+                        st.markdown(f"**Baseline:** {bs} hrs | **New:** {ns} hrs | **Savings/occurrence:** {savings} hrs")
+                    except:
+                        st.markdown(f"**Baseline:** {baseline} | **New:** {newp}")
+                else:
+                    st.markdown(f"**Manual Effort:** {fd.get('manual','-')} hrs | **FTE:** {fd.get('fte','-')} | **Freq:** {fd.get('freq','-')}")
                 st.markdown(f"**Automation Effort:** {fd.get('eng','-')} hrs")
                 st.markdown(f"**ROI:** {round(idea.get('roi',0),2)}")
             if idea.get("feasibility_comments"):
@@ -2188,6 +2223,37 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
     rows = []
     for i in ideas:
         row = {c: i.get(c,"") for c in cols_show}
+        # feasibility data may contain baseline/new process times stored as JSON
+        fd = i.get("feasibility_data", {}) or {}
+        # extract baseline/new/fte/freq safely
+        try:
+            baseline = float(fd.get("baseline_process_time") or 0) if fd.get("baseline_process_time") not in (None, "") else None
+        except:
+            baseline = None
+        try:
+            newp = float(fd.get("new_process_time") or 0) if fd.get("new_process_time") not in (None, "") else None
+        except:
+            newp = None
+        try:
+            fte_val = float(fd.get("fte") or 0)
+        except:
+            fte_val = 0.0
+        freq_val = fd.get("freq","Daily")
+        # compute savings per occurrence and annual saved hours
+        if baseline is not None and newp is not None and baseline > newp:
+            savings_per_occ = baseline - newp
+        else:
+            # fallback to manual if baseline/new not provided
+            try:
+                savings_per_occ = float(fd.get("manual", 0) or 0)
+            except:
+                savings_per_occ = 0.0
+        annual_saved = savings_per_occ * fte_val * FREQ_MULT.get(freq_val, FREQ_MULT["Daily"])
+
+        row["Baseline (hrs)"] = baseline if baseline is not None else ""
+        row["New (hrs)"] = newp if newp is not None else ""
+        row["Savings/occ (hrs)"] = round(savings_per_occ, 2)
+        row["Annual Saved Hrs"] = round(annual_saved, 1)
         row["Saving Hours"] = round(idea_hours(i), 1)
         row.update({c: i.get(c,"") for c in cols_show_tail})
         rows.append(row)
