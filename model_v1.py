@@ -50,10 +50,10 @@ BLOCKED_DOMAINS = {
 
 ROLE_PAGES = {
     "super user":         ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Admin","OTP List","Workflow","Deployed Tools"],
-    "normal user":        ["Submit Idea"],
-    "automation engineer":["Dashboard","Submit Idea","Feasibility","Deployed Tools"],
-    "automation pl":      ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Deployed Tools"],
-    "pl/spl":             ["Dashboard","Submit Idea","Approval","Deployed Tools"],
+    "normal user":        ["Submit Idea","Workflow"],
+    "automation engineer":["Dashboard","Submit Idea","Feasibility","Workflow","Deployed Tools"],
+    "automation pl":      ["Dashboard","Submit Idea","PL Assignment","Feasibility","Approval","Workflow","Deployed Tools"],
+    "pl/spl":             ["Dashboard","Submit Idea","Approval","Workflow","Deployed Tools"],
 }
 PW_ROLES = {"super user","automation engineer","automation pl","pl/spl"}
 
