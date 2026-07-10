@@ -1591,9 +1591,10 @@ def page_dashboard():
                                placeholder="All regions", label_visibility="collapsed")
         st.caption("🌍 Region")
     with fc4:
-        st.write("")
-        if st.button("🔄 Reset", use_container_width=True):
-            for k in ["f_cat","f_pl","f_reg"]: st.session_state.pop(k,None)
+        st.markdown("<div style='height:36px;'></div>", unsafe_allow_html=True)
+        if st.button("🔄 Reset", use_container_width=True, key="reset_filters"):
+            for k in ["f_cat","f_pl","f_reg"]:
+                st.session_state[k] = []
             st.rerun()
         st.caption("Reset filters")
     with fc5:
