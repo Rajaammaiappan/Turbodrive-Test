@@ -2040,8 +2040,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
                              "borderRadius":5,"padding":[4,8],"position":"inside",
                              "align":"center","fontSize":10,"fontWeight":"bold"}
             for child in node.get("children",[]): add_label_boxes(child)
-        # Tree flow: Ideation → Triage/Feasibility(Queued) → Accepted → Customer → WIP / Deployed
-        #                                                              → Internal
+        # Tree flow: Ideation → Triage/Feasibility(Queued) → Accepted → WIP / Deployed
         #                                              → Rejected
         tree_data = {
             "name":f"Ideation ({total})","itemStyle":{"color":"#1a4fad"},
@@ -2050,16 +2049,8 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
                  "children":[
                      {"name":f"Accepted ({cnt('WIP')+cnt('UAT')+cnt('Completed')})","itemStyle":{"color":"#059669"},
                       "children":[
-                          {"name":f"Customer ({cust_cnt})","itemStyle":{"color":"#00498F"},
-                           "children":[
-                               {"name":f"WIP ({cs('Customer Requirement','WIP')+cs('Customer Requirement','UAT')})","itemStyle":{"color":"#0d9488"}},
-                               {"name":f"Deployed ({cs('Customer Requirement','Completed')})","itemStyle":{"color":"#059669"}},
-                           ]},
-                          {"name":f"Internal ({int_cnt})","itemStyle":{"color":"#0ea5e9"},
-                           "children":[
-                               {"name":f"WIP ({cs('Internal','WIP')+cs('Internal','UAT')})","itemStyle":{"color":"#0d9488"}},
-                               {"name":f"Deployed ({cs('Internal','Completed')})","itemStyle":{"color":"#059669"}},
-                           ]},
+                          {"name":f"WIP ({cnt('WIP')+cnt('UAT')})","itemStyle":{"color":"#0d9488"}},
+                          {"name":f"Deployed ({cnt('Completed')})","itemStyle":{"color":"#059669"}},
                       ]},
                      {"name":f"Rejected ({cnt('Rejected')})","itemStyle":{"color":"#dc2626"},
                       "children":[
