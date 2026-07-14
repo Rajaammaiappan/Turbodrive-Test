@@ -42,17 +42,6 @@ ALTEN_LOGO_URL = "https://www.alten.com/wp-content/uploads/2019/01/favicon-alten
 CUSTOMERS = ["Rolls-Royce"]
 REGIONS   = ["INDIA", "UK", "USA", "Germany"]
 
-# ── TEMP CHART MASK ──────────────────────────────────────────────────────────
-# When True, dashboard widgets that specifically break data down by category
-# (Customer Requirement vs Internal) are hidden — the combined Hrs/ROI KPI
-# cards, the "Customer — Count & ROI" pie, and the Customer/Internal branch of
-# the Ideation Workflow Tree. All other data (totals, project/region charts,
-# etc.) keeps working normally. Flip back to False to restore these widgets.
-MASK_CATEGORY_DATA = True
-
-def category_masked_notice(label="This chart"):
-    st.info(f"🔒 {label} is temporarily hidden.")
-
 BLOCKED_DOMAINS = {
     "gmail.com","yahoo.com","hotmail.com","rediff.com","outlook.com",
     "live.com","icloud.com","aol.com","protonmail.com","yandex.com",
@@ -1678,11 +1667,6 @@ def page_dashboard():
     completed = cnt("Completed")
     completed_pct = round(completed / total * 100, 1) if total else 0.0
 
-    hrs_kpi_display = "•••" if MASK_CATEGORY_DATA else f"{cust_hrs+int_hrs:,.0f}"
-    roi_kpi_display = "•••" if MASK_CATEGORY_DATA else f"{cust_roi+int_roi}"
-    cat_kpi_footer  = "Hidden" if MASK_CATEGORY_DATA else "Customer + Internal hours"
-    cat_kpi_footer_roi = "Hidden" if MASK_CATEGORY_DATA else "Customer + Internal ROI"
-
     # ── ROW 1: Premium Illustrated KPI Cards ───────────────────────────────
     st.markdown("##### 📦 Total projected Hrs Saved / yr")
     auto_total_ideas = len([i for i in ideas if i.get("automation_category") in AUTOMATION_CATS])
@@ -1718,14 +1702,14 @@ def page_dashboard():
         <div class="km-copy">
           <div class="km-card"><div class="km-icon" style="color:#facc15;">{icon_total}</div><div class="km-text"><div class="km-header">Total Ideas</div><div class="km-card-body"><div class="km-value">{total}</div><div class="km-pct"></div></div><div class="km-footer"></div></div></div>
           <div class="km-card"><div class="km-icon" style="color:#059669;">{icon_completed}</div><div class="km-text"><div class="km-header">Completed</div><div class="km-card-body"><div class="km-value">{completed}</div><div class="km-pct"></div></div><div class="km-footer"></div></div></div>
-          <div class="km-card"><div class="km-icon" style="color:#0d9488;">{icon_hours}</div><div class="km-text"><div class="km-header">Total Projected Hrs Saved / yr</div><div class="km-card-body"><div class="km-value">{hrs_kpi_display}</div><div class="km-pct"></div></div><div class="km-footer">{cat_kpi_footer}</div></div></div>
-          <div class="km-card"><div class="km-icon" style="color:#b45309;">{icon_roi}</div><div class="km-text"><div class="km-header">Total ROI</div><div class="km-card-body"><div class="km-value">{roi_kpi_display}</div><div class="km-pct"></div></div><div class="km-footer">{cat_kpi_footer_roi}</div></div></div>
+          <div class="km-card"><div class="km-icon" style="color:#0d9488;">{icon_hours}</div><div class="km-text"><div class="km-header">Total Projected Hrs Saved / yr</div><div class="km-card-body"><div class="km-value">{cust_hrs+int_hrs:,.0f}</div><div class="km-pct"></div></div><div class="km-footer">Customer + Internal hours</div></div></div>
+          <div class="km-card"><div class="km-icon" style="color:#b45309;">{icon_roi}</div><div class="km-text"><div class="km-header">Total ROI</div><div class="km-card-body"><div class="km-value">{cust_roi+int_roi}</div><div class="km-pct"></div></div><div class="km-footer"></div></div></div>
         </div>
         <div class="km-copy">
           <div class="km-card"><div class="km-icon" style="color:#facc15;">{icon_total}</div><div class="km-text"><div class="km-header">Total Ideas</div><div class="km-card-body"><div class="km-value">{total}</div><div class="km-pct"></div></div><div class="km-footer"></div></div></div>
           <div class="km-card"><div class="km-icon" style="color:#059669;">{icon_completed}</div><div class="km-text"><div class="km-header">Completed</div><div class="km-card-body"><div class="km-value">{completed}</div><div class="km-pct"></div></div><div class="km-footer"></div></div></div>
-          <div class="km-card"><div class="km-icon" style="color:#0d9488;">{icon_hours}</div><div class="km-text"><div class="km-header">Total Hrs Projected Saved / yr</div><div class="km-card-body"><div class="km-value">{hrs_kpi_display}</div><div class="km-pct"></div></div><div class="km-footer">{cat_kpi_footer}</div></div></div>
-          <div class="km-card"><div class="km-icon" style="color:#b45309;">{icon_roi}</div><div class="km-text"><div class="km-header">Total ROI</div><div class="km-card-body"><div class="km-value">{roi_kpi_display}</div><div class="km-pct"></div></div><div class="km-footer">{cat_kpi_footer_roi}</div></div></div>
+          <div class="km-card"><div class="km-icon" style="color:#0d9488;">{icon_hours}</div><div class="km-text"><div class="km-header">Total Hrs Projected Saved / yr</div><div class="km-card-body"><div class="km-value">{cust_hrs+int_hrs:,.0f}</div><div class="km-pct"></div></div><div class="km-footer">Customer + Internal hours</div></div></div>
+          <div class="km-card"><div class="km-icon" style="color:#b45309;">{icon_roi}</div><div class="km-text"><div class="km-header">Total ROI</div><div class="km-card-body"><div class="km-value">{cust_roi+int_roi}</div><div class="km-pct"></div></div><div class="km-footer"></div></div></div>
         </div>
       </div>
     </div>
@@ -2022,27 +2006,26 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
         }, height="220px")
 
     with ch2:
-        st.markdown("<span style='font-size:clamp(10px,1vw,13px);font-weight:600;'>Customer — Count &amp; ROI</span>", unsafe_allow_html=True)
-        if MASK_CATEGORY_DATA:
-            category_masked_notice("This chart")
-        else:
-            cust_data = {}
-            for i in ideas:
-                c = i.get("customer","") or "Unknown"
-                if c not in cust_data: cust_data[c] = {"count":0,"roi":0.0}
-                cust_data[c]["count"] += 1
-                cust_data[c]["roi"]   += float(i.get("roi",0) or 0)
-            cust_palette = ["#E30613","#00AEEF","#7c3aed","#059669","#0d9488","#b45309","#0369a1"]
-            c_pie_cnt = [{"value":v["count"],
-                          "name":f'{k}\n({round(v["roi"],1)} ROI)',
-                          "itemStyle":{"color":cust_palette[idx%len(cust_palette)]}}
-                         for idx,(k,v) in enumerate(cust_data.items())]
-            st_echarts({
-                "tooltip":{"trigger":"item","formatter":"{b}: {c} ideas ({d}%)"},
-                "series":[{"type":"pie","radius":["35%","65%"],"data":c_pie_cnt,
-                           "label":{"fontSize":9,"formatter":"{b}"},
-                           "labelLine":{"length":8,"length2":5}}]
-            }, height="220px")
+        pass
+        # ── Temporarily hidden: "Customer — Count & ROI" donut chart ──
+        # st.markdown("<span style='font-size:clamp(10px,1vw,13px);font-weight:600;'>Customer — Count &amp; ROI</span>", unsafe_allow_html=True)
+        # cust_data = {}
+        # for i in ideas:
+        #     c = i.get("customer","") or "Unknown"
+        #     if c not in cust_data: cust_data[c] = {"count":0,"roi":0.0}
+        #     cust_data[c]["count"] += 1
+        #     cust_data[c]["roi"]   += float(i.get("roi",0) or 0)
+        # cust_palette = ["#E30613","#00AEEF","#7c3aed","#059669","#0d9488","#b45309","#0369a1"]
+        # c_pie_cnt = [{"value":v["count"],
+        #               "name":f'{k}\n({round(v["roi"],1)} ROI)',
+        #               "itemStyle":{"color":cust_palette[idx%len(cust_palette)]}}
+        #              for idx,(k,v) in enumerate(cust_data.items())]
+        # st_echarts({
+        #     "tooltip":{"trigger":"item","formatter":"{b}: {c} ideas ({d}%)"},
+        #     "series":[{"type":"pie","radius":["35%","65%"],"data":c_pie_cnt,
+        #                "label":{"fontSize":9,"formatter":"{b}"},
+        #                "labelLine":{"length":8,"length2":5}}]
+        # }, height="220px")
 
     with ch3:
         st.markdown("<span style='font-size:clamp(10px,1vw,13px);font-weight:600;'>Ideas by Project</span>", unsafe_allow_html=True)
@@ -2088,9 +2071,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
                 {"name":f"Triage / Feasibility Study\n(Queued: {cnt('Assigned')})","itemStyle":{"color":"#1a4fad"},
                  "children":[
                      {"name":f"Accepted ({cnt('WIP')+cnt('UAT')+cnt('Completed')})","itemStyle":{"color":"#059669"},
-                      "children":(
-                          [{"name":"🔒 Hidden","itemStyle":{"color":"#475569"}}]
-                          if MASK_CATEGORY_DATA else [
+                      "children":[
                           {"name":f"Customer ({cust_cnt})","itemStyle":{"color":"#00498F"},
                            "children":[
                                {"name":f"WIP ({cs('Customer Requirement','WIP')+cs('Customer Requirement','UAT')})","itemStyle":{"color":"#0d9488"}},
@@ -2101,7 +2082,7 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
                                {"name":f"WIP ({cs('Internal','WIP')+cs('Internal','UAT')})","itemStyle":{"color":"#0d9488"}},
                                {"name":f"Deployed ({cs('Internal','Completed')})","itemStyle":{"color":"#059669"}},
                            ]},
-                      ])},
+                      ]},
                      {"name":f"Rejected ({cnt('Rejected')})","itemStyle":{"color":"#dc2626"},
                       "children":[
                           {"name":f"Technical ({rs('Technical Rejection')})","itemStyle":{"color":"#ef4444"}},
