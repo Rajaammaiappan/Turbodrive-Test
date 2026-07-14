@@ -1983,9 +1983,9 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
 </body></html>"""
     st.components.v1.html(_canvas_html, height=440, scrolling=False)
 
-    # ── ROW 3: Charts row (Status BAR chart + Customer pie + clean Hours/Project) ─
+    # ── ROW 3: Charts row (Status BAR chart + clean Hours/Project) ─
     st.markdown("##### 📈 Charts")
-    ch1, ch2, ch3 = st.columns(3)
+    ch1, ch3 = st.columns(2)
 
     with ch1:
         st.markdown("<span style='font-size:clamp(10px,1vw,13px);font-weight:600;'>Ideas by Status</span>", unsafe_allow_html=True)
@@ -2004,28 +2004,6 @@ html,body{{width:100%;height:100%;overflow:hidden;background:#000;font-family:'I
                 "label":{"show":True,"position":"top","fontSize":9,"fontWeight":700},
             }]
         }, height="220px")
-
-    with ch2:
-        pass
-        # ── Temporarily hidden: "Customer — Count & ROI" donut chart ──
-        # st.markdown("<span style='font-size:clamp(10px,1vw,13px);font-weight:600;'>Customer — Count &amp; ROI</span>", unsafe_allow_html=True)
-        # cust_data = {}
-        # for i in ideas:
-        #     c = i.get("customer","") or "Unknown"
-        #     if c not in cust_data: cust_data[c] = {"count":0,"roi":0.0}
-        #     cust_data[c]["count"] += 1
-        #     cust_data[c]["roi"]   += float(i.get("roi",0) or 0)
-        # cust_palette = ["#E30613","#00AEEF","#7c3aed","#059669","#0d9488","#b45309","#0369a1"]
-        # c_pie_cnt = [{"value":v["count"],
-        #               "name":f'{k}\n({round(v["roi"],1)} ROI)',
-        #               "itemStyle":{"color":cust_palette[idx%len(cust_palette)]}}
-        #              for idx,(k,v) in enumerate(cust_data.items())]
-        # st_echarts({
-        #     "tooltip":{"trigger":"item","formatter":"{b}: {c} ideas ({d}%)"},
-        #     "series":[{"type":"pie","radius":["35%","65%"],"data":c_pie_cnt,
-        #                "label":{"fontSize":9,"formatter":"{b}"},
-        #                "labelLine":{"length":8,"length2":5}}]
-        # }, height="220px")
 
     with ch3:
         st.markdown("<span style='font-size:clamp(10px,1vw,13px);font-weight:600;'>Ideas by Project</span>", unsafe_allow_html=True)
