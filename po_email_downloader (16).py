@@ -1160,87 +1160,62 @@ def get_extractions(limit=1000):
 PORT = 5001
 app = Flask(__name__)
 
-# ── Background job state (single job at a time) ─────────────────────────────
-_job = {"running": False, "log": [], "summary": None}
+# ── Background job state ─────────────────────────────────────────────────────
+_job = {
+    "running":     False,
+    "phase":       "",          # "DOWNLOAD" | "CONVERT" | "EXTRACT" | ""
+    "log":         [],
+    "summary":     None,
+    "extractions": [],          # live-appended during Phase 3 for the UI grid
+}
 
 
-# ── Core pipeline ─────────────────────────────────────────────────────────
-def _process_pdf_attachment(pdf_path, log, keep_converted, po, subject, sender,
-                            entry_id, received_str, results):
-    """
-    Single-click extraction stage for one downloaded PDF attachment:
-    Kofax-convert it to Excel, then run the Excel-only extraction engine,
-    then persist the result for the UI. Returns True if a report row was
-    saved.
-    """
-    xlsx_path = convert_pdf_to_excel_kofax(pdf_path, log=log,
-                                                  keep_converted=keep_converted, reuse=True)
-    if not xlsx_path:
-        results["errors"] += 1
-        log_activity("ERROR-CONVERT", entry_id, po, subject, sender,
-                              os.path.basename(pdf_path), "Kofax conversion failed")
-        return False
+# =============================================================================
+#  3-PHASE PIPELINE
+#  Phase 1 — Download ALL emails  → save MSG + PDFs, build conversion queue
+#  Phase 2 — Convert ALL PDFs     → Kofax (existing working code, untouched)
+#  Phase 3 — Extract ALL xlsx     → search vendor/report → fetch fields → UI
+# =============================================================================
 
-    results["tracker_rows"] += 1
-    log(f"  Converted to Excel: {os.path.basename(xlsx_path)}", "ok")
-    log_activity("CONVERTED-TO-EXCEL", entry_id, po, subject, sender,
-                          os.path.basename(pdf_path), xlsx_path)
-
-    res = extract_excel_fields(xlsx_path)
-    if not res:
-        results["tracker_unmatched"] += 1
-        log(f"  No known vendor/report template matched in "
-            f"{os.path.basename(xlsx_path)}", "warn")
-        log_activity("EXTRACT-NO-MATCH", entry_id, po, subject, sender,
-                              os.path.basename(xlsx_path), xlsx_path)
-        return False
-
-    save_extraction(
-        entry_id=entry_id, po=po, vendor=res["vendor"], report=res["report"],
-        file_name=os.path.basename(pdf_path), source_xlsx=xlsx_path,
-        email_subject=subject, email_received=received_str, values=res["values"])
-    log(f"  Extracted: {res['vendor']} — {res['report']}", "ok")
-    log_activity("EXTRACTED", entry_id, po, subject, sender,
-                          os.path.basename(xlsx_path), xlsx_path)
-    return True
-
-
-def run_download(account_name, folder_name, target_root, skip_no_po,
-                 attachment_ext_filter, progress_cb, entry_id=None, store_id=None,
-                 keep_converted=True):
-    """
-    The single-click pipeline. Runs in a background thread.
-    progress_cb(entry) — entry = {"t","m","l"}.
-    Returns a summary dict.
-    """
-    results = {"processed": 0, "skipped_processed": 0, "skipped_no_po": 0,
-               "skipped_no_attach": 0, "errors": 0, "files_saved": [], "log": [],
-               "tracker_rows": 0, "tracker_unmatched": 0}
-
+def _make_log(progress_cb):
+    """Return a log(msg, level) function that appends to _job and calls cb."""
     def log(msg, level="info"):
-        ts = datetime.now().strftime("%H:%M:%S")
-        entry = {"t": ts, "m": msg, "l": level}
-        results["log"].append(entry)
+        entry = {"t": datetime.now().strftime("%H:%M:%S"), "m": msg, "l": level}
+        _job["log"].append(entry)
         progress_cb(entry)
+    return log
 
+
+# ── Phase 1: Download ALL emails ─────────────────────────────────────────────
+def phase1_download(account_name, folder_name, target_root, skip_no_po,
+                    attachment_ext_filter, log, entry_id=None, store_id=None):
+    """
+    Scan the Outlook folder. For every qualifying email:
+      • Save .msg  
+      • Save PDF attachments to PO-numbered folder  
+      • Mark email as processed in shared DB  
+    Returns list of dicts: {pdf, po, subject, sender, entry_id, received}
+    """
+    queue = []
     try:
-        folder = find_folder(account_name, folder_name, entry_id=entry_id, store_id=store_id)
+        folder = find_folder(account_name, folder_name,
+                             entry_id=entry_id, store_id=store_id)
         if not folder:
-            log(f"Cannot find folder '{folder_name}' in account '{account_name}'", "error")
-            return results
+            log(f"Cannot find folder '{folder_name}' in '{account_name}'", "error")
+            return queue
 
         items = folder.Items
         total = items.Count
-        log(f"Found {total} email(s) in {account_name} / {folder_name}", "info")
+        log(f"[PHASE 1] {total} email(s) in {account_name} / {folder_name}", "info")
 
         for idx in range(1, total + 1):
             try:
                 mail = items[idx]
-                if mail.Class != 43:   # only MailItem
+                if mail.Class != 43:
                     continue
 
-                subject = mail.Subject or ""
-                sender = mail.SenderEmailAddress or ""
+                subject       = mail.Subject or ""
+                sender        = mail.SenderEmailAddress or ""
                 mail_entry_id = mail.EntryID
                 try:
                     received_str = mail.ReceivedTime.strftime("%Y-%m-%d %H:%M:%S")
@@ -1249,123 +1224,241 @@ def run_download(account_name, folder_name, target_root, skip_no_po,
 
                 already = is_processed(mail_entry_id)
                 if already:
-                    who, when, where = already[0] or "unknown", already[1] or "?", already[2] or "?"
-                    log(f"[SKIP-DUP] Already downloaded by {who} on {when} "
-                        f"→ {where} | {subject[:45]}", "warn")
-                    results["skipped_processed"] += 1
+                    who  = already[0] or "unknown"
+                    when = already[1] or "?"
+                    log(f"  [SKIP-DUP] {who} on {when}: {subject[:45]}", "warn")
                     continue
 
                 po = extract_po_from_subject(subject)
                 if not po:
                     if skip_no_po:
-                        log(f"[SKIP-NOPO] No PO number found: {subject[:60]}", "warn")
-                        log_activity("SKIP-NOPO", mail_entry_id, "", subject, sender, "", target_root)
-                        results["skipped_no_po"] += 1
+                        log(f"  [SKIP-NOPO] {subject[:60]}", "warn")
+                        log_activity("SKIP-NOPO", mail_entry_id, "", subject,
+                                     sender, "", target_root)
                         continue
                     else:
                         po = "NO_PO_" + sanitise(subject[:20])
 
-                attachments = mail.Attachments
-                att_count = attachments.Count
-                wanted_atts = []
+                atts      = mail.Attachments
+                att_count = atts.Count
+                wanted    = []
                 for a in range(1, att_count + 1):
                     try:
-                        att = attachments.Item(a)
-                        name_lower = (att.FileName or "").lower()
+                        att      = atts.Item(a)
+                        name_low = (att.FileName or "").lower()
                         if attachment_ext_filter:
-                            if any(name_lower.endswith(ext) for ext in attachment_ext_filter):
-                                wanted_atts.append(att)
+                            if any(name_low.endswith(x) for x in attachment_ext_filter):
+                                wanted.append(att)
                         else:
-                            wanted_atts.append(att)
+                            wanted.append(att)
                     except Exception:
                         pass
 
-                if not wanted_atts and att_count == 0:
-                    log(f"[SKIP-NOATT] No attachments: {subject[:60]}", "warn")
-                    log_activity("SKIP-NOATT", mail_entry_id, po, subject, sender, "", target_root)
-                    results["skipped_no_attach"] += 1
+                if not wanted:
+                    log(f"  [SKIP-NOATT] {subject[:60]}", "warn")
+                    log_activity("SKIP-NOATT", mail_entry_id, po, subject,
+                                 sender, "", target_root)
                     continue
 
-                po_folder = os.path.join(target_root, po)
+                po_folder  = os.path.join(target_root, po)
                 os.makedirs(po_folder, exist_ok=True)
+                ts_prefix  = datetime.now().strftime("%Y%m%d_%H%M%S")
+                saved_files = []
 
-                ts_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
-                base_name = f"{po}_{ts_prefix}"
-                files_this_email = []
-
-                msg_path = save_email_as_msg(mail, po_folder, base_name)
+                msg_path = save_email_as_msg(mail, po_folder, f"{po}_{ts_prefix}")
                 if msg_path:
-                    log(f"  Saved email: {os.path.basename(msg_path)}", "ok")
-                    results["files_saved"].append(msg_path)
-                    files_this_email.append(msg_path)
-                    log_activity("SAVED-MSG", mail_entry_id, po, subject, sender,
-                                          os.path.basename(msg_path), msg_path)
+                    saved_files.append(msg_path)
+                    log(f"  📧 MSG: {os.path.basename(msg_path)}", "ok")
+                    log_activity("SAVED-MSG", mail_entry_id, po, subject,
+                                 sender, os.path.basename(msg_path), msg_path)
 
-                for att in wanted_atts:
+                for att in wanted:
                     try:
-                        safe_att_name = sanitise(att.FileName)
-                        att_dest = os.path.join(po_folder, f"{ts_prefix}_{safe_att_name}")
-                        att.SaveAsFile(att_dest)
-                        log(f"  Attachment: {safe_att_name} -> {po}/", "ok")
-                        results["files_saved"].append(att_dest)
-                        files_this_email.append(att_dest)
-                        log_activity("SAVED-ATT", mail_entry_id, po, subject, sender,
-                                              safe_att_name, att_dest)
-
-                        # Single-click extraction: PDF -> Kofax -> Excel -> extract -> display
-                        if safe_att_name.lower().endswith(".pdf"):
-                            try:
-                                _process_pdf_attachment(att_dest, log, keep_converted, po,
-                                                        subject, sender, mail_entry_id,
-                                                        received_str, results)
-                            except Exception as te:
-                                results["errors"] += 1
-                                log(f"  [ERROR] Extraction pipeline failed for {safe_att_name}: {te}", "error")
-                                log_activity("ERROR-CONVERT", mail_entry_id, po, subject, sender,
-                                                      safe_att_name, str(te))
+                        safe_name = sanitise(att.FileName)
+                        dest      = os.path.join(po_folder, f"{ts_prefix}_{safe_name}")
+                        att.SaveAsFile(dest)
+                        saved_files.append(dest)
+                        log(f"  📎 {safe_name} → {po}/", "ok")
+                        log_activity("SAVED-ATT", mail_entry_id, po, subject,
+                                     sender, safe_name, dest)
+                        if safe_name.lower().endswith(".pdf"):
+                            queue.append({
+                                "pdf":      dest,
+                                "po":       po,
+                                "subject":  subject,
+                                "sender":   sender,
+                                "entry_id": mail_entry_id,
+                                "received": received_str,
+                            })
                     except Exception as ae:
-                        log(f"  [ERROR] Attachment save failed: {ae}", "error")
-                        log_activity("ERROR-ATT", mail_entry_id, po, subject, sender,
-                                              str(att.FileName), str(ae))
-                        results["errors"] += 1
+                        log(f"  [ERROR] Save failed: {ae}", "error")
+                        log_activity("ERROR-ATT", mail_entry_id, po, subject,
+                                     sender, str(att.FileName), str(ae))
 
                 mark_processed(mail_entry_id, po, subject, sender,
-                                        po_folder, len(files_this_email))
+                               po_folder, len(saved_files))
                 log_activity("COMPLETED", mail_entry_id, po, subject, sender,
-                                      f"{len(files_this_email)} files", po_folder)
-                results["processed"] += 1
-                log(f"[OK] {po} — {subject[:55]} ({len(files_this_email)} files saved)", "ok")
+                             f"{len(saved_files)} files", po_folder)
+                log(f"[OK] {po} — {subject[:55]} ({len(saved_files)} file(s))", "ok")
 
             except Exception as e:
-                results["errors"] += 1
                 log(f"[ERROR] Item {idx}: {e}", "error")
 
     except Exception:
         log(f"[FATAL] {traceback.format_exc()}", "error")
-        results["errors"] += 1
 
-    return results
+    log(f"[PHASE 1 DONE] {len(queue)} PDF(s) queued for Kofax conversion.", "ok")
+    return queue
 
 
-# ── Background job runners ─────────────────────────────────────────────────
-def _run_job(account, folder, target, skip_no_po, ext_filter, entry_id=None,
-            store_id=None, keep_converted=True):
-    _job["running"] = True
-    _job["log"] = []
-    _job["summary"] = None
+# ── Phase 2: Convert ALL PDFs via Kofax (existing working code called here) ──
+def phase2_convert(queue, log, keep_converted=True):
+    """
+    For each PDF queued in Phase 1, call convert_pdf_to_excel_kofax()
+    (the existing working function — completely unchanged).
+    Adds "xlsx" key to each queue item.
+    """
+    log(f"[PHASE 2] Converting {len(queue)} PDF(s) to Excel via Kofax…", "info")
+
+    for item in queue:
+        pdf = item["pdf"]
+        po  = item["po"]
+        log(f"  Converting: {os.path.basename(pdf)}  ({po})", "info")
+        try:
+            xlsx = convert_pdf_to_excel_kofax(
+                pdf, log=log, keep_converted=keep_converted, reuse=True)
+            item["xlsx"] = xlsx
+            if xlsx:
+                log(f"  ✅ Excel: {os.path.basename(xlsx)}", "ok")
+                log_activity("CONVERTED-TO-EXCEL", item["entry_id"], po,
+                             item["subject"], item["sender"],
+                             os.path.basename(pdf), xlsx)
+            else:
+                log(f"  ❌ Conversion failed: {os.path.basename(pdf)}", "error")
+                log_activity("ERROR-CONVERT", item["entry_id"], po,
+                             item["subject"], item["sender"],
+                             os.path.basename(pdf), "Kofax conversion failed")
+        except Exception as e:
+            item["xlsx"] = None
+            log(f"  [ERROR] {os.path.basename(pdf)}: {e}", "error")
+
+    done   = sum(1 for i in queue if i.get("xlsx"))
+    failed = len(queue) - done
+    log(f"[PHASE 2 DONE] {done} converted, {failed} failed.", "ok")
+    return queue
+
+
+# ── Phase 3: Extract fields from Excel, push results live to UI ──────────────
+def phase3_extract(queue, log):
+    """
+    For each converted xlsx:
+      1. extract_excel_fields() — searches for vendor + report keyword,
+         pulls the data cells.
+      2. save_extraction()      — persists to SQLite.
+      3. _job["extractions"]    — appended live so poll returns new cards
+         to the UI before the job finishes.
+    """
+    ready = [i for i in queue if i.get("xlsx")]
+    log(f"[PHASE 3] Extracting data from {len(ready)} Excel file(s)…", "info")
+
+    matched   = 0
+    unmatched = 0
+
+    for item in ready:
+        xlsx     = item["xlsx"]
+        po       = item["po"]
+        subject  = item["subject"]
+        sender   = item["sender"]
+        entry_id = item["entry_id"]
+        received = item["received"]
+
+        log(f"  Searching: {os.path.basename(xlsx)}", "info")
+        try:
+            res = extract_excel_fields(xlsx)
+        except Exception as e:
+            log(f"  [ERROR] extract_excel_fields: {e}", "error")
+            continue
+
+        if not res:
+            unmatched += 1
+            log(f"  ⚠️  No vendor/report match: {os.path.basename(xlsx)}", "warn")
+            log_activity("EXTRACT-NO-MATCH", entry_id, po, subject,
+                         sender, os.path.basename(xlsx), xlsx)
+            continue
+
+        save_extraction(
+            entry_id=entry_id, po=po, vendor=res["vendor"],
+            report=res["report"], file_name=os.path.basename(item["pdf"]),
+            source_xlsx=xlsx, email_subject=subject,
+            email_received=received, values=res["values"])
+        log_activity("EXTRACTED", entry_id, po, subject, sender,
+                     os.path.basename(xlsx), xlsx)
+
+        # Push live to UI (poll endpoint streams these during Phase 3)
+        _job["extractions"].append({
+            "po":      po,
+            "vendor":  res["vendor"],
+            "report":  res["report"],
+            "file":    os.path.basename(item["pdf"]),
+            "subject": subject,
+            "values":  res["values"],
+            "at":      datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        })
+
+        matched += 1
+        log(f"  ✅ {res['vendor']} — {res['report']} | PO {po}", "ok")
+        for col, val in res["values"].items():
+            log(f"     {col}: {val or '(empty)'}", "ok" if val else "warn")
+
+    log(f"[PHASE 3 DONE] {matched} matched, {unmatched} unmatched.", "ok")
+    return {"matched": matched, "unmatched": unmatched}
+
+
+# ── Background job runner ─────────────────────────────────────────────────────
+def _run_job(account, folder, target, skip_no_po, ext_filter,
+             entry_id=None, store_id=None, keep_converted=True):
+
+    _job["running"]     = True
+    _job["phase"]       = ""
+    _job["log"]         = []
+    _job["summary"]     = None
+    _job["extractions"] = []
 
     def cb(entry):
         _job["log"].append(entry)
 
+    log = _make_log(cb)
+
     try:
-        summary = run_download(account, folder, target, skip_no_po, ext_filter, cb,
-                               entry_id=entry_id, store_id=store_id,
-                               keep_converted=keep_converted)
-        _job["summary"] = summary
+        # ── Phase 1: Download ─────────────────────────────────────────────────
+        _job["phase"] = "DOWNLOAD"
+        log("═══ PHASE 1 — Downloading emails & saving PDFs ═══", "info")
+        queue = phase1_download(account, folder, target, skip_no_po, ext_filter,
+                                log, entry_id=entry_id, store_id=store_id)
+
+        # ── Phase 2: Convert (Kofax — existing working code) ─────────────────
+        _job["phase"] = "CONVERT"
+        log("═══ PHASE 2 — Converting PDFs to Excel via Kofax ═══", "info")
+        queue = phase2_convert(queue, log, keep_converted=keep_converted)
+
+        # ── Phase 3: Extract & display ────────────────────────────────────────
+        _job["phase"] = "EXTRACT"
+        log("═══ PHASE 3 — Extracting data from Excel files ═══", "info")
+        counts = phase3_extract(queue, log)
+
+        _job["summary"] = {
+            "processed":         sum(1 for i in queue),
+            "files_saved":       [i["pdf"] for i in queue] +
+                                 [i["xlsx"] for i in queue if i.get("xlsx")],
+            "errors":            sum(1 for i in queue if not i.get("xlsx")),
+            "tracker_rows":      counts["matched"],
+            "tracker_unmatched": counts["unmatched"],
+        }
+
     except Exception as e:
-        _job["log"].append({"t": datetime.now().strftime("%H:%M:%S"),
-                            "m": f"[FATAL] {e}", "l": "error"})
+        log(f"[FATAL] {e}", "error")
     finally:
+        _job["phase"]   = ""
         _job["running"] = False
 
 
@@ -1502,11 +1595,14 @@ def api_test_kofax():
 
 @app.route("/api/poll", methods=["GET"])
 def api_poll():
-    offset = int(request.args.get("offset", 0))
+    offset     = int(request.args.get("offset", 0))
+    ext_offset = int(request.args.get("ext_offset", 0))
     return jsonify({
-        "running": _job["running"],
-        "log": _job["log"][offset:],
-        "summary": _job["summary"],
+        "running":     _job["running"],
+        "phase":       _job.get("phase", ""),
+        "log":         _job["log"][offset:],
+        "summary":     _job["summary"],
+        "extractions": _job.get("extractions", [])[ext_offset:],
     })
 
 
@@ -1598,6 +1694,23 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--accent);}
 .prog-bar-bg{height:10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);
   overflow:hidden;margin-bottom:6px;}
 .prog-bar{height:100%;width:0%;background:var(--accent);transition:width .3s;border-radius:6px;}
+.phase-banner{display:none;padding:9px 16px;border-radius:10px;font-size:12px;
+    font-weight:700;margin:8px 0;text-align:center;letter-spacing:.4px;
+    animation:phasePulse 1.6s ease-in-out infinite;}
+.phase-banner.dl{background:rgba(0,174,239,.1);border:1.5px solid rgba(0,174,239,.4);color:#00AEEF;}
+.phase-banner.cv{background:rgba(139,92,246,.1);border:1.5px solid rgba(139,92,246,.4);color:#a78bfa;}
+.phase-banner.ex{background:rgba(16,185,129,.1);border:1.5px solid rgba(16,185,129,.4);color:#10B981;}
+@keyframes phasePulse{0%,100%{opacity:.7;}50%{opacity:1;}}
+.result-card{background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.08);
+    border-radius:14px;padding:14px 16px;margin-bottom:10px;border-left:5px solid #10B981;}
+.result-card-hdr{display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:8px;flex-wrap:wrap;gap:6px;}
+.rbadge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10px;font-weight:700;}
+.rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px;margin-top:8px;}
+.rfield{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);
+    border-radius:8px;padding:7px 9px;}
+.rfield-lbl{font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:2px;}
+.rfield-val{font-size:13px;font-weight:700;color:#e2e8f0;}
 #progMsg{font-size:12px;color:var(--muted);}
 #logBox{background:#0f172a;color:#e2e8f0;font-family:Consolas,monospace;font-size:12px;
   padding:12px;border-radius:8px;height:280px;overflow-y:auto;display:none;margin-top:10px;}
@@ -1738,11 +1851,17 @@ footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
       while a run or test is in progress.
     </div>
 
+    <div class="phase-banner" id="phaseBanner"></div>
     <div id="progressWrap">
       <div class="prog-bar-bg"><div class="prog-bar" id="progBar"></div></div>
       <span id="progMsg">Starting…</span>
     </div>
     <div id="logBox"></div>
+
+    <div id="liveResultsWrap" style="display:none;margin-top:16px;">
+      <div style="font-size:13px;font-weight:700;color:#10B981;margin-bottom:10px;">📊 Extracted Report Details</div>
+      <div id="liveResultsGrid"></div>
+    </div>
 
     <div id="summaryGrid">
       <div class="sum-card"><div class="sum-val" id="sProcessed">—</div><div class="sum-lbl">Emails processed</div></div>
@@ -1850,7 +1969,12 @@ footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
 <footer>© 2026 Alten-Rolls-Royce. All rights reserved. Confidential – Internal Use Only.</footer>
 
 <script>
-let allFolders = [], pollInterval = null, logOffset = 0, isRunning = false;
+let allFolders = [], pollInterval = null, logOffset = 0, extOffset = 0, isRunning = false;
+const PHASE_CFG = {
+  DOWNLOAD:{cls:'dl',label:'📥  Phase 1 of 3 — Downloading emails & saving PDFs…'},
+  CONVERT: {cls:'cv',label:'⚙️   Phase 2 of 3 — Converting PDFs to Excel via Kofax…'},
+  EXTRACT: {cls:'ex',label:'🔍  Phase 3 of 3 — Extracting data from Excel files…'},
+};
 let extractionsData = [], extSort = {col: 'at', dir: -1};
 
 // ── Load Outlook folders ──
@@ -1966,22 +2090,62 @@ function resetRunUI(statusText) {
   document.getElementById('progressWrap').style.display = 'block';
   document.getElementById('summaryGrid').style.display = 'none';
   document.getElementById('runStatus').textContent = statusText;
-  logOffset = 0; isRunning = true; checkReady(); animateBar();
+  logOffset = 0; extOffset = 0; isRunning = true;
+  document.getElementById('liveResultsGrid').innerHTML = '';
+  document.getElementById('liveResultsWrap').style.display = 'none';
+  checkReady(); animateBar();
 }
 
 async function pollJob() {
   try {
-    const r = await fetch(`/api/poll?offset=${logOffset}`); const d = await r.json();
+    const r = await fetch(`/api/poll?offset=${logOffset}&ext_offset=${extOffset}`);
+    const d = await r.json();
+    // Phase banner
+    const banner = document.getElementById('phaseBanner');
+    if (d.phase && PHASE_CFG[d.phase]) {
+      const pc = PHASE_CFG[d.phase];
+      banner.className = 'phase-banner ' + pc.cls;
+      banner.textContent = pc.label;
+      banner.style.display = 'block';
+    } else if (!d.running) { banner.style.display = 'none'; }
+    // Log
     d.log.forEach(entry => { logOffset++; appendLog(entry.t, entry.m, entry.l); });
+    // Live extraction cards (streamed during Phase 3)
+    if (d.extractions && d.extractions.length > 0) {
+      document.getElementById('liveResultsWrap').style.display = 'block';
+      d.extractions.forEach(row => { extOffset++; appendResultCard(row); });
+    }
     if (!d.running) {
       clearInterval(pollInterval); isRunning = false;
-      document.getElementById('runStatus').textContent = '✅ Finished!';
+      banner.style.display = 'none';
+      document.getElementById('runStatus').textContent = '✅ All 3 phases complete!';
       document.getElementById('progBar').style.width = '100%';
-      document.getElementById('progMsg').textContent = 'Done.';
+      document.getElementById('progMsg').textContent = 'Done — all phases complete.';
       if (d.summary) showSummary(d.summary);
       checkReady(); loadHistory(); loadExtractions();
     }
   } catch(e) { appendLog('--', 'Poll error: ' + e.message, 'error'); }
+}
+
+function appendResultCard(row) {
+  const grid = document.getElementById('liveResultsGrid');
+  const vals = row.values || {};
+  const fields = Object.entries(vals).map(([k,v]) =>
+    '<div class="rfield"><div class="rfield-lbl">'+esc(k)+'</div>' +
+    '<div class="rfield-val">'+esc(v||'—')+'</div></div>').join('');
+  const card = document.createElement('div');
+  card.className = 'result-card';
+  card.innerHTML =
+    '<div class="result-card-hdr">' +
+    '<div>' +
+    '<span class="rbadge" style="background:rgba(16,185,129,.15);color:#10B981;border:1px solid rgba(16,185,129,.3);">✅ '+esc(row.vendor)+'</span>&nbsp;' +
+    '<span class="rbadge" style="background:rgba(0,174,239,.1);color:#00AEEF;border:1px solid rgba(0,174,239,.3);">'+esc(row.report)+'</span>' +
+    '</div>' +
+    '<div style="font-size:11px;color:#64748b;">PO <b style="color:#e2e8f0;">'+esc(row.po)+'</b> · '+esc(row.file)+' · '+esc(row.at)+'</div>' +
+    '</div>' +
+    '<div style="font-size:11px;color:#475569;margin-bottom:6px;">'+esc(row.subject)+'</div>' +
+    '<div class="rgrid">'+fields+'</div>';
+  grid.appendChild(card);
 }
 
 function appendLog(ts, msg, level) {
