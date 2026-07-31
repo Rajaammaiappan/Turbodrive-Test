@@ -368,49 +368,62 @@ def extract_excel_fields(xlsx_path):
 
 # ── Config ──────────────────────────────────────────────────────────────────
 KOFAX_EXE             = r"C:\Program Files (x86)\Kofax\Power PDF-50\bin\PowerPDF.exe"
-KOFAX_OPEN_WAIT       = 12.0     # max seconds to wait for Kofax window to appear
-KOFAX_SAVE_WAIT       = 8.0      # max seconds to wait for Save As dialog
-KOFAX_TYPE_PATH       = True     # type the output path into Save As + Enter
-KOFAX_OVERWRITE_KEYS  = "%y"     # Alt+Y = Yes on overwrite prompt ("" = skip)
-KOFAX_CONVERT_TIMEOUT = 180      # max seconds to wait for .xlsx to finish writing
-CONVERTED_SUBDIR      = "_converted"
+                                  # full path to the Kofax exe on this PC
+KOFAX_OPEN_WAIT       = 10.0      # max seconds to wait for the Kofax window
+KOFAX_KEYS            = [("%h", 1.5), ("u", 0.65), ("{ENTER}", 2.0)]  # Alt+H → U → Enter
+KOFAX_SAVE_WAIT       = 3.0       # seconds to wait for the Save As dialog
+KOFAX_TYPE_PATH       = True      # type the output .xlsx path into Save As + Enter
+KOFAX_OVERWRITE_KEYS  = "%y"      # Alt+Y = "Yes" on the overwrite prompt ("" = skip)
+KOFAX_CONVERT_TIMEOUT = 180       # max seconds to wait for the .xlsx to appear
+KOFAX_CLOSE_KEYS      = [("^w", 1.0), ("n", 0.6)]  # Ctrl+W then "n" (don't save)
+CONVERTED_SUBDIR      = "_converted"   # where converted .xlsx files are kept
 
-# ── Headless mode ─────────────────────────────────────────────────────────────
-# KOFAX_HEADLESS = True   → Kofax launches minimised; your desktop is not disturbed.
-# KOFAX_HEADLESS = False  → Kofax launches normally (useful for debugging).
-# Change to False only when you need to watch what Kofax is doing.
-KOFAX_HEADLESS        = True
+# Vendor → Report type mapping: PDF must contain BOTH vendor and report text.
+VENDOR_REPORT_MAPPING = {
+    "Parker":                                "CONDITION REPORT",
+    "Parker MEGGITT":                        "Service Breakdown Report",
+    "EATON":                                 "INSPECTION & REPAIR REPORT",
+    "UTC Aerospace Systems":                 "SCRAP STRIP REPORT",
+    "Sumitomo Precision USA Repair Station": "Receiving Teardown/Analysis Report",
+}
+
+# All converted Excel files go here regardless of which PO folder the PDF is in
+# .xlsx is saved in the same folder as the source PDF
+# (automatically set per-PDF inside convert_pdf_to_excel_kofax)
+FORCED_EXCEL_OUTPUT_FOLDER = None  # None = same folder as the PDF
+
+# Seconds to wait after triggering "Make PDF Searchable" for OCR to complete
+# Seconds per page for OCR. Total wait = pages × this value (min 15s).
+# Kofax processes ~1 page every 2-4 seconds on a typical machine.
+KOFAX_SEARCHABLE_WAIT_PER_PAGE = 4.0
+KOFAX_SEARCHABLE_WAIT_MIN      = 15.0  # floor — always wait at least this long
+
 
 
 def _sk_escape(text):
-    """Escape special SendKeys chars in a file-path string."""
+    """Escape a string for WScript.Shell SendKeys (+ ^ % ~ ( ) [ ] { } are special)."""
     out = []
     for ch in str(text):
         out.append("{" + ch + "}" if ch in "+^%~()[]{}" else ch)
     return "".join(out)
 
 
-def _find_window(title_part, timeout, include_invisible=False):
-    """
-    Poll until a window whose title contains `title_part` appears.
-    In headless mode Kofax may be invisible/minimised — pass
-    include_invisible=True to find it even then.
-    Returns (hwnd, title) or None.
-    """
+def _find_window(title_part, timeout):
+    """Wait up to `timeout`s for a visible window whose title contains `title_part`."""
     try:
         import win32gui
     except Exception:
         return None
-    needle   = (title_part or "").lower()
+    needle = (title_part or "").lower()
     deadline = time.time() + timeout
-    found    = {}
+    found = {}
 
     def _cb(hwnd, _):
-        if not include_invisible and not win32gui.IsWindowVisible(hwnd):
+        if not win32gui.IsWindowVisible(hwnd):
             return
         t = win32gui.GetWindowText(hwnd) or ""
         if needle and needle in t.lower():
-            found["hwnd"]  = hwnd
+            found["hwnd"] = hwnd
             found["title"] = t
 
     while time.time() < deadline:
@@ -425,67 +438,31 @@ def _find_window(title_part, timeout, include_invisible=False):
     return None
 
 
-def _send_keys_to_hwnd(hwnd, vk_sequence):
-    """
-    Send virtual-key codes directly to a specific window handle
-    using PostMessage(WM_KEYDOWN / WM_KEYUP).
-
-    This works even when the window is minimised or not in focus —
-    it bypasses the OS active-window requirement entirely.
-
-    vk_sequence: list of (vk_code, hold_ms) tuples.
-      vk_code  — Windows Virtual-Key code (int)
-      hold_ms  — milliseconds to hold the key before releasing
-                 (and pause before the next key)
-
-    Common VK codes used here:
-      0x12 = Alt    0x48 = H    0x55 = U    0x4E = N    0x42 = B
-      0x4D = M      0x0D = Enter  0x11 = Ctrl  0x57 = W
-    """
-    import win32gui, win32con, ctypes
-    WM_KEYDOWN = 0x0100
-    WM_KEYUP   = 0x0101
-
-    for vk, hold_ms in vk_sequence:
-        # MapVirtualKey → scan code (needed for correct key identification)
-        scan = ctypes.windll.user32.MapVirtualKeyW(vk, 0)
-        lp_down = 1 | (scan << 16)                          # repeat=1, scan code
-        lp_up   = 1 | (scan << 16) | (1 << 30) | (1 << 31) # previous=1, transition=1
-
-        win32gui.PostMessage(hwnd, WM_KEYDOWN, vk, lp_down)
-        time.sleep(hold_ms / 1000.0)
-        win32gui.PostMessage(hwnd, WM_KEYUP,   vk, lp_up)
-        time.sleep(max(0.08, hold_ms / 1000.0))  # brief gap between keys
-
-
-def _send_char_to_hwnd(hwnd, char):
-    """Send a single printable character to hwnd via WM_CHAR."""
-    import win32gui
-    WM_CHAR = 0x0102
-    win32gui.PostMessage(hwnd, WM_CHAR, ord(char), 1)
-    time.sleep(0.03)
-
-
-def _send_string_to_hwnd(hwnd, text):
-    """Send every character in `text` to hwnd via WM_CHAR."""
-    for ch in str(text):
-        _send_char_to_hwnd(hwnd, ch)
-
-
-def _restore_window(hwnd):
-    """Restore a minimised window to normal so it can accept dialog input."""
+def _activate_window(hwnd, title):
+    """Bring the Kofax window to the foreground before sending keystrokes."""
+    ok = False
     try:
         import win32gui, win32con
-        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-        time.sleep(0.3)
+        try:
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        except Exception:
+            pass
         win32gui.SetForegroundWindow(hwnd)
-        time.sleep(0.3)
+        ok = True
     except Exception:
         pass
+    if not ok:
+        try:
+            win32com.client.Dispatch("WScript.Shell").AppActivate(title)
+            ok = True
+        except Exception:
+            pass
+    time.sleep(0.6)
+    return ok
 
 
 def _wait_for_stable_file(path, timeout):
-    """Wait for `path` to exist and stop growing."""
+    """Wait for `path` to exist and stop growing (Kofax writes progressively)."""
     deadline = time.time() + timeout
     last, stable = -1, 0
     while time.time() < deadline:
@@ -505,189 +482,308 @@ def _wait_for_stable_file(path, timeout):
     return os.path.exists(path)
 
 
+def _search_not_found_popup(timeout=2):
+    """Dismiss the Kofax "not found" popup if it appears. Returns True if dismissed."""
+    try:
+        import win32gui
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            found = {"hwnd": None}
+            def enum_cb(hwnd, _):
+                if not win32gui.IsWindowVisible(hwnd): return
+                title = win32gui.GetWindowText(hwnd)
+                if "Power PDF" in title or "Find" in title or "Search" in title:
+                    found["hwnd"] = hwnd
+            win32gui.EnumWindows(enum_cb, None)
+            if found["hwnd"]:
+                try: win32gui.SetForegroundWindow(found["hwnd"])
+                except Exception: pass
+                try: win32com.client.Dispatch("WScript.Shell").SendKeys("{ENTER}")
+                except Exception: pass
+                return True
+            time.sleep(0.25)
+    except Exception:
+        pass
+    return False
+
+
+def validate_vendor_report_in_pdf(shell, log=None):
+    """
+    Use Kofax Ctrl+F to check the open (now-searchable) PDF contains a known
+    vendor name AND matching report keyword from VENDOR_REPORT_MAPPING.
+    Returns (vendor, report) on match, or (None, None) if not found.
+    """
+    def _log(msg, lvl="info"):
+        if log: log(msg, lvl)
+
+    for vendor, report in VENDOR_REPORT_MAPPING.items():
+        _log(f"  Searching vendor: {vendor}", "info")
+        shell.SendKeys("^f"); time.sleep(1.0)
+        shell.SendKeys("^a"); shell.SendKeys(_sk_escape(vendor))
+        time.sleep(0.5)
+        shell.SendKeys("{ENTER}"); time.sleep(2.0)
+        if _search_not_found_popup():
+            _log(f"  Vendor not found: {vendor}", "warn")
+            shell.SendKeys("{ESCAPE}"); time.sleep(0.3)
+            continue
+        _log(f"  Vendor found: {vendor}", "ok")
+        _log(f"  Searching report: {report}", "info")
+        shell.SendKeys("^f"); time.sleep(1.0)
+        shell.SendKeys("^a"); shell.SendKeys(_sk_escape(report))
+        time.sleep(0.5)
+        shell.SendKeys("{ENTER}"); time.sleep(2.0)
+        if _search_not_found_popup():
+            _log(f"  Report not found: {report}", "warn")
+            shell.SendKeys("{ESCAPE}"); time.sleep(0.3)
+            return None, None
+        _log(f"  Report found: {report}", "ok")
+        shell.SendKeys("{ESCAPE}"); time.sleep(0.3)
+        return vendor, report
+    return None, None
+
+
 def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=True):
     """
-    Open `pdf_path` in Kofax Power PDF and convert it to Excel.
-
-    Key design decisions
-    ────────────────────
-    • Headless by default (KOFAX_HEADLESS=True): Kofax is launched minimised
-      so it never steals focus from whatever the user is doing.
-
-    • All ribbon keystrokes are sent via PostMessage(WM_KEYDOWN/WM_KEYUP)
-      directly to the Kofax window handle — NOT via WScript.Shell.SendKeys.
-      PostMessage targets the exact hwnd so the keys land inside Kofax
-      regardless of which window the user is currently looking at.
-
-    • WScript.Shell is only used for typing file paths into Save As dialogs
-      (text-box input, where WM_CHAR via PostMessage works fine too).
-
-    Flow
-    ────
-    1. Launch Kofax with the PDF (minimised in headless mode)
-    2. Wait for Kofax window to appear (EnumWindows, includes invisible)
-    3. Send Alt+H → U → Enter directly to the hwnd (ribbon: Convert → Excel)
-    4. Handle the optional "Convert Pages" dialog the same way
-    5. Handle the Save As dialog (restore window briefly, type path, Enter)
-    6. Wait for .xlsx file to finish writing
-    7. Close document (Ctrl+W → N) via PostMessage
-
-    Returns the converted .xlsx path, or None on failure.
+    Full single-flow pipeline:
+      STEP A — Open PDF in Kofax
+      STEP B — Make PDF Searchable (Alt+H → N → B → M → Enter, wait for OCR)
+      STEP C — Validate vendor + report keyword (Ctrl+F search)
+      STEP D — Convert to Excel (Alt+H → U → Enter)
+      STEP E — Save As alongside the source PDF (same folder)
+      STEP F — Wait for .xlsx to finish writing
+      STEP G — Close document in Kofax
+    Returns the .xlsx path or None if skipped/failed.
     """
     def _log(m, l="info"):
         if log:
             log(m, l)
 
-    stem    = os.path.splitext(os.path.basename(pdf_path))[0]
-    out_dir = os.path.join(os.path.dirname(pdf_path), CONVERTED_SUBDIR) \
-              if keep_converted \
-              else os.path.join(os.environ.get("TEMP", "."), "po_kofax")
+    stem = os.path.splitext(os.path.basename(pdf_path))[0]
+    # Save .xlsx in the same folder as the source PDF
+    out_dir = os.path.dirname(os.path.abspath(pdf_path))
     os.makedirs(out_dir, exist_ok=True)
     out_xlsx = os.path.join(out_dir, stem + ".xlsx")
 
+    # Already converted earlier — reuse it instead of driving Kofax again
     if reuse and os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0:
-        _log(f"  Reusing existing Excel: {os.path.basename(out_xlsx)}", "info")
+        _log(f"  Using previously converted Excel: {os.path.basename(out_xlsx)}", "info")
         return out_xlsx
-    if os.path.exists(out_xlsx):
-        try: os.remove(out_xlsx)
-        except Exception: pass
 
-    # WScript.Shell — only used for Save As path typing, not for ribbon keys
+    if os.path.exists(out_xlsx):
+        try:
+            os.remove(out_xlsx)
+        except Exception:
+            pass
+
     try:
         shell = win32com.client.Dispatch("WScript.Shell")
     except Exception as e:
-        _log(f"  [ERROR] WScript.Shell unavailable: {e}", "error")
+        _log(f"  [ERROR] Cannot start WScript.Shell for SendKeys: {e}", "error")
         return None
 
-    # ── 1. Launch Kofax ───────────────────────────────────────────────────────
+    # 1 — Open the PDF in Kofax
     try:
-        norm_pdf   = os.path.normpath(pdf_path)
-        exe        = KOFAX_EXE
+        norm_pdf = os.path.normpath(pdf_path)
+        exe_to_run = KOFAX_EXE
 
-        # Resolve .lnk shortcut if needed
-        if exe and exe.lower().endswith('.lnk') and os.path.exists(exe):
+        if exe_to_run and exe_to_run.lower().endswith('.lnk') and os.path.exists(exe_to_run):
             try:
-                sc = shell.CreateShortcut(exe)
-                t  = getattr(sc, 'TargetPath', None)
-                if t and os.path.exists(t):
-                    exe = t
+                shortcut = shell.CreateShortcut(exe_to_run)
+                target = getattr(shortcut, 'TargetPath', None)
+                if target and os.path.exists(target):
+                    exe_to_run = target
+                else:
+                    _log(f"  [WARN] Shortcut target not found or inaccessible: {exe_to_run}", "warn")
             except Exception:
-                pass
+                _log(f"  [WARN] Failed to resolve shortcut: {exe_to_run}", "warn")
 
-        if exe and os.path.exists(exe):
-            # SW_SHOWMINNOACTIVE (7) = launch minimised, don't steal focus
-            si = subprocess.STARTUPINFO()
-            si.dwFlags    = subprocess.STARTF_USESHOWWINDOW
-            si.wShowWindow = 7 if KOFAX_HEADLESS else 1  # 7=minimised 1=normal
+        if exe_to_run and os.path.exists(exe_to_run):
             try:
-                subprocess.Popen([exe, norm_pdf], startupinfo=si)
+                subprocess.Popen([exe_to_run, norm_pdf])
             except Exception as e:
-                _log(f"  [WARN] Popen failed ({e}), trying os.startfile", "warn")
-                os.startfile(norm_pdf)
+                _log(f"  [WARN] Initial Kofax launch failed: {e}", "warn")
+                try:
+                    if norm_pdf.startswith('\\\\'):
+                        tmp = os.path.join(tempfile.gettempdir(), os.path.basename(norm_pdf))
+                        shutil.copy2(norm_pdf, tmp)
+                        _log(f"  Copied PDF to temp for Kofax: {tmp}", "info")
+                        subprocess.Popen([exe_to_run, tmp])
+                    else:
+                        raise
+                except Exception:
+                    os.startfile(norm_pdf)
         else:
             os.startfile(norm_pdf)
 
-        _log(f"  {'[Headless] ' if KOFAX_HEADLESS else ''}Opening in Kofax: "
-             f"{os.path.basename(norm_pdf)}", "info")
-
+        _log(f"  Opening in Kofax: {os.path.basename(norm_pdf)}", "info")
     except Exception as e:
-        _log(f"  [ERROR] Could not launch Kofax: {e}", "error")
+        _log(f"  [ERROR] Could not open PDF in Kofax: {e}", "error")
         return None
 
-    # ── 2. Find Kofax window (includes invisible/minimised) ───────────────────
-    win = _find_window(stem[:24], KOFAX_OPEN_WAIT, include_invisible=True)
+    win = _find_window(stem[:24], KOFAX_OPEN_WAIT)
     if not win:
-        # Broader search — any Kofax window
-        win = _find_window("kofax", KOFAX_OPEN_WAIT, include_invisible=True) or \
-              _find_window("Power PDF", KOFAX_OPEN_WAIT, include_invisible=True)
-    if not win:
-        _log("  [ERROR] Kofax window not found after waiting. Aborting.", "error")
-        return None
+        _log(f"  [WARN] Kofax window for '{stem}' not detected — "
+             f"sending keys to the active window anyway.", "warn")
+        time.sleep(2.0)
+    else:
+        _activate_window(win[0], win[1])
+        _log(f"  Kofax window active: {win[1][:60]}", "info")
 
-    hwnd = win[0]
-    _log(f"  Kofax window found: '{win[1][:60]}' (hwnd={hwnd})", "info")
+    # ── Shared key sender (hardware-level, bypasses focus routing) ──────────
+    import win32api as _w32api, win32con as _w32con
+    def _kb(vk, down=True):
+        _w32api.keybd_event(vk, 0, 0 if down else _w32con.KEYEVENTF_KEYUP, 0)
+    VK_ALT=0x12; VK_H=0x48; VK_N=0x4E; VK_B=0x42
+    VK_M=0x4D;   VK_U=0x55; VK_ENTER=0x0D
+    VK_CTRL=0x11; VK_W=0x57
 
-    # Short settle time after Kofax fully loads the PDF
-    time.sleep(1.5)
-
-    # ── 3. Send Alt+H → U → Enter directly to hwnd ───────────────────────────
-    # Virtual-key codes:  Alt=0x12  H=0x48  U=0x55  Enter=0x0D
-    # (hold_ms, gap_after) — ribbon needs slightly longer holds
-    _log("  Sending Alt+H → U → Enter to Kofax hwnd (headless-safe)…", "info")
+    # ── STEP B: Make PDF Searchable  (Alt+H → N → B → M → Enter) ────────────
+    # Scanned PDFs have no text layer; OCR must run first so Ctrl+F works.
+    # Ribbon path: Home (Alt+H) → NB shortcut = "Make PDF Searchable" group →
+    #              M = "Make PDF Searchable" item → Convert Pages dialog → Enter
+    _log("  STEP B: Making PDF Searchable (Alt+H → N → B → M → Enter)…", "info")
     try:
-        _send_keys_to_hwnd(hwnd, [
-            (0x12, 80),   # Alt down (80 ms hold)
-            (0x48, 80),   # H       (Alt still implicitly held via WM_KEYDOWN)
-            (0x12, 80),   # Alt up  (send as a second Alt event for release)
-        ])
-        time.sleep(1.2)   # ribbon opens
+        # Alt + H — open Home ribbon
+        _kb(VK_ALT, True); time.sleep(0.08)
+        _kb(VK_H,   True); time.sleep(0.08)
+        _kb(VK_H,   False); time.sleep(0.08)
+        _kb(VK_ALT, False)
+        time.sleep(1.0)        # ribbon opens
 
-        _send_keys_to_hwnd(hwnd, [(0x55, 80)])   # U
-        time.sleep(0.9)                            # sub-menu / dialog appears
+        # N — first char of NB shortcut
+        _kb(VK_N, True); time.sleep(0.08); _kb(VK_N, False); time.sleep(0.5)
 
-        _send_keys_to_hwnd(hwnd, [(0x0D, 80)])   # Enter
-        time.sleep(1.5)
+        # B — second char of NB shortcut  → dropdown appears
+        _kb(VK_B, True); time.sleep(0.08); _kb(VK_B, False); time.sleep(0.8)
 
-        _log("  Keys sent: Alt+H → U → Enter", "ok")
+        # M — "Make PDF Searchable" item in the dropdown
+        _kb(VK_M, True); time.sleep(0.08); _kb(VK_M, False); time.sleep(0.8)
+
+        # Convert Pages dialog (Whole document = default) → Enter = OK
+        conv_dlg = _find_window("Convert Pages", 8.0) or _find_window("Convert", 4.0)
+        if conv_dlg:
+            _activate_window(conv_dlg[0], conv_dlg[1]); time.sleep(0.4)
+            _log("  Convert Pages dialog found — pressing Enter (Whole document)", "info")
+        else:
+            _log("  [WARN] Convert Pages dialog not detected — sending Enter anyway", "warn")
+        _kb(VK_ENTER, True); time.sleep(0.08); _kb(VK_ENTER, False)
+
+        # Auto-scale OCR wait by page count
+        # More pages = more time; floor = KOFAX_SEARCHABLE_WAIT_MIN
+        try:
+            import pypdf as _pypdf
+            with open(pdf_path, "rb") as _pf:
+                _pages = len(_pypdf.PdfReader(_pf).pages)
+        except Exception:
+            try:
+                import PyPDF2 as _pypdf2
+                with open(pdf_path, "rb") as _pf:
+                    _pages = len(_pypdf2.PdfReader(_pf).pages)
+            except Exception:
+                _pages = 3  # fallback if page count unavailable
+        _ocr_wait = max(KOFAX_SEARCHABLE_WAIT_MIN,
+                        _pages * KOFAX_SEARCHABLE_WAIT_PER_PAGE)
+        _log(f"  PDF has {_pages} page(s) — waiting {_ocr_wait:.0f}s for OCR…", "info")
+        time.sleep(_ocr_wait)
+        _log("  Make Searchable complete.", "ok")
     except Exception as e:
-        _log(f"  [ERROR] Key send failed: {e}", "error")
+        _log(f"  [WARN] Make Searchable failed: {e} — continuing anyway", "warn")
+
+    # ── STEP C: Validate vendor + report type ─────────────────────────────────
+    if win: _activate_window(win[0], win[1])
+    time.sleep(0.5)
+    _log("  STEP C: Validating vendor / report type…", "info")
+    vendor, report = validate_vendor_report_in_pdf(shell=shell, log=log)
+    if not vendor:
+        _log("  Vendor/Report not found — skipping this PDF.", "warn")
+        try:
+            _kb(VK_CTRL, True); time.sleep(0.08)
+            _kb(VK_W,    True); time.sleep(0.08); _kb(VK_W, False); time.sleep(0.08)
+            _kb(VK_CTRL, False); time.sleep(0.5)
+            _kb(VK_N,    True); time.sleep(0.08); _kb(VK_N, False)
+        except Exception: pass
+        return None
+    _log(f"  Validated: Vendor={vendor}  Report={report}", "ok")
+
+    # ── STEP D: Convert to Excel  (Alt+H → U → Enter via keybd_event) ────────
+    _log("  STEP D: Converting to Excel (Alt+H → U → Enter)…", "info")
+    try:
+        if win: _activate_window(win[0], win[1])
+        time.sleep(0.4)
+        _kb(VK_ALT, True); time.sleep(0.08)
+        _kb(VK_H,   True); time.sleep(0.08); _kb(VK_H, False); time.sleep(0.08)
+        _kb(VK_ALT, False); time.sleep(1.0)
+        _kb(VK_U,     True); time.sleep(0.08); _kb(VK_U, False); time.sleep(0.8)
+        _kb(VK_ENTER, True); time.sleep(0.08); _kb(VK_ENTER, False); time.sleep(1.5)
+    except Exception as e:
+        _log(f"  [ERROR] Convert to Excel keystrokes failed: {e}", "error")
         return None
 
-    # ── 4. "Convert Pages" dialog (some Kofax builds pop this) ───────────────
-    conv = (_find_window("Convert Pages", 5.0, include_invisible=True) or
-            _find_window("Convert to Excel", 3.0, include_invisible=True))
-    if conv:
-        _log("  Convert Pages dialog detected — pressing Enter (Whole document)", "info")
-        if KOFAX_HEADLESS:
-            _restore_window(conv[0])
-        _send_keys_to_hwnd(conv[0], [(0x0D, 80)])
-        time.sleep(1.0)
+    # Convert Pages dialog for Excel (some builds)
+    try:
+        conv = (_find_window("Convert Pages", 5.0)
+                or _find_window("Convert to Excel", 3.0)
+                or _find_window("Convert", 2.0))
+        if conv:
+            _activate_window(conv[0], conv[1]); time.sleep(0.4)
+            try: shell.SendKeys("%c"); time.sleep(0.5)  # Alt+C = Current Page
+            except Exception: pass
+            shell.SendKeys("{ENTER}")
+            _log("  Convert Pages → Current Page → OK", "info")
+            time.sleep(1.0)
+    except Exception:
+        pass
 
-    # ── 5. Save As dialog ─────────────────────────────────────────────────────
+    # ── STEP E: Save As — navigate to output folder, set filename, Save ────────
     if KOFAX_TYPE_PATH:
-        save_win = (_find_window("Save As", KOFAX_SAVE_WAIT, include_invisible=True) or
-                    _find_window("Save",    KOFAX_SAVE_WAIT, include_invisible=True))
-        if save_win:
-            # Must restore the Save As dialog so the user can see it and we can type into it
-            _restore_window(save_win[0])
-            time.sleep(0.8)
-            try:
-                # Alt+D → address bar, type folder path, Enter
-                shell.SendKeys("%d");                                   time.sleep(0.5)
-                shell.SendKeys(_sk_escape(os.path.dirname(out_xlsx))); time.sleep(0.5)
-                shell.SendKeys("{ENTER}");                              time.sleep(1.5)
-                # Alt+N → filename field, Ctrl+A, type name, Alt+S = Save
-                shell.SendKeys("%n");                                   time.sleep(0.4)
-                shell.SendKeys("^a");                                   time.sleep(0.2)
-                shell.SendKeys(stem + ".xlsx");                         time.sleep(0.4)
-                shell.SendKeys("%s");                                   time.sleep(1.5)
-                _log(f"  Save As → {out_xlsx}", "info")
-                if KOFAX_OVERWRITE_KEYS:
-                    time.sleep(0.5)
-                    shell.SendKeys(KOFAX_OVERWRITE_KEYS)
-            except Exception as e:
-                _log(f"  [WARN] Save As typing failed: {e}", "warn")
-        else:
-            _log("  [WARN] Save As dialog not found — conversion may still succeed "
-                 "if Kofax used a default path.", "warn")
+        save_win = (_find_window("Save As", KOFAX_SAVE_WAIT)
+                    or _find_window("Save",    KOFAX_SAVE_WAIT))
+        try:
+            output_folder = os.path.dirname(os.path.abspath(pdf_path))
+            output_file   = stem + ".xlsx"
+            if save_win:
+                _activate_window(save_win[0], save_win[1]); time.sleep(1.0)
+                # Address Bar (Alt+D) → type folder → Enter
+                shell.SendKeys("%d");                          time.sleep(0.5)
+                shell.SendKeys(_sk_escape(output_folder));    time.sleep(0.5)
+                shell.SendKeys("{ENTER}");                     time.sleep(2.0)
+                # File Name field (Alt+N) → select all → type name
+                shell.SendKeys("%n");                          time.sleep(0.5)
+                shell.SendKeys("^a");                          time.sleep(0.2)
+                shell.SendKeys(output_file);                   time.sleep(0.5)
+                # Save (Alt+S)
+                shell.SendKeys("%s");                          time.sleep(1.5)
+                _log(f"  STEP E: Save As → {out_xlsx}", "info")
+            else:
+                time.sleep(KOFAX_SAVE_WAIT)
+                shell.SendKeys(_sk_escape(out_xlsx)); time.sleep(0.8)
+                shell.SendKeys("{ENTER}")
+                _log(f"  STEP E: Save As (fallback) → {out_xlsx}", "info")
+            time.sleep(1.2)
+            if KOFAX_OVERWRITE_KEYS:
+                shell.SendKeys(KOFAX_OVERWRITE_KEYS)
+        except Exception as e:
+            _log(f"  [WARN] Save As failed: {e}", "warn")
 
-    # ── 6. Wait for .xlsx ─────────────────────────────────────────────────────
+    # ── STEP F: Wait for .xlsx to finish writing ─────────────────────────────
     ok = _wait_for_stable_file(out_xlsx, KOFAX_CONVERT_TIMEOUT)
 
-    # ── 7. Close document (Ctrl+W → N) via PostMessage ───────────────────────
+    # ── STEP G: Close document in Kofax (Ctrl+W → N for don't save) ───────────
     try:
-        _send_keys_to_hwnd(hwnd, [(0x11, 80), (0x57, 80), (0x11, 80)])  # Ctrl+W
-        time.sleep(0.8)
-        _send_keys_to_hwnd(hwnd, [(0x4E, 80)])   # N = don't save
+        _kb(VK_CTRL, True); time.sleep(0.08)
+        _kb(VK_W,    True); time.sleep(0.08); _kb(VK_W, False); time.sleep(0.08)
+        _kb(VK_CTRL, False); time.sleep(0.8)
+        _kb(VK_N,    True); time.sleep(0.08); _kb(VK_N, False)
     except Exception:
         pass
 
     if ok and os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0:
-        _log(f"  ✅ Converted: {os.path.basename(out_xlsx)}", "ok")
+        _log(f"  Converted to Excel: {os.path.basename(out_xlsx)}", "ok")
         return out_xlsx
 
-    _log(f"  [ERROR] No Excel produced for {os.path.basename(pdf_path)}. "
-         f"Expected: {out_xlsx}", "error")
+    _log(f"  [ERROR] Kofax conversion produced no Excel file for {os.path.basename(pdf_path)} "
+         f"(expected {out_xlsx}). Check the KOFAX_KEYS sequence near the top of this file.",
+         "error")
     return None
 
 # =============================================================================
@@ -1068,341 +1164,208 @@ app = Flask(__name__)
 _job = {"running": False, "log": [], "summary": None}
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-#  3-PHASE PIPELINE
-#  Phase 1 — Download ALL emails  → save MSG + PDFs, build a queue
-#  Phase 2 — Convert ALL PDFs     → Kofax → .xlsx (one by one, no Outlook open)
-#  Phase 3 — Extract ALL xlsx     → search vendor/report → fetch fields → UI
-# ══════════════════════════════════════════════════════════════════════════════
-
-# _job carries extra per-phase counters so the UI progress bar can show phase
-_job = {
-    "running":  False,
-    "phase":    "",        # "DOWNLOAD" | "CONVERT" | "EXTRACT" | ""
-    "log":      [],
-    "summary":  None,
-    "extractions": [],     # live-appended during Phase 3 for the results grid
-}
-
-
-# ─── PHASE 1: Download ────────────────────────────────────────────────────────
-def phase1_download(account_name, folder_name, target_root, skip_no_po,
-                    attachment_ext_filter, log, entry_id=None, store_id=None):
+# ── Core pipeline ─────────────────────────────────────────────────────────
+def _process_pdf_attachment(pdf_path, log, keep_converted, po, subject, sender,
+                            entry_id, received_str, results):
     """
-    Scan the Outlook folder.  For each qualifying email:
-      • Save the .msg file
-      • Save all matching PDF attachments to the PO-numbered folder
-      • Mark the email as processed in the shared DB
-
-    Returns a list of dicts:
-      { "pdf": abs_path, "po": str, "subject": str, "sender": str,
-        "entry_id": str, "received": str }
+    Single-click extraction stage for one downloaded PDF attachment:
+    Kofax-convert it to Excel, then run the Excel-only extraction engine,
+    then persist the result for the UI. Returns True if a report row was
+    saved.
     """
-    queue = []   # PDFs to be converted later
+    xlsx_path = convert_pdf_to_excel_kofax(pdf_path, log=log,
+                                                  keep_converted=keep_converted, reuse=True)
+    if not xlsx_path:
+        results["errors"] += 1
+        log_activity("ERROR-CONVERT", entry_id, po, subject, sender,
+                              os.path.basename(pdf_path), "Kofax conversion failed")
+        return False
+
+    results["tracker_rows"] += 1
+    log(f"  Converted to Excel: {os.path.basename(xlsx_path)}", "ok")
+    log_activity("CONVERTED-TO-EXCEL", entry_id, po, subject, sender,
+                          os.path.basename(pdf_path), xlsx_path)
+
+    res = extract_excel_fields(xlsx_path)
+    if not res:
+        results["tracker_unmatched"] += 1
+        log(f"  No known vendor/report template matched in "
+            f"{os.path.basename(xlsx_path)}", "warn")
+        log_activity("EXTRACT-NO-MATCH", entry_id, po, subject, sender,
+                              os.path.basename(xlsx_path), xlsx_path)
+        return False
+
+    save_extraction(
+        entry_id=entry_id, po=po, vendor=res["vendor"], report=res["report"],
+        file_name=os.path.basename(pdf_path), source_xlsx=xlsx_path,
+        email_subject=subject, email_received=received_str, values=res["values"])
+    log(f"  Extracted: {res['vendor']} — {res['report']}", "ok")
+    log_activity("EXTRACTED", entry_id, po, subject, sender,
+                          os.path.basename(xlsx_path), xlsx_path)
+    return True
+
+
+def run_download(account_name, folder_name, target_root, skip_no_po,
+                 attachment_ext_filter, progress_cb, entry_id=None, store_id=None,
+                 keep_converted=True):
+    """
+    The single-click pipeline. Runs in a background thread.
+    progress_cb(entry) — entry = {"t","m","l"}.
+    Returns a summary dict.
+    """
+    results = {"processed": 0, "skipped_processed": 0, "skipped_no_po": 0,
+               "skipped_no_attach": 0, "errors": 0, "files_saved": [], "log": [],
+               "tracker_rows": 0, "tracker_unmatched": 0}
+
+    def log(msg, level="info"):
+        ts = datetime.now().strftime("%H:%M:%S")
+        entry = {"t": ts, "m": msg, "l": level}
+        results["log"].append(entry)
+        progress_cb(entry)
 
     try:
-        folder = find_folder(account_name, folder_name,
-                             entry_id=entry_id, store_id=store_id)
+        folder = find_folder(account_name, folder_name, entry_id=entry_id, store_id=store_id)
         if not folder:
-            log(f"Cannot find folder '{folder_name}' in '{account_name}'", "error")
-            return queue
+            log(f"Cannot find folder '{folder_name}' in account '{account_name}'", "error")
+            return results
 
         items = folder.Items
         total = items.Count
-        log(f"[PHASE 1] Found {total} email(s) in {account_name} / {folder_name}", "info")
+        log(f"Found {total} email(s) in {account_name} / {folder_name}", "info")
 
         for idx in range(1, total + 1):
             try:
                 mail = items[idx]
-                if mail.Class != 43:
+                if mail.Class != 43:   # only MailItem
                     continue
 
-                subject       = mail.Subject or ""
-                sender        = mail.SenderEmailAddress or ""
+                subject = mail.Subject or ""
+                sender = mail.SenderEmailAddress or ""
                 mail_entry_id = mail.EntryID
                 try:
                     received_str = mail.ReceivedTime.strftime("%Y-%m-%d %H:%M:%S")
                 except Exception:
                     received_str = ""
 
-                # Deduplication check
                 already = is_processed(mail_entry_id)
                 if already:
-                    who  = already[0] or "unknown"
-                    when = already[1] or "?"
-                    log(f"  [SKIP-DUP] {who} on {when}: {subject[:45]}", "warn")
+                    who, when, where = already[0] or "unknown", already[1] or "?", already[2] or "?"
+                    log(f"[SKIP-DUP] Already downloaded by {who} on {when} "
+                        f"→ {where} | {subject[:45]}", "warn")
+                    results["skipped_processed"] += 1
                     continue
 
-                # PO number
                 po = extract_po_from_subject(subject)
                 if not po:
                     if skip_no_po:
-                        log(f"  [SKIP-NOPO] {subject[:60]}", "warn")
-                        log_activity("SKIP-NOPO", mail_entry_id, "", subject,
-                                     sender, "", target_root)
+                        log(f"[SKIP-NOPO] No PO number found: {subject[:60]}", "warn")
+                        log_activity("SKIP-NOPO", mail_entry_id, "", subject, sender, "", target_root)
+                        results["skipped_no_po"] += 1
                         continue
                     else:
                         po = "NO_PO_" + sanitise(subject[:20])
 
-                # Collect attachments
-                atts      = mail.Attachments
-                att_count = atts.Count
-                wanted    = []
+                attachments = mail.Attachments
+                att_count = attachments.Count
+                wanted_atts = []
                 for a in range(1, att_count + 1):
                     try:
-                        att       = atts.Item(a)
-                        name_low  = (att.FileName or "").lower()
+                        att = attachments.Item(a)
+                        name_lower = (att.FileName or "").lower()
                         if attachment_ext_filter:
-                            if any(name_low.endswith(x) for x in attachment_ext_filter):
-                                wanted.append(att)
+                            if any(name_lower.endswith(ext) for ext in attachment_ext_filter):
+                                wanted_atts.append(att)
                         else:
-                            wanted.append(att)
+                            wanted_atts.append(att)
                     except Exception:
                         pass
 
-                if not wanted:
-                    log(f"  [SKIP-NOATT] {subject[:60]}", "warn")
+                if not wanted_atts and att_count == 0:
+                    log(f"[SKIP-NOATT] No attachments: {subject[:60]}", "warn")
                     log_activity("SKIP-NOATT", mail_entry_id, po, subject, sender, "", target_root)
+                    results["skipped_no_attach"] += 1
                     continue
 
-                # Create PO folder
-                po_folder  = os.path.join(target_root, po)
+                po_folder = os.path.join(target_root, po)
                 os.makedirs(po_folder, exist_ok=True)
-                ts_prefix  = datetime.now().strftime("%Y%m%d_%H%M%S")
-                saved_files = []
 
-                # Save .msg
-                msg_path = save_email_as_msg(mail, po_folder, f"{po}_{ts_prefix}")
+                ts_prefix = datetime.now().strftime("%Y%m%d_%H%M%S")
+                base_name = f"{po}_{ts_prefix}"
+                files_this_email = []
+
+                msg_path = save_email_as_msg(mail, po_folder, base_name)
                 if msg_path:
-                    saved_files.append(msg_path)
-                    log(f"  📧 MSG saved: {os.path.basename(msg_path)}", "ok")
-                    log_activity("SAVED-MSG", mail_entry_id, po, subject,
-                                 sender, os.path.basename(msg_path), msg_path)
+                    log(f"  Saved email: {os.path.basename(msg_path)}", "ok")
+                    results["files_saved"].append(msg_path)
+                    files_this_email.append(msg_path)
+                    log_activity("SAVED-MSG", mail_entry_id, po, subject, sender,
+                                          os.path.basename(msg_path), msg_path)
 
-                # Save attachments
-                for att in wanted:
+                for att in wanted_atts:
                     try:
-                        safe_name = sanitise(att.FileName)
-                        dest      = os.path.join(po_folder, f"{ts_prefix}_{safe_name}")
-                        att.SaveAsFile(dest)
-                        saved_files.append(dest)
-                        log(f"  📎 Saved: {safe_name} → {po}/", "ok")
-                        log_activity("SAVED-ATT", mail_entry_id, po, subject,
-                                     sender, safe_name, dest)
+                        safe_att_name = sanitise(att.FileName)
+                        att_dest = os.path.join(po_folder, f"{ts_prefix}_{safe_att_name}")
+                        att.SaveAsFile(att_dest)
+                        log(f"  Attachment: {safe_att_name} -> {po}/", "ok")
+                        results["files_saved"].append(att_dest)
+                        files_this_email.append(att_dest)
+                        log_activity("SAVED-ATT", mail_entry_id, po, subject, sender,
+                                              safe_att_name, att_dest)
 
-                        # Add PDF to the conversion queue
-                        if safe_name.lower().endswith(".pdf"):
-                            queue.append({
-                                "pdf":      dest,
-                                "po":       po,
-                                "subject":  subject,
-                                "sender":   sender,
-                                "entry_id": mail_entry_id,
-                                "received": received_str,
-                            })
+                        # Single-click extraction: PDF -> Kofax -> Excel -> extract -> display
+                        if safe_att_name.lower().endswith(".pdf"):
+                            try:
+                                _process_pdf_attachment(att_dest, log, keep_converted, po,
+                                                        subject, sender, mail_entry_id,
+                                                        received_str, results)
+                            except Exception as te:
+                                results["errors"] += 1
+                                log(f"  [ERROR] Extraction pipeline failed for {safe_att_name}: {te}", "error")
+                                log_activity("ERROR-CONVERT", mail_entry_id, po, subject, sender,
+                                                      safe_att_name, str(te))
                     except Exception as ae:
                         log(f"  [ERROR] Attachment save failed: {ae}", "error")
-                        log_activity("ERROR-ATT", mail_entry_id, po, subject,
-                                     sender, str(att.FileName), str(ae))
+                        log_activity("ERROR-ATT", mail_entry_id, po, subject, sender,
+                                              str(att.FileName), str(ae))
+                        results["errors"] += 1
 
-                # Mark processed so other users skip this email
                 mark_processed(mail_entry_id, po, subject, sender,
-                               po_folder, len(saved_files))
+                                        po_folder, len(files_this_email))
                 log_activity("COMPLETED", mail_entry_id, po, subject, sender,
-                             f"{len(saved_files)} files", po_folder)
-                log(f"[OK] {po} — {subject[:55]} ({len(saved_files)} file(s) saved)", "ok")
+                                      f"{len(files_this_email)} files", po_folder)
+                results["processed"] += 1
+                log(f"[OK] {po} — {subject[:55]} ({len(files_this_email)} files saved)", "ok")
 
             except Exception as e:
+                results["errors"] += 1
                 log(f"[ERROR] Item {idx}: {e}", "error")
 
     except Exception:
         log(f"[FATAL] {traceback.format_exc()}", "error")
+        results["errors"] += 1
 
-    log(f"[PHASE 1 DONE] {len(queue)} PDF(s) queued for conversion.", "ok")
-    return queue
-
-
-# ─── PHASE 2: Convert ALL PDFs via Kofax ────────────────────────────────────
-def phase2_convert(queue, log, keep_converted=True):
-    """
-    Iterate the PDF queue built in Phase 1.
-    For each PDF, run the full Kofax pipeline:
-      STEP A: Open in Kofax
-      STEP B: Make Searchable (OCR)   — Alt+H → N → B → M → Enter
-      STEP C: Convert to Excel        — Alt+H → U → Enter
-      STEP D: Save As next to the PDF
-
-    Returns the same queue with "xlsx" key added (or None if conversion failed).
-    """
-    log(f"[PHASE 2] Converting {len(queue)} PDF(s) to Excel via Kofax…", "info")
-    log("  ⚠️  Do NOT touch the mouse or keyboard until Phase 2 finishes.", "warn")
-
-    for item in queue:
-        pdf  = item["pdf"]
-        po   = item["po"]
-        log(f"  Converting: {os.path.basename(pdf)} ({po})", "info")
-        try:
-            xlsx = convert_pdf_to_excel_kofax(pdf, log=log,
-                                              keep_converted=keep_converted,
-                                              reuse=True)
-            item["xlsx"] = xlsx
-            if xlsx:
-                log(f"  ✅ Excel ready: {os.path.basename(xlsx)}", "ok")
-                log_activity("CONVERTED-TO-EXCEL", item["entry_id"], po,
-                             item["subject"], item["sender"],
-                             os.path.basename(pdf), xlsx)
-            else:
-                log(f"  ❌ Conversion failed: {os.path.basename(pdf)}", "error")
-                log_activity("ERROR-CONVERT", item["entry_id"], po,
-                             item["subject"], item["sender"],
-                             os.path.basename(pdf), "Kofax conversion failed")
-        except Exception as e:
-            item["xlsx"] = None
-            log(f"  [ERROR] {os.path.basename(pdf)}: {e}", "error")
-
-    done  = sum(1 for i in queue if i.get("xlsx"))
-    failed = len(queue) - done
-    log(f"[PHASE 2 DONE] {done} converted, {failed} failed.", "ok")
-    return queue
+    return results
 
 
-# ─── PHASE 3: Extract fields from Excel files ─────────────────────────────────
-def phase3_extract(queue, log):
-    """
-    For each converted xlsx in the queue:
-      1. Call extract_excel_fields() to search for vendor name and report keyword
-         inside the spreadsheet and pull the relevant data cells.
-      2. Save the extraction result to the shared SQLite DB
-         (so the UI results grid can show it immediately via /api/extractions).
-      3. Append it live to _job["extractions"] so the poll endpoint returns
-         new rows before the job finishes.
+# ── Background job runners ─────────────────────────────────────────────────
+def _run_job(account, folder, target, skip_no_po, ext_filter, entry_id=None,
+            store_id=None, keep_converted=True):
+    _job["running"] = True
+    _job["log"] = []
+    _job["summary"] = None
 
-    Returns summary counts.
-    """
-    log(f"[PHASE 3] Extracting data from {sum(1 for i in queue if i.get('xlsx'))} Excel file(s)…",
-        "info")
-
-    matched   = 0
-    unmatched = 0
-
-    for item in queue:
-        xlsx = item.get("xlsx")
-        if not xlsx or not os.path.exists(xlsx):
-            continue
-
-        po      = item["po"]
-        subject = item["subject"]
-        sender  = item["sender"]
-        entry_id = item["entry_id"]
-        received = item["received"]
-
-        log(f"  Searching: {os.path.basename(xlsx)}", "info")
-        try:
-            res = extract_excel_fields(xlsx)
-        except Exception as e:
-            log(f"  [ERROR] extract_excel_fields failed: {e}", "error")
-            continue
-
-        if not res:
-            unmatched += 1
-            log(f"  ⚠️  No vendor/report match: {os.path.basename(xlsx)}", "warn")
-            log_activity("EXTRACT-NO-MATCH", entry_id, po, subject, sender,
-                         os.path.basename(xlsx), xlsx)
-            continue
-
-        # Save to DB
-        save_extraction(
-            entry_id     = entry_id,
-            po           = po,
-            vendor       = res["vendor"],
-            report       = res["report"],
-            file_name    = os.path.basename(item["pdf"]),
-            source_xlsx  = xlsx,
-            email_subject = subject,
-            email_received = received,
-            values       = res["values"],
-        )
-        log_activity("EXTRACTED", entry_id, po, subject, sender,
-                     os.path.basename(xlsx), xlsx)
-
-        # Also push live to _job so the UI sees it immediately
-        row = {
-            "po":      po,
-            "vendor":  res["vendor"],
-            "report":  res["report"],
-            "file":    os.path.basename(item["pdf"]),
-            "subject": subject,
-            "values":  res["values"],
-            "at":      datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        }
-        _job["extractions"].append(row)
-
-        matched += 1
-        log(f"  ✅ {res['vendor']} — {res['report']} | PO {po}", "ok")
-        for col, val in res["values"].items():
-            log(f"     {col}: {val or '(empty)'}", "ok" if val else "warn")
-
-    log(f"[PHASE 3 DONE] {matched} matched, {unmatched} no-match.", "ok")
-    return {"matched": matched, "unmatched": unmatched}
-
-
-# ─── Background job runner (orchestrates all 3 phases) ───────────────────────
-def _run_job(account, folder, target, skip_no_po, ext_filter,
-             entry_id=None, store_id=None, keep_converted=True):
-
-    _job["running"]     = True
-    _job["phase"]       = "DOWNLOAD"
-    _job["log"]         = []
-    _job["summary"]     = None
-    _job["extractions"] = []
-
-    def cb(msg_or_entry, level="info"):
-        """
-        Unified log callback — accepts either:
-          cb("some message", "warn")   ← called by phase1/2/3 functions
-          cb({"t":…,"m":…,"l":…})     ← called directly in _run_job
-        """
-        if isinstance(msg_or_entry, dict):
-            _job["log"].append(msg_or_entry)
-        else:
-            _job["log"].append({
-                "t": datetime.now().strftime("%H:%M:%S"),
-                "m": msg_or_entry,
-                "l": level,
-            })
+    def cb(entry):
+        _job["log"].append(entry)
 
     try:
-        # ── Phase 1 ──────────────────────────────────────────────────────────
-        _job["phase"] = "DOWNLOAD"
-        cb("═══ PHASE 1 — Downloading emails & saving PDFs ═══", "info")
-        queue = phase1_download(account, folder, target, skip_no_po, ext_filter,
-                                cb, entry_id=entry_id, store_id=store_id)
-
-        # ── Phase 2 ──────────────────────────────────────────────────────────
-        _job["phase"] = "CONVERT"
-        cb("═══ PHASE 2 — Converting PDFs to Excel via Kofax ═══", "info")
-        queue = phase2_convert(queue, cb, keep_converted=keep_converted)
-
-        # ── Phase 3 ──────────────────────────────────────────────────────────
-        _job["phase"] = "EXTRACT"
-        cb("═══ PHASE 3 — Extracting data from Excel files ═══", "info")
-        ext_counts = phase3_extract(queue, cb)
-
-        _job["summary"] = {
-            "processed":        sum(1 for i in queue),
-            "files_saved":      [i["pdf"] for i in queue] +
-                                [i["xlsx"] for i in queue if i.get("xlsx")],
-            "errors":           sum(1 for i in queue if not i.get("xlsx")),
-            "tracker_rows":     ext_counts["matched"],
-            "tracker_unmatched":ext_counts["unmatched"],
-            "extractions":      _job["extractions"],
-        }
-
+        summary = run_download(account, folder, target, skip_no_po, ext_filter, cb,
+                               entry_id=entry_id, store_id=store_id,
+                               keep_converted=keep_converted)
+        _job["summary"] = summary
     except Exception as e:
         _job["log"].append({"t": datetime.now().strftime("%H:%M:%S"),
                             "m": f"[FATAL] {e}", "l": "error"})
     finally:
-        _job["phase"]   = ""
         _job["running"] = False
 
 
@@ -1635,24 +1598,6 @@ input[type=checkbox]{width:15px;height:15px;accent-color:var(--accent);}
 .prog-bar-bg{height:10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);
   overflow:hidden;margin-bottom:6px;}
 .prog-bar{height:100%;width:0%;background:var(--accent);transition:width .3s;border-radius:6px;}
-.phase-banner{display:none;padding:10px 16px;border-radius:10px;font-size:13px;font-weight:700;
-    margin:10px 0;text-align:center;letter-spacing:.5px;animation:phasePulse 1.5s ease-in-out infinite;}
-.phase-banner.dl{background:rgba(0,212,255,.1);border:1.5px solid rgba(0,212,255,.4);color:#00D4FF;}
-.phase-banner.cv{background:rgba(139,92,246,.1);border:1.5px solid rgba(139,92,246,.4);color:#a78bfa;}
-.phase-banner.ex{background:rgba(16,185,129,.1);border:1.5px solid rgba(16,185,129,.4);color:#10B981;}
-@keyframes phasePulse{0%,100%{opacity:.75;}50%{opacity:1;}}
-.result-card{background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.08);
-    border-radius:14px;padding:16px 18px;margin-bottom:12px;border-left:5px solid #10B981;}
-.result-card-header{display:flex;align-items:center;justify-content:space-between;
-    margin-bottom:10px;flex-wrap:wrap;gap:8px;}
-.result-badge{display:inline-block;padding:3px 10px;border-radius:20px;
-    font-size:10px;font-weight:700;}
-.result-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
-    gap:8px;margin-top:8px;}
-.result-field{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);
-    border-radius:8px;padding:8px 10px;}
-.result-field-label{font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:2px;}
-.result-field-value{font-size:13px;font-weight:700;color:#e2e8f0;}
 #progMsg{font-size:12px;color:var(--muted);}
 #logBox{background:#0f172a;color:#e2e8f0;font-family:Consolas,monospace;font-size:12px;
   padding:12px;border-radius:8px;height:280px;overflow-y:auto;display:none;margin-top:10px;}
@@ -1793,19 +1738,11 @@ footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
       while a run or test is in progress.
     </div>
 
-    <div class="phase-banner" id="phaseBanner"></div>
     <div id="progressWrap">
       <div class="prog-bar-bg"><div class="prog-bar" id="progBar"></div></div>
       <span id="progMsg">Starting…</span>
     </div>
     <div id="logBox"></div>
-
-    <div id="liveResultsWrap" style="display:none;margin-top:18px;">
-      <div style="font-size:13px;font-weight:700;color:#10B981;margin-bottom:10px;">
-        📊 Extracted Report Details
-      </div>
-      <div id="liveResultsGrid"></div>
-    </div>
 
     <div id="summaryGrid">
       <div class="sum-card"><div class="sum-val" id="sProcessed">—</div><div class="sum-lbl">Emails processed</div></div>
@@ -2029,71 +1966,23 @@ function resetRunUI(statusText) {
   document.getElementById('progressWrap').style.display = 'block';
   document.getElementById('summaryGrid').style.display = 'none';
   document.getElementById('runStatus').textContent = statusText;
-  logOffset = 0; extOffset = 0; isRunning = true;
-  document.getElementById('liveResultsGrid').innerHTML = '';
-  document.getElementById('liveResultsWrap').style.display = 'none';
-  checkReady(); animateBar();
+  logOffset = 0; isRunning = true; checkReady(); animateBar();
 }
-
-let extOffset = 0;
-const PHASE_CONFIG = {
-  DOWNLOAD:{cls:'dl',label:'📥  Phase 1 of 3 — Downloading emails & saving PDFs…'},
-  CONVERT: {cls:'cv',label:'⚙️   Phase 2 of 3 — Converting PDFs to Excel via Kofax… (do NOT touch PC)'},
-  EXTRACT: {cls:'ex',label:'🔍  Phase 3 of 3 — Extracting data from Excel files…'},
-};
 
 async function pollJob() {
   try {
-    const r = await fetch(`/api/poll?offset=${logOffset}&ext_offset=${extOffset}`);
-    const d = await r.json();
-    // Phase banner
-    const banner = document.getElementById('phaseBanner');
-    if (d.phase && PHASE_CONFIG[d.phase]) {
-      const pc = PHASE_CONFIG[d.phase];
-      banner.className = 'phase-banner ' + pc.cls;
-      banner.textContent = pc.label;
-      banner.style.display = 'block';
-    } else if (!d.running) { banner.style.display = 'none'; }
-    // Log
+    const r = await fetch(`/api/poll?offset=${logOffset}`); const d = await r.json();
     d.log.forEach(entry => { logOffset++; appendLog(entry.t, entry.m, entry.l); });
-    // Live extraction cards streamed during Phase 3
-    if (d.extractions && d.extractions.length > 0) {
-      document.getElementById('liveResultsWrap').style.display = 'block';
-      d.extractions.forEach(row => { extOffset++; appendResultCard(row); });
-    }
     if (!d.running) {
       clearInterval(pollInterval); isRunning = false;
-      banner.style.display = 'none';
-      document.getElementById('runStatus').textContent = '✅ All 3 phases complete!';
+      document.getElementById('runStatus').textContent = '✅ Finished!';
       document.getElementById('progBar').style.width = '100%';
-      document.getElementById('progMsg').textContent = 'Done — all 3 phases complete.';
+      document.getElementById('progMsg').textContent = 'Done.';
       if (d.summary) showSummary(d.summary);
       checkReady(); loadHistory(); loadExtractions();
     }
   } catch(e) { appendLog('--', 'Poll error: ' + e.message, 'error'); }
 }
-
-function appendResultCard(row) {
-  const grid = document.getElementById('liveResultsGrid');
-  const vals = row.values || {};
-  const fields = Object.entries(vals).map(([k,v]) =>
-    '<div class="result-field"><div class="result-field-label">'+esc(k)+'</div>' +
-    '<div class="result-field-value">'+esc(v||'—')+'</div></div>').join('');
-  const card = document.createElement('div');
-  card.className = 'result-card';
-  card.innerHTML =
-    '<div class="result-card-header">' +
-    '<div>' +
-    '<span class="result-badge" style="background:rgba(16,185,129,.15);color:#10B981;border:1px solid rgba(16,185,129,.3);">✅ '+esc(row.vendor)+'</span>&nbsp;' +
-    '<span class="result-badge" style="background:rgba(0,212,255,.1);color:#00D4FF;border:1px solid rgba(0,212,255,.3);">'+esc(row.report)+'</span>' +
-    '</div>' +
-    '<div style="font-size:11px;color:#64748b;">PO <b style="color:#e2e8f0;">'+esc(row.po)+'</b> · '+esc(row.file)+' · '+esc(row.at)+'</div>' +
-    '</div>' +
-    '<div style="font-size:11px;color:#475569;margin-bottom:8px;">'+esc(row.subject)+'</div>' +
-    '<div class="result-grid">'+fields+'</div>';
-  grid.appendChild(card);
-}
-
 
 function appendLog(ts, msg, level) {
   const box = document.getElementById('logBox');
