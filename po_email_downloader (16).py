@@ -456,32 +456,34 @@ def _wait_for_stable_file(path, timeout):
 
 
 # ── Config for the Excel + Kofax-PDF-ribbon-add-in conversion method ─────────
-# Exact method (as used on this machine):
+# Exact method, confirmed against this machine's actual Kofax PDF add-in:
 #   1. Open a blank workbook in Microsoft Excel
-#   2. Click the "Kofax PDF" ribbon tab
-#   3. Click "Open PDF/XPS" on that tab  → a normal Windows file-open dialog appears
-#   4. Type/select the PDF and press Enter → Kofax's converter window opens
-#   5. Send Ctrl+5 → starts the conversion
-#   6. Press Enter → confirms, and the converted data appears as a new
-#      Excel workbook inside the SAME Excel instance
-#   7. That workbook is then saved to disk next to the PDF via Excel's own
-#      SaveAs (COM) — no further keystrokes needed for the save itself.
+#   2. Alt → "Y" "2" → selects the "Kofax PDF" ribbon tab (its KeyTip badge
+#      reads "Y2" — Office assigns two-character KeyTips once a workbook
+#      has more ribbon tabs than single letters/numbers to go around)
+#   3. "Y" → clicks "Open PDF/XPS" on that tab → a normal Windows
+#      file-open dialog appears
+#   4. Type the PDF's full path → Enter → Kofax's own "Kofax Convert
+#      Assistant" window opens and does the conversion
+#   5. If that window warns the output file already exists (e.g. left over
+#      from an earlier run), it is clicked "No" automatically → overwrite
+#   6. Ctrl+5 → Enter → starts / confirms the conversion
+#   7. The resulting workbook is then either opened automatically inside
+#      this same Excel instance, or written straight to Kofax's own default
+#      output folder (which is NOT necessarily next to the PDF — on this
+#      machine it lands under a mapped home-directory path). Either way,
+#      Excel's COM API tells us exactly where it ended up
+#      (`workbook.FullName`), so the file is then copied/relocated to sit
+#      next to the source PDF, matching every other attachment.
+#   8. Close everything, quit Excel, no manual save/close needed.
 #
-# Steps 2–3 (the ribbon click) are the one part of this that depends on your
-# Kofax add-in's exact keyboard shortcuts ("KeyTips"). To find them: open a
-# blank workbook in Excel, press the Alt key ONCE — small letter/number
-# badges appear over every ribbon tab. Note the badge over "Kofax PDF"
-# (e.g. "L"), set KOFAX_TAB_KEYTIP to it below. Then, with the ribbon still
-# showing KeyTips, press just that letter — new badges appear over every
-# button on the Kofax PDF tab. Note the badge over "Open PDF/XPS"
-# (e.g. "OP" — KeyTips can be one or two characters) and set
-# KOFAX_OPEN_PDF_KEYTIP to it. These two constants are the only guesswork in
-# this function; everything else (finding windows, saving, closing) is
-# driven directly through Excel's COM API, which does not depend on guessed
-# keystrokes.
-KOFAX_TAB_KEYTIP       = "L"     # <-- SET ME: KeyTip badge over the "Kofax PDF" ribbon tab
-KOFAX_OPEN_PDF_KEYTIP  = "OP"    # <-- SET ME: KeyTip badge over the "Open PDF/XPS" button
-KOFAX_CONVERT_KEYS     = "^5"    # Ctrl+5 — starts the conversion in Kofax's converter window
+# The only guesswork left is step 2/3's KeyTips — if your Kofax add-in ever
+# changes version and the badges shift, open a blank workbook, press Alt
+# once to see the tab-level badges, then press just that tab's badge to see
+# the button-level badges, and update the two constants below.
+KOFAX_TAB_KEYTIP       = "y2"    # KeyTip over the "Kofax PDF" ribbon tab
+KOFAX_OPEN_PDF_KEYTIP  = "y"     # KeyTip over the "Open PDF/XPS" button
+KOFAX_CONVERT_KEYS     = "^5"    # Ctrl+5 — starts the conversion
 KOFAX_OPEN_WAIT        = 15.0    # seconds to wait for each dialog/window to appear
 KOFAX_CONVERT_TIMEOUT  = 180     # seconds to wait for the conversion to finish
 CONVERTED_SUBDIR       = "_converted"   # unused by default (xlsx is saved beside the PDF,
@@ -503,30 +505,71 @@ def _get_excel_hwnd(xl, timeout=15.0):
     return None
 
 
+def _click_button_by_text(parent_hwnd, texts, timeout=3.0):
+    """
+    Find a Button-class child control anywhere under `parent_hwnd` whose
+    visible text matches one of `texts` (case-insensitive, '&' mnemonic
+    markers stripped) and click it with a native BM_CLICK message —
+    reliable regardless of the dialog's keyboard mnemonics or tab order.
+    Returns True if a matching button was found and clicked.
+    """
+    try:
+        import win32gui
+        import win32con
+    except Exception:
+        return False
+    wanted = {t.strip().lower() for t in texts}
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        found = {}
+
+        def _cb(hwnd, _):
+            try:
+                cls = win32gui.GetClassName(hwnd)
+                if cls.lower() == "button":
+                    txt = (win32gui.GetWindowText(hwnd) or "").replace("&", "").strip().lower()
+                    if txt in wanted:
+                        found["hwnd"] = hwnd
+            except Exception:
+                pass
+
+        try:
+            win32gui.EnumChildWindows(parent_hwnd, _cb, None)
+        except Exception:
+            pass
+        if found:
+            try:
+                win32gui.SendMessage(found["hwnd"], win32con.BM_CLICK, 0, 0)
+                return True
+            except Exception:
+                return False
+        time.sleep(0.25)
+    return False
+
+
 def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=True):
     """
     Convert a PDF to Excel using the "Kofax PDF" tab inside Microsoft Excel.
 
     Flow:
       1. Launch Excel via COM (win32com) and add a blank workbook
-      2. Send Alt → KOFAX_TAB_KEYTIP → KOFAX_OPEN_PDF_KEYTIP to reach
-         Kofax PDF → Open PDF/XPS on the ribbon
+      2. Send Alt → "y2" → "y" to reach Kofax PDF → Open PDF/XPS on the ribbon
       3. Type the PDF's full path into the resulting Open dialog → Enter
-      4. Wait for Kofax's converter window, send Ctrl+5 → Enter to start
-         and confirm the conversion
-      5. Wait for the conversion to finish (Excel's workbook count goes up),
-         then use Excel's own SaveAs (COM, not keystrokes) to write the
-         result to the same folder as the PDF, using the same file name (.xlsx)
-      6. Close the converted workbook and the blank one, quit Excel
+      4. If Kofax warns the output file already exists, click "No" (overwrite)
+      5. Send Ctrl+5 → Enter to start and confirm the conversion
+      6. Wait for the result (a newly opened workbook in this same Excel
+         instance), read its real save location via COM (`FullName`), and
+         copy/relocate it to sit next to the PDF (Excel's own SaveAs is
+         used instead if the workbook hasn't been saved anywhere yet)
+      7. Close the converted workbook and the blank one, quit Excel
 
-    Using COM for steps 1, 5 and 6 (rather than SendKeys) means launching,
-    saving, and closing Excel do not depend on any guessed keystrokes —
-    only the ribbon-tab click in step 2 does (see the KOFAX_TAB_KEYTIP /
-    KOFAX_OPEN_PDF_KEYTIP comment above).
+    Only step 2 depends on guessed keystrokes (the ribbon KeyTips); every
+    other step — launching, detecting the result, saving/relocating it, and
+    closing — goes through Excel's COM API directly.
 
-    Returns the .xlsx path, or None on failure.
-    NOTE: this drives the real keyboard for the ribbon navigation and the
-    Kofax converter dialog — do not use the mouse or keyboard while it runs.
+    Returns the .xlsx path (always next to the source PDF), or None on
+    failure. NOTE: this drives the real keyboard for the ribbon navigation
+    and the Kofax dialogs — do not use the mouse or keyboard while it runs.
     """
     def _log(m, l="info"):
         if log:
@@ -578,15 +621,15 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
     _log("  Excel ready.", "info")
     time.sleep(1.0)
 
-    # ── 2. Ribbon: Alt → Kofax PDF tab → Open PDF/XPS ───────────────────────
+    # ── 2. Ribbon: Alt → Kofax PDF tab (y2) → Open PDF/XPS (y) ──────────────
     _log("  Step 2: Opening Kofax PDF → Open PDF/XPS on the ribbon…", "info")
     try:
         _activate_window(hwnd, "Excel")
         shell.SendKeys("%")                     # Alt — shows ribbon KeyTips
         time.sleep(0.8)
-        shell.SendKeys(KOFAX_TAB_KEYTIP)          # select the Kofax PDF tab
+        shell.SendKeys(KOFAX_TAB_KEYTIP)          # "y2" — selects the Kofax PDF tab
         time.sleep(0.8)
-        shell.SendKeys(KOFAX_OPEN_PDF_KEYTIP)     # click Open PDF/XPS
+        shell.SendKeys(KOFAX_OPEN_PDF_KEYTIP)     # "y" — clicks Open PDF/XPS
         time.sleep(1.2)
     except Exception as e:
         _log(f"  [ERROR] Ribbon navigation failed: {e}", "error")
@@ -620,8 +663,21 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
             pass
         return None
 
-    # ── 4. Kofax converter window: Ctrl+5 → Enter ───────────────────────────
-    _log("  Step 4: Waiting for the Kofax converter window…", "info")
+    # ── 4. Kofax Convert Assistant: dismiss the "already exists" prompt ─────
+    # If a previous run already produced a file at Kofax's own default
+    # output location, it asks whether to add numeric suffixes or
+    # overwrite. Click "No" (overwrite) so this never needs a person at
+    # the keyboard. If the prompt doesn't appear, this is a harmless no-op.
+    assistant_win = (_find_window("Kofax Convert Assistant", 6.0)
+                     or _find_window("Convert Assistant", 4.0))
+    if assistant_win:
+        _activate_window(assistant_win[0], assistant_win[1])
+        if _click_button_by_text(assistant_win[0], ["No"], timeout=3.0):
+            _log("  'Output file already exists' prompt detected — clicked No (overwrite).", "info")
+            time.sleep(0.8)
+
+    # ── 5. Kofax converter window: Ctrl+5 → Enter ───────────────────────────
+    _log("  Step 5: Starting the conversion (Ctrl+5 → Enter)…", "info")
     conv_win = (_find_window("Kofax", KOFAX_OPEN_WAIT)
                 or _find_window("Convert", KOFAX_OPEN_WAIT / 2)
                 or _find_window("PDF", KOFAX_OPEN_WAIT / 2))
@@ -647,8 +703,8 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
             pass
         return None
 
-    # ── 5. Wait for the conversion to land as a new open workbook ───────────
-    _log("  Step 5: Waiting for the converted workbook to open…", "info")
+    # ── 6. Wait for the conversion to land as a new open workbook ───────────
+    _log("  Step 6: Waiting for the converted workbook to open…", "info")
     new_wb = None
     deadline = time.time() + KOFAX_CONVERT_TIMEOUT
     while time.time() < deadline:
@@ -679,20 +735,42 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
             pass
         return None
 
-    # ── 6. Save the converted workbook to disk via COM (no keystrokes) ──────
-    _log(f"  Step 6: Saving converted workbook → {os.path.basename(out_xlsx)}", "info")
+    # ── 7. Get it next to the PDF, however Kofax actually saved it ──────────
+    # Kofax may have already saved the converted file to its own default
+    # output folder (not necessarily beside the PDF) before opening it here
+    # — `FullName` tells us exactly where, with no guessing. If it hasn't
+    # been saved anywhere yet, Excel's own SaveAs writes it directly.
+    _log(f"  Step 7: Getting the converted file beside the PDF → {os.path.basename(out_xlsx)}", "info")
     ok = False
     try:
-        new_wb.SaveAs(out_xlsx, FileFormat=51)   # 51 = xlOpenXMLWorkbook (.xlsx)
-        ok = os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0
-    except Exception as e:
-        _log(f"  [ERROR] SaveAs failed: {e}", "error")
+        produced_path = None
+        try:
+            produced_path = new_wb.FullName
+        except Exception:
+            produced_path = None
 
-    # ── 7. Close everything cleanly, no save prompts ────────────────────────
-    try:
-        new_wb.Close(SaveChanges=False)
-    except Exception:
-        pass
+        already_saved = bool(produced_path) and os.path.isfile(produced_path)
+        same_location = already_saved and (
+            os.path.normcase(os.path.abspath(produced_path)) == os.path.normcase(os.path.abspath(out_xlsx))
+        )
+
+        if already_saved and not same_location:
+            _log(f"  Kofax saved it to its own default location: {produced_path}", "info")
+            new_wb.Close(SaveChanges=False)
+            shutil.copy2(produced_path, out_xlsx)
+            ok = os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0
+            _log(f"  Copied beside the PDF: {out_xlsx}", "ok" if ok else "warn")
+        elif same_location:
+            new_wb.Close(SaveChanges=False)
+            ok = os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0
+        else:
+            new_wb.SaveAs(out_xlsx, FileFormat=51)   # 51 = xlOpenXMLWorkbook (.xlsx)
+            ok = os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0
+            new_wb.Close(SaveChanges=False)
+    except Exception as e:
+        _log(f"  [ERROR] Could not save/relocate the converted workbook: {e}", "error")
+
+    # ── 8. Close everything cleanly, no save prompts ────────────────────────
     try:
         for i in range(xl.Workbooks.Count, 0, -1):
             try:
