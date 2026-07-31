@@ -547,6 +547,52 @@ def _click_button_by_text(parent_hwnd, texts, timeout=3.0):
     return False
 
 
+def _get_documents_folder():
+    """
+    Resolve the user's real "Documents" folder via the Windows shell API —
+    this correctly follows folder redirection (e.g. a mapped home-directory
+    drive), unlike a hardcoded `~\\Documents` guess. Falls back to
+    %USERPROFILE%\\Documents if the shell API isn't available.
+    """
+    try:
+        from win32com.shell import shell, shellcon
+        path = shell.SHGetFolderPath(0, shellcon.CSIDL_PERSONAL, None, 0)
+        if path and os.path.isdir(path):
+            return path
+    except Exception:
+        pass
+    try:
+        fallback = os.path.join(os.environ.get("USERPROFILE", "C:\\"), "Documents")
+        if os.path.isdir(fallback):
+            return fallback
+    except Exception:
+        pass
+    return None
+
+
+def _close_window_containing(title_part, timeout=3.0):
+    """
+    Find any visible top-level window whose title contains `title_part`
+    (e.g. an Excel window Kofax opened on its own, outside our COM handle,
+    to show the converted file) and close it — Alt+F4, then click
+    "Don't Save" / "No" if a save prompt appears. No-op if not found.
+    """
+    win = _find_window(title_part, timeout)
+    if not win:
+        return False
+    hwnd, title = win
+    _activate_window(hwnd, title)
+    time.sleep(0.3)
+    try:
+        shell = win32com.client.Dispatch("WScript.Shell")
+        shell.SendKeys("%{F4}")
+        time.sleep(0.8)
+        _click_button_by_text(hwnd, ["Don't Save", "No"], timeout=2.0)
+    except Exception:
+        pass
+    return True
+
+
 def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=True):
     """
     Convert a PDF to Excel using the "Kofax PDF" tab inside Microsoft Excel.
