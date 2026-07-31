@@ -378,26 +378,6 @@ KOFAX_CONVERT_TIMEOUT = 180       # max seconds to wait for the .xlsx to appear
 KOFAX_CLOSE_KEYS      = [("^w", 1.0), ("n", 0.6)]  # Ctrl+W then "n" (don't save)
 CONVERTED_SUBDIR      = "_converted"   # where converted .xlsx files are kept
 
-# Vendor → Report type mapping: PDF must contain BOTH vendor and report text.
-VENDOR_REPORT_MAPPING = {
-    "Parker":                                "CONDITION REPORT",
-    "Parker MEGGITT":                        "Service Breakdown Report",
-    "EATON":                                 "INSPECTION & REPAIR REPORT",
-    "UTC Aerospace Systems":                 "SCRAP STRIP REPORT",
-    "Sumitomo Precision USA Repair Station": "Receiving Teardown/Analysis Report",
-}
-
-# All converted Excel files go here regardless of which PO folder the PDF is in
-# .xlsx is saved in the same folder as the source PDF
-# (automatically set per-PDF inside convert_pdf_to_excel_kofax)
-FORCED_EXCEL_OUTPUT_FOLDER = None  # None = same folder as the PDF
-
-# Seconds to wait after triggering "Make PDF Searchable" for OCR to complete
-# Seconds per page for OCR. Total wait = pages × this value (min 15s).
-# Kofax processes ~1 page every 2-4 seconds on a typical machine.
-KOFAX_SEARCHABLE_WAIT_PER_PAGE = 4.0
-KOFAX_SEARCHABLE_WAIT_MIN      = 15.0  # floor — always wait at least this long
-
 
 
 def _sk_escape(text):
@@ -482,118 +462,59 @@ def _wait_for_stable_file(path, timeout):
     return os.path.exists(path)
 
 
-def _search_not_found_popup(timeout=2):
-    """Dismiss the Kofax "not found" popup if it appears. Returns True if dismissed."""
-    try:
-        import win32gui
-        deadline = time.time() + timeout
-        while time.time() < deadline:
-            found = {"hwnd": None}
-            def enum_cb(hwnd, _):
-                if not win32gui.IsWindowVisible(hwnd): return
-                title = win32gui.GetWindowText(hwnd)
-                if "Power PDF" in title or "Find" in title or "Search" in title:
-                    found["hwnd"] = hwnd
-            win32gui.EnumWindows(enum_cb, None)
-            if found["hwnd"]:
-                try: win32gui.SetForegroundWindow(found["hwnd"])
-                except Exception: pass
-                try: win32com.client.Dispatch("WScript.Shell").SendKeys("{ENTER}")
-                except Exception: pass
-                return True
-            time.sleep(0.25)
-    except Exception:
-        pass
-    return False
-
-
-def validate_vendor_report_in_pdf(shell, log=None):
-    """
-    Use Kofax Ctrl+F to check the open (now-searchable) PDF contains a known
-    vendor name AND matching report keyword from VENDOR_REPORT_MAPPING.
-    Returns (vendor, report) on match, or (None, None) if not found.
-    """
-    def _log(msg, lvl="info"):
-        if log: log(msg, lvl)
-
-    for vendor, report in VENDOR_REPORT_MAPPING.items():
-        _log(f"  Searching vendor: {vendor}", "info")
-        shell.SendKeys("^f"); time.sleep(1.0)
-        shell.SendKeys("^a"); shell.SendKeys(_sk_escape(vendor))
-        time.sleep(0.5)
-        shell.SendKeys("{ENTER}"); time.sleep(2.0)
-        if _search_not_found_popup():
-            _log(f"  Vendor not found: {vendor}", "warn")
-            shell.SendKeys("{ESCAPE}"); time.sleep(0.3)
-            continue
-        _log(f"  Vendor found: {vendor}", "ok")
-        _log(f"  Searching report: {report}", "info")
-        shell.SendKeys("^f"); time.sleep(1.0)
-        shell.SendKeys("^a"); shell.SendKeys(_sk_escape(report))
-        time.sleep(0.5)
-        shell.SendKeys("{ENTER}"); time.sleep(2.0)
-        if _search_not_found_popup():
-            _log(f"  Report not found: {report}", "warn")
-            shell.SendKeys("{ESCAPE}"); time.sleep(0.3)
-            return None, None
-        _log(f"  Report found: {report}", "ok")
-        shell.SendKeys("{ESCAPE}"); time.sleep(0.3)
-        return vendor, report
-    return None, None
-
 
 def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=True):
     """
-    Full single-flow pipeline:
-      STEP A — Open PDF in Kofax
-      STEP B — Make PDF Searchable (Alt+H → N → B → M → Enter, wait for OCR)
-      STEP C — Validate vendor + report keyword (Ctrl+F search)
-      STEP D — Convert to Excel (Alt+H → U → Enter)
-      STEP E — Save As alongside the source PDF (same folder)
-      STEP F — Wait for .xlsx to finish writing
-      STEP G — Close document in Kofax
-    Returns the .xlsx path or None if skipped/failed.
+    Open `pdf_path` in Kofax Power PDF and convert it straight to Excel.
+
+    Flow (no pre-validation, no OCR step):
+      1. Open PDF in Kofax
+      2. Wait for the Kofax window
+      3. Send Alt+H → U → Enter  (Home ribbon → Excel → Confirm)
+      4. Handle the optional "Convert Pages" dialog
+      5. Save As  (navigate to same folder as PDF, type filename, Save)
+      6. Wait for .xlsx to finish writing
+      7. Close document in Kofax
+
+    Vendor/report checking is done afterwards in Phase 3 by
+    extract_excel_fields() which reads the already-converted xlsx.
+    Returns the .xlsx path, or None on failure.
     """
     def _log(m, l="info"):
         if log:
             log(m, l)
 
-    stem = os.path.splitext(os.path.basename(pdf_path))[0]
-    # Save .xlsx in the same folder as the source PDF
+    stem    = os.path.splitext(os.path.basename(pdf_path))[0]
     out_dir = os.path.dirname(os.path.abspath(pdf_path))
     os.makedirs(out_dir, exist_ok=True)
     out_xlsx = os.path.join(out_dir, stem + ".xlsx")
 
-    # Already converted earlier — reuse it instead of driving Kofax again
     if reuse and os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0:
-        _log(f"  Using previously converted Excel: {os.path.basename(out_xlsx)}", "info")
+        _log(f"  Reusing existing Excel: {os.path.basename(out_xlsx)}", "info")
         return out_xlsx
-
     if os.path.exists(out_xlsx):
-        try:
-            os.remove(out_xlsx)
-        except Exception:
-            pass
+        try: os.remove(out_xlsx)
+        except Exception: pass
 
     try:
         shell = win32com.client.Dispatch("WScript.Shell")
     except Exception as e:
-        _log(f"  [ERROR] Cannot start WScript.Shell for SendKeys: {e}", "error")
+        _log(f"  [ERROR] WScript.Shell unavailable: {e}", "error")
         return None
 
-    # 1 — Open the PDF in Kofax
+    # ── 1. Open PDF in Kofax ─────────────────────────────────────────────────
     try:
-        norm_pdf = os.path.normpath(pdf_path)
+        norm_pdf   = os.path.normpath(pdf_path)
         exe_to_run = KOFAX_EXE
 
         if exe_to_run and exe_to_run.lower().endswith('.lnk') and os.path.exists(exe_to_run):
             try:
                 shortcut = shell.CreateShortcut(exe_to_run)
-                target = getattr(shortcut, 'TargetPath', None)
+                target   = getattr(shortcut, 'TargetPath', None)
                 if target and os.path.exists(target):
                     exe_to_run = target
                 else:
-                    _log(f"  [WARN] Shortcut target not found or inaccessible: {exe_to_run}", "warn")
+                    _log(f"  [WARN] Shortcut target not found: {exe_to_run}", "warn")
             except Exception:
                 _log(f"  [WARN] Failed to resolve shortcut: {exe_to_run}", "warn")
 
@@ -601,15 +522,14 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
             try:
                 subprocess.Popen([exe_to_run, norm_pdf])
             except Exception as e:
-                _log(f"  [WARN] Initial Kofax launch failed: {e}", "warn")
+                _log(f"  [WARN] Kofax launch failed ({e}), trying os.startfile", "warn")
                 try:
                     if norm_pdf.startswith('\\\\'):
                         tmp = os.path.join(tempfile.gettempdir(), os.path.basename(norm_pdf))
                         shutil.copy2(norm_pdf, tmp)
-                        _log(f"  Copied PDF to temp for Kofax: {tmp}", "info")
                         subprocess.Popen([exe_to_run, tmp])
                     else:
-                        raise
+                        os.startfile(norm_pdf)
                 except Exception:
                     os.startfile(norm_pdf)
         else:
@@ -617,124 +537,46 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
 
         _log(f"  Opening in Kofax: {os.path.basename(norm_pdf)}", "info")
     except Exception as e:
-        _log(f"  [ERROR] Could not open PDF in Kofax: {e}", "error")
+        _log(f"  [ERROR] Could not open PDF: {e}", "error")
         return None
 
+    # ── 2. Wait for Kofax window ─────────────────────────────────────────────
     win = _find_window(stem[:24], KOFAX_OPEN_WAIT)
     if not win:
-        _log(f"  [WARN] Kofax window for '{stem}' not detected — "
-             f"sending keys to the active window anyway.", "warn")
+        _log(f"  [WARN] Kofax window not detected — sending keys to active window.", "warn")
         time.sleep(2.0)
     else:
         _activate_window(win[0], win[1])
         _log(f"  Kofax window active: {win[1][:60]}", "info")
 
-    # ── Shared key sender (hardware-level, bypasses focus routing) ──────────
-    import win32api as _w32api, win32con as _w32con
-    def _kb(vk, down=True):
-        _w32api.keybd_event(vk, 0, 0 if down else _w32con.KEYEVENTF_KEYUP, 0)
-    VK_ALT=0x12; VK_H=0x48; VK_N=0x4E; VK_B=0x42
-    VK_M=0x4D;   VK_U=0x55; VK_ENTER=0x0D
-    VK_CTRL=0x11; VK_W=0x57
-
-    # ── STEP B: Make PDF Searchable  (Alt+H → N → B → M → Enter) ────────────
-    # Scanned PDFs have no text layer; OCR must run first so Ctrl+F works.
-    # Ribbon path: Home (Alt+H) → NB shortcut = "Make PDF Searchable" group →
-    #              M = "Make PDF Searchable" item → Convert Pages dialog → Enter
-    _log("  STEP B: Making PDF Searchable (Alt+H → N → B → M → Enter)…", "info")
+    # ── 3. Convert to Excel: Alt+H → U → Enter ───────────────────────────────
+    # Use WScript.Shell.SendKeys  (same as the working file — Kofax is in
+    # foreground after _activate_window so keys land in the right place)
+    _log("  Converting: Alt+H → U → Enter…", "info")
     try:
-        # Alt + H — open Home ribbon
-        _kb(VK_ALT, True); time.sleep(0.08)
-        _kb(VK_H,   True); time.sleep(0.08)
-        _kb(VK_H,   False); time.sleep(0.08)
-        _kb(VK_ALT, False)
-        time.sleep(1.0)        # ribbon opens
-
-        # N — first char of NB shortcut
-        _kb(VK_N, True); time.sleep(0.08); _kb(VK_N, False); time.sleep(0.5)
-
-        # B — second char of NB shortcut  → dropdown appears
-        _kb(VK_B, True); time.sleep(0.08); _kb(VK_B, False); time.sleep(0.8)
-
-        # M — "Make PDF Searchable" item in the dropdown
-        _kb(VK_M, True); time.sleep(0.08); _kb(VK_M, False); time.sleep(0.8)
-
-        # Convert Pages dialog (Whole document = default) → Enter = OK
-        conv_dlg = _find_window("Convert Pages", 8.0) or _find_window("Convert", 4.0)
-        if conv_dlg:
-            _activate_window(conv_dlg[0], conv_dlg[1]); time.sleep(0.4)
-            _log("  Convert Pages dialog found — pressing Enter (Whole document)", "info")
-        else:
-            _log("  [WARN] Convert Pages dialog not detected — sending Enter anyway", "warn")
-        _kb(VK_ENTER, True); time.sleep(0.08); _kb(VK_ENTER, False)
-
-        # Auto-scale OCR wait by page count
-        # More pages = more time; floor = KOFAX_SEARCHABLE_WAIT_MIN
-        try:
-            import pypdf as _pypdf
-            with open(pdf_path, "rb") as _pf:
-                _pages = len(_pypdf.PdfReader(_pf).pages)
-        except Exception:
-            try:
-                import PyPDF2 as _pypdf2
-                with open(pdf_path, "rb") as _pf:
-                    _pages = len(_pypdf2.PdfReader(_pf).pages)
-            except Exception:
-                _pages = 3  # fallback if page count unavailable
-        _ocr_wait = max(KOFAX_SEARCHABLE_WAIT_MIN,
-                        _pages * KOFAX_SEARCHABLE_WAIT_PER_PAGE)
-        _log(f"  PDF has {_pages} page(s) — waiting {_ocr_wait:.0f}s for OCR…", "info")
-        time.sleep(_ocr_wait)
-        _log("  Make Searchable complete.", "ok")
+        for keys, wait in KOFAX_KEYS:
+            shell.SendKeys(keys)
+            _log(f"    Sent: {keys}", "info")
+            time.sleep(wait)
     except Exception as e:
-        _log(f"  [WARN] Make Searchable failed: {e} — continuing anyway", "warn")
-
-    # ── STEP C: Validate vendor + report type ─────────────────────────────────
-    if win: _activate_window(win[0], win[1])
-    time.sleep(0.5)
-    _log("  STEP C: Validating vendor / report type…", "info")
-    vendor, report = validate_vendor_report_in_pdf(shell=shell, log=log)
-    if not vendor:
-        _log("  Vendor/Report not found — skipping this PDF.", "warn")
-        try:
-            _kb(VK_CTRL, True); time.sleep(0.08)
-            _kb(VK_W,    True); time.sleep(0.08); _kb(VK_W, False); time.sleep(0.08)
-            _kb(VK_CTRL, False); time.sleep(0.5)
-            _kb(VK_N,    True); time.sleep(0.08); _kb(VK_N, False)
-        except Exception: pass
-        return None
-    _log(f"  Validated: Vendor={vendor}  Report={report}", "ok")
-
-    # ── STEP D: Convert to Excel  (Alt+H → U → Enter via keybd_event) ────────
-    _log("  STEP D: Converting to Excel (Alt+H → U → Enter)…", "info")
-    try:
-        if win: _activate_window(win[0], win[1])
-        time.sleep(0.4)
-        _kb(VK_ALT, True); time.sleep(0.08)
-        _kb(VK_H,   True); time.sleep(0.08); _kb(VK_H, False); time.sleep(0.08)
-        _kb(VK_ALT, False); time.sleep(1.0)
-        _kb(VK_U,     True); time.sleep(0.08); _kb(VK_U, False); time.sleep(0.8)
-        _kb(VK_ENTER, True); time.sleep(0.08); _kb(VK_ENTER, False); time.sleep(1.5)
-    except Exception as e:
-        _log(f"  [ERROR] Convert to Excel keystrokes failed: {e}", "error")
+        _log(f"  [ERROR] SendKeys failed: {e}", "error")
         return None
 
-    # Convert Pages dialog for Excel (some builds)
+    # ── 4. "Convert Pages" dialog (some Kofax builds show this) ──────────────
     try:
         conv = (_find_window("Convert Pages", 5.0)
                 or _find_window("Convert to Excel", 3.0)
                 or _find_window("Convert", 2.0))
         if conv:
-            _activate_window(conv[0], conv[1]); time.sleep(0.4)
-            try: shell.SendKeys("%c"); time.sleep(0.5)  # Alt+C = Current Page
-            except Exception: pass
+            _activate_window(conv[0], conv[1])
+            time.sleep(0.5)
             shell.SendKeys("{ENTER}")
-            _log("  Convert Pages → Current Page → OK", "info")
+            _log("  Convert Pages dialog → Enter (Whole document)", "info")
             time.sleep(1.0)
     except Exception:
         pass
 
-    # ── STEP E: Save As — navigate to output folder, set filename, Save ────────
+    # ── 5. Save As ────────────────────────────────────────────────────────────
     if KOFAX_TYPE_PATH:
         save_win = (_find_window("Save As", KOFAX_SAVE_WAIT)
                     or _find_window("Save",    KOFAX_SAVE_WAIT))
@@ -742,48 +584,42 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
             output_folder = os.path.dirname(os.path.abspath(pdf_path))
             output_file   = stem + ".xlsx"
             if save_win:
-                _activate_window(save_win[0], save_win[1]); time.sleep(1.0)
-                # Address Bar (Alt+D) → type folder → Enter
-                shell.SendKeys("%d");                          time.sleep(0.5)
-                shell.SendKeys(_sk_escape(output_folder));    time.sleep(0.5)
-                shell.SendKeys("{ENTER}");                     time.sleep(2.0)
-                # File Name field (Alt+N) → select all → type name
-                shell.SendKeys("%n");                          time.sleep(0.5)
-                shell.SendKeys("^a");                          time.sleep(0.2)
-                shell.SendKeys(output_file);                   time.sleep(0.5)
-                # Save (Alt+S)
-                shell.SendKeys("%s");                          time.sleep(1.5)
-                _log(f"  STEP E: Save As → {out_xlsx}", "info")
+                _activate_window(save_win[0], save_win[1])
+                time.sleep(1.0)
+                shell.SendKeys("%d");                         time.sleep(0.5)
+                shell.SendKeys(_sk_escape(output_folder));   time.sleep(0.5)
+                shell.SendKeys("{ENTER}");                    time.sleep(2.0)
+                shell.SendKeys("%n");                         time.sleep(0.5)
+                shell.SendKeys("^a");                         time.sleep(0.2)
+                shell.SendKeys(output_file);                  time.sleep(0.5)
+                shell.SendKeys("%s");                         time.sleep(1.5)
+                _log(f"  Saved: {out_xlsx}", "info")
             else:
                 time.sleep(KOFAX_SAVE_WAIT)
-                shell.SendKeys(_sk_escape(out_xlsx)); time.sleep(0.8)
+                shell.SendKeys(_sk_escape(out_xlsx));  time.sleep(0.8)
                 shell.SendKeys("{ENTER}")
-                _log(f"  STEP E: Save As (fallback) → {out_xlsx}", "info")
+                _log(f"  Saved (fallback): {out_xlsx}", "info")
             time.sleep(1.2)
             if KOFAX_OVERWRITE_KEYS:
                 shell.SendKeys(KOFAX_OVERWRITE_KEYS)
         except Exception as e:
             _log(f"  [WARN] Save As failed: {e}", "warn")
 
-    # ── STEP F: Wait for .xlsx to finish writing ─────────────────────────────
+    # ── 6. Wait for .xlsx ─────────────────────────────────────────────────────
     ok = _wait_for_stable_file(out_xlsx, KOFAX_CONVERT_TIMEOUT)
 
-    # ── STEP G: Close document in Kofax (Ctrl+W → N for don't save) ───────────
+    # ── 7. Close document (Ctrl+W → N don't save) ────────────────────────────
     try:
-        _kb(VK_CTRL, True); time.sleep(0.08)
-        _kb(VK_W,    True); time.sleep(0.08); _kb(VK_W, False); time.sleep(0.08)
-        _kb(VK_CTRL, False); time.sleep(0.8)
-        _kb(VK_N,    True); time.sleep(0.08); _kb(VK_N, False)
+        shell.SendKeys("^w"); time.sleep(0.8)
+        shell.SendKeys("n");  time.sleep(0.4)
     except Exception:
         pass
 
     if ok and os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0:
-        _log(f"  Converted to Excel: {os.path.basename(out_xlsx)}", "ok")
+        _log(f"  ✅ Excel ready: {os.path.basename(out_xlsx)}", "ok")
         return out_xlsx
 
-    _log(f"  [ERROR] Kofax conversion produced no Excel file for {os.path.basename(pdf_path)} "
-         f"(expected {out_xlsx}). Check the KOFAX_KEYS sequence near the top of this file.",
-         "error")
+    _log(f"  [ERROR] No Excel produced for {os.path.basename(pdf_path)}", "error")
     return None
 
 # =============================================================================
