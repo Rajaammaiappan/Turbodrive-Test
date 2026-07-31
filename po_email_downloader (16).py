@@ -1,0 +1,2302 @@
+"""
+PO Email Attachment Downloader — single-file build
+────────────────────────────────────────────────────
+Tailored to the ESE / Anaconda 3.9.12 corporate environment (Rolls-Royce):
+  - Flask 1.1.2, openpyxl 3.0.10, pywin32 302 — all already installed,
+    nothing new required, no internet pip needed.
+  - No PDF text extraction anywhere (no pypdf dependency).
+  - Single click: Email -> Download Attachment -> Create PO Folder ->
+    Save Email (.msg) -> PDF -> Kofax Convert to Excel -> Excel-only
+    Vendor Detection + Field Extraction -> Display Results in UI.
+  - No tracker workbook. Extraction results are stored in SQLite and
+    shown in the "Extracted Report Details" tab.
+
+Run with:
+    "C:\\ProgramData\\Anaconda3\\python.exe" po_email_downloader.py
+
+The file is organised into clearly marked sections so it can still be
+split back into modules later if needed -- nothing below depends on
+anything outside this single file.
+"""
+
+import os
+import re
+import csv
+import json
+import time
+import shutil
+import sqlite3
+import tempfile
+import threading
+import traceback
+import webbrowser
+import contextlib
+import subprocess
+import time as _time
+from datetime import datetime
+
+import win32com.client
+from flask import Flask, request, jsonify, render_template_string
+
+
+
+# =============================================================================
+# SECTION 1 -- VENDOR REPORT TEMPLATES (config only, no I/O)
+# =============================================================================
+
+VENDOR_REPORTS = [
+    {"vendor": "Parker", "report": "CONDITION REPORT",
+     "fields": [
+        {"column": "PO",                  "labels": ["CUSTOMER P.O.", "CUSTOMER PO"], "tabular": True},
+        {"column": "P/N Shipped",         "labels": ["P/N Shipped"], "tabular": True},
+        {"column": "S/N REC",             "labels": ["S/N REC"], "tabular": True},
+        {"column": "TSN",                 "labels": ["TSN"], "stop_at": ["TSR", "TT"]},
+        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["CSR"]},
+        {"column": "TSI",                 "labels": ["TSI"]},
+        {"column": "CSI",                 "labels": ["CSI"]},
+        {"column": "TSO",                 "labels": ["TSO"]},
+        {"column": "CSO",                 "labels": ["CSO"]},
+        {"column": "Reason For Removal",  "labels": ["REASON FOR RETURN", "Reason For Removal"],
+         "multiline": True, "stop_at": ["Shop Findings", "Incoming Condition", "Disposition"]},
+        {"column": "Date Removed",        "labels": ["Date Removed"]},
+     ]},
+    {"vendor": "Parker Meggitt", "report": "CONDITION REPORT",
+     "fields": [
+        {"column": "PO",                  "labels": ["CUSTOMER P.O.", "CUSTOMER PO"], "tabular": True},
+        {"column": "P/N Shipped",         "labels": ["P/N Shipped"], "tabular": True},
+        {"column": "S/N REC",             "labels": ["S/N REC"], "tabular": True},
+        {"column": "TSN Hours",           "labels": ["TSN Hours"], "stop_at": ["TSR Hours"]},
+        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["CSR"]},
+        {"column": "Reason For Removal",  "labels": ["Reason For Removal"], "multiline": True,
+         "stop_at": ["Incoming/Confirmation", "Received Visual Condition", "Warranty"]},
+        {"column": "Aircraft Registration No.", "labels": ["Aircraft Registration No"],
+         "stop_at": ["TSR Hours"]},
+        {"column": "Date Removed",        "labels": ["Date Removed"], "stop_at": ["TSN Hours"]},
+     ]},
+    {"vendor": "Eaton", "report": "INSPECTION & REPAIR REPORT",
+     "fields": [
+        {"column": "PO",                  "labels": ["Customer PO", "Customer P.O.", "Purchase Order"], "tabular": True},
+        {"column": "Part Number",         "labels": ["Part Number", "P/N"], "tabular": True},
+        {"column": "Serial Number",       "labels": ["Serial Number", "S/N"], "tabular": True},
+        {"column": "Hours",               "labels": ["Hours"]},
+        {"column": "Cycles",              "labels": ["Cycles"]},
+        {"column": "Findings",            "labels": ["Findings", "Inspection Findings"],
+         "multiline": True, "stop_at": ["Repair Actions", "Disposition"]},
+        {"column": "Date Removed",        "labels": ["Date Removed"]},
+     ]},
+    {"vendor": "UTC Aerospace Systems", "report": "SCRAP STRIP REPORT",
+     "fields": [
+        {"column": "Cust PO",             "labels": ["Cust PO"], "tabular": True},
+        {"column": "Cust Part No",        "labels": ["Cust Part No"], "tabular": True},
+        {"column": "In Serial No",        "labels": ["In Serial No"], "tabular": True},
+        {"column": "Hours",               "labels": ["Hours"]},
+        {"column": "Cycles",              "labels": ["Cycles"]},
+        {"column": "Reason For Removal",  "labels": ["Customer Reason for Return"], "multiline": True,
+         "stop_at": ["DOM:", "ESD (First Date)", "Administrative Notes"]},
+        {"column": "ESN",                 "labels": ["ESN"]},
+        {"column": "Date Removed",        "labels": ["Date Removed"]},
+        {"column": "Removal Date",        "labels": ["Removal Date"]},
+     ]},
+    {"vendor": "Sumitomo Precision USA Repair Station", "report": "Receiving Teardown/Analysis Report",
+     "fields": [
+        {"column": "Customer's RO",       "labels": ["Customer's RO", "Customers RO"], "tabular": True},
+        {"column": "S/N",                 "labels": ["Serial number"], "tabular": True},
+        {"column": "Part Number",         "labels": ["Part Number"], "tabular": True},
+        {"column": "TSN",                 "labels": ["TSN"]},
+        {"column": "CSN",                 "labels": ["CSN"]},
+        {"column": "TSI",                 "labels": ["TSI"]},
+        {"column": "CSI",                 "labels": ["CSI"]},
+        {"column": "TSO",                 "labels": ["TSO"]},
+        {"column": "CSO",                 "labels": ["CSO"]},
+        {"column": "Reason For Removal",  "labels": ["Shop Findings", "Receiving Inspection"],
+         "multiline": True, "stop_at": ["LABOR", "Delivery Point", "100% Parts"]},
+        {"column": "Removal Date",        "labels": ["Removal Date"]},
+        {"column": "Date Removed",        "labels": ["Date Removed"]},
+     ]},
+    # ── Add future vendors here — no other file needs to change ──────────────
+]
+
+# Fixed columns always shown for every extracted result, regardless of vendor,
+# followed by the union of every vendor's field columns (first-seen order).
+# Used only to drive the UI table — nothing is written to a workbook.
+RESULT_FIXED_COLUMNS = ["PO Number", "Vendor Name", "Report Name", "File Name",
+                         "Email Subject", "Email Received Date"]
+
+RESULT_DETAIL_FIELDS = []
+_seen = set()
+for _entry in VENDOR_REPORTS:
+    for _f in _entry["fields"]:
+        if _f["column"] not in _seen:
+            _seen.add(_f["column"])
+            RESULT_DETAIL_FIELDS.append(_f["column"])
+
+RESULT_ALL_COLUMNS = RESULT_FIXED_COLUMNS + RESULT_DETAIL_FIELDS
+
+VENDOR_NAMES = [e["vendor"] for e in VENDOR_REPORTS]
+REPORT_NAMES = sorted({e["report"] for e in VENDOR_REPORTS})
+
+# =============================================================================
+# SECTION 2 -- EXCEL-ONLY EXTRACTION ENGINE (never reads PDF content)
+# =============================================================================
+
+def _norm_ws(text):
+    """Collapse whitespace so wrapped/multi-space cell text still matches."""
+    return re.sub(r'\s+', ' ', text or '').strip()
+
+
+# ── Vendor / report identification (Excel content only) ───────────────────
+def identify_vendor_report(workbook_text):
+    """
+    Find which VENDOR_REPORTS entry this workbook belongs to, using only
+    text that came from Excel cells (never from a PDF). Returns the entry
+    dict, or None if no vendor/report match is found anywhere in the
+    workbook.
+    """
+    norm = _norm_ws(workbook_text).lower()
+    # Prefer an entry where both vendor name and report title are present
+    for entry in VENDOR_REPORTS:
+        if _norm_ws(entry["vendor"]).lower() in norm and _norm_ws(entry["report"]).lower() in norm:
+            return entry
+    # Fall back to vendor name only
+    for entry in VENDOR_REPORTS:
+        if _norm_ws(entry["vendor"]).lower() in norm:
+            return entry
+    return None
+
+
+# ── Text-based fallback (operates on text flattened FROM the workbook) ────
+def _label_start(text, label):
+    m = re.search(r'\b' + re.escape(label) + r'\b\s*[#.]*\s*[:\-]?\s*', text, re.IGNORECASE)
+    return m.end() if m else None
+
+
+def _positional_fallback(text, label):
+    """
+    Handles values printed as a header row of column names followed by a
+    separate data row of values — common once a vendor's PDF grid has been
+    converted to Excel and re-flattened to text. Finds the line containing
+    `label` alongside other column headers, then reads the same column
+    position from the next non-blank line.
+    """
+    lines = text.split('\n')
+    for i, line in enumerate(lines):
+        if not re.search(r'\b' + re.escape(label) + r'\b', line, re.IGNORECASE):
+            continue
+        header_cols = re.split(r'\s{2,}', line.strip())
+        idx = next((ci for ci, col in enumerate(header_cols)
+                    if re.search(r'\b' + re.escape(label) + r'\b', col, re.IGNORECASE)), None)
+        if idx is None:
+            continue
+        for j in range(i + 1, min(i + 3, len(lines))):
+            data_line = lines[j].strip()
+            if not data_line:
+                continue
+            data_cols = re.split(r'\s{2,}', data_line)
+            if idx < len(data_cols):
+                return data_cols[idx].strip()
+            break
+    return ""
+
+
+def extract_field_value(text, field, entry):
+    """
+    Fallback extraction against text flattened FROM the Excel workbook
+    (never from a PDF). Same-line capture with vendor-aware stop terms.
+    """
+    multiline = field.get("multiline", False)
+
+    if field.get("tabular"):
+        for label in field["labels"]:
+            val = _positional_fallback(text, label)
+            if val:
+                return val[:120]
+
+    stop_terms = list(field.get("stop_at", []))
+    for other in entry["fields"]:
+        if other is not field:
+            stop_terms += other["labels"]
+
+    for label in field["labels"]:
+        start = _label_start(text, label)
+        if start is None:
+            continue
+        end = len(text)
+        for term in stop_terms:
+            tm = re.search(re.escape(term), text[start:], re.IGNORECASE)
+            if tm:
+                end = min(end, start + tm.start())
+        if not multiline:
+            nl = text.find('\n', start)
+            if nl != -1:
+                end = min(end, nl)
+        value = _norm_ws(text[start:end]).strip(" :-/\t#.")
+        if value:
+            return value[:300] if multiline else value[:120]
+    return ""
+
+
+# ── Workbook reading (OpenPyXL) ─────────────────────────────────────────────
+def _excel_grids(xlsx_path):
+    """Read every worksheet of a workbook into a grid of trimmed cell strings."""
+    import openpyxl
+    grids = []
+    wb = openpyxl.load_workbook(xlsx_path, data_only=True, read_only=True)
+    try:
+        for ws in wb.worksheets:
+            grid = []
+            for row in ws.iter_rows(values_only=True):
+                grid.append(["" if c is None else str(c).strip() for c in row])
+            if grid:
+                grids.append(grid)
+    finally:
+        try:
+            wb.close()
+        except Exception:
+            pass
+    return grids
+
+
+def _grids_to_text(grids):
+    """Flatten the workbook into text for the label/stop-word fallback logic."""
+    lines = []
+    for grid in grids:
+        for row in grid:
+            cells = [c for c in row if c]
+            if cells:
+                lines.append("   ".join(cells))
+        lines.append("")
+    return "\n".join(lines)
+
+
+def _is_label_cell(text, known_labels):
+    t = _norm_ws(text).lower().rstrip(" :#.")
+    return t in known_labels
+
+
+def _grid_label_value(grids, label, known_labels=frozenset(), prefer_below=False):
+    """
+    Find `label` in any cell, across any worksheet, and return its value:
+      1. the rest of the same cell (CASE A)
+      2. the nearest non-empty cell to the right (CASE B), or below for
+         header-row / data-row grids (CASE C, prefer_below = field["tabular"])
+    Cells that are themselves another field's label are skipped, so a
+    header row never returns the next heading as if it were a value.
+    """
+    lab = _norm_ws(label).lower().rstrip(" :#.")
+    if not lab:
+        return ""
+
+    def _right(grid, r, c):
+        row = grid[r]
+        for cc in range(c + 1, min(c + 4, len(row))):
+            v = _norm_ws(row[cc])
+            if v and not _is_label_cell(v, known_labels):
+                return v[:300]
+        return ""
+
+    def _below(grid, r, c):
+        for rr in range(r + 1, min(r + 3, len(grid))):
+            if c < len(grid[rr]):
+                v = _norm_ws(grid[rr][c])
+                if v and not _is_label_cell(v, known_labels):
+                    return v[:300]
+        return ""
+
+    for grid in grids:
+        for r, row in enumerate(grid):
+            for c, cell in enumerate(row):
+                t = _norm_ws(cell)
+                if not t:
+                    continue
+                tl = t.lower().rstrip(" :#.")
+                if tl != lab and not tl.startswith(lab):
+                    continue
+                if len(t) > len(label):
+                    rest = t[len(label):].strip(" :-#./\t")
+                    if rest:
+                        return rest[:300]
+                order = (_below, _right) if prefer_below else (_right, _below)
+                for fn in order:
+                    v = fn(grid, r, c)
+                    if v:
+                        return v
+    return ""
+
+
+def extract_excel_fields(xlsx_path):
+    """
+    Detect the vendor/report template from a Kofax-converted Excel workbook
+    and pull out its field values — cell-by-cell first (CASE A/B/C/D/E),
+    then the flattened-text fallback (CASE F) as backup.
+
+    Returns {"vendor":.., "report":.., "values": {column: value}}, or None
+    if no known vendor/report template matched anywhere in the workbook.
+    This is the ONLY extraction entry point in the app — there is no PDF
+    text path.
+    """
+    try:
+        grids = _excel_grids(xlsx_path)
+    except Exception:
+        return None
+    if not grids:
+        return None
+
+    text = _grids_to_text(grids)
+    entry = identify_vendor_report(text)
+    if not entry:
+        return None
+
+    known_labels = {_norm_ws(l).lower().rstrip(" :#.")
+                    for fld in entry["fields"] for l in fld["labels"]}
+    values = {}
+    for f in entry["fields"]:
+        val = ""
+        for label in f["labels"]:
+            val = _grid_label_value(grids, label, known_labels=known_labels,
+                                     prefer_below=bool(f.get("tabular")))
+            if val:
+                break
+        if not val:
+            val = extract_field_value(text, f, entry)   # flattened-text fallback
+        values[f["column"]] = val
+
+    return {"vendor": entry["vendor"], "report": entry["report"], "values": values}
+
+# =============================================================================
+# SECTION 3 -- KOFAX POWER PDF AUTOMATION (PDF -> Excel only)
+# =============================================================================
+
+# ── Config ──────────────────────────────────────────────────────────────────
+KOFAX_EXE             = r"C:\Program Files (x86)\Kofax\Power PDF-50\bin\PowerPDF.exe"
+KOFAX_OPEN_WAIT       = 12.0     # max seconds to wait for Kofax window to appear
+KOFAX_SAVE_WAIT       = 8.0      # max seconds to wait for Save As dialog
+KOFAX_TYPE_PATH       = True     # type the output path into Save As + Enter
+KOFAX_OVERWRITE_KEYS  = "%y"     # Alt+Y = Yes on overwrite prompt ("" = skip)
+KOFAX_CONVERT_TIMEOUT = 180      # max seconds to wait for .xlsx to finish writing
+CONVERTED_SUBDIR      = "_converted"
+
+# ── Headless mode ─────────────────────────────────────────────────────────────
+# KOFAX_HEADLESS = True   → Kofax launches minimised; your desktop is not disturbed.
+# KOFAX_HEADLESS = False  → Kofax launches normally (useful for debugging).
+# Change to False only when you need to watch what Kofax is doing.
+KOFAX_HEADLESS        = True
+
+
+def _sk_escape(text):
+    """Escape special SendKeys chars in a file-path string."""
+    out = []
+    for ch in str(text):
+        out.append("{" + ch + "}" if ch in "+^%~()[]{}" else ch)
+    return "".join(out)
+
+
+def _find_window(title_part, timeout, include_invisible=False):
+    """
+    Poll until a window whose title contains `title_part` appears.
+    In headless mode Kofax may be invisible/minimised — pass
+    include_invisible=True to find it even then.
+    Returns (hwnd, title) or None.
+    """
+    try:
+        import win32gui
+    except Exception:
+        return None
+    needle   = (title_part or "").lower()
+    deadline = time.time() + timeout
+    found    = {}
+
+    def _cb(hwnd, _):
+        if not include_invisible and not win32gui.IsWindowVisible(hwnd):
+            return
+        t = win32gui.GetWindowText(hwnd) or ""
+        if needle and needle in t.lower():
+            found["hwnd"]  = hwnd
+            found["title"] = t
+
+    while time.time() < deadline:
+        found.clear()
+        try:
+            win32gui.EnumWindows(_cb, None)
+        except Exception:
+            pass
+        if found:
+            return (found["hwnd"], found["title"])
+        time.sleep(0.5)
+    return None
+
+
+def _send_keys_to_hwnd(hwnd, vk_sequence):
+    """
+    Send virtual-key codes directly to a specific window handle
+    using PostMessage(WM_KEYDOWN / WM_KEYUP).
+
+    This works even when the window is minimised or not in focus —
+    it bypasses the OS active-window requirement entirely.
+
+    vk_sequence: list of (vk_code, hold_ms) tuples.
+      vk_code  — Windows Virtual-Key code (int)
+      hold_ms  — milliseconds to hold the key before releasing
+                 (and pause before the next key)
+
+    Common VK codes used here:
+      0x12 = Alt    0x48 = H    0x55 = U    0x4E = N    0x42 = B
+      0x4D = M      0x0D = Enter  0x11 = Ctrl  0x57 = W
+    """
+    import win32gui, win32con, ctypes
+    WM_KEYDOWN = 0x0100
+    WM_KEYUP   = 0x0101
+
+    for vk, hold_ms in vk_sequence:
+        # MapVirtualKey → scan code (needed for correct key identification)
+        scan = ctypes.windll.user32.MapVirtualKeyW(vk, 0)
+        lp_down = 1 | (scan << 16)                          # repeat=1, scan code
+        lp_up   = 1 | (scan << 16) | (1 << 30) | (1 << 31) # previous=1, transition=1
+
+        win32gui.PostMessage(hwnd, WM_KEYDOWN, vk, lp_down)
+        time.sleep(hold_ms / 1000.0)
+        win32gui.PostMessage(hwnd, WM_KEYUP,   vk, lp_up)
+        time.sleep(max(0.08, hold_ms / 1000.0))  # brief gap between keys
+
+
+def _send_char_to_hwnd(hwnd, char):
+    """Send a single printable character to hwnd via WM_CHAR."""
+    import win32gui
+    WM_CHAR = 0x0102
+    win32gui.PostMessage(hwnd, WM_CHAR, ord(char), 1)
+    time.sleep(0.03)
+
+
+def _send_string_to_hwnd(hwnd, text):
+    """Send every character in `text` to hwnd via WM_CHAR."""
+    for ch in str(text):
+        _send_char_to_hwnd(hwnd, ch)
+
+
+def _restore_window(hwnd):
+    """Restore a minimised window to normal so it can accept dialog input."""
+    try:
+        import win32gui, win32con
+        win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        time.sleep(0.3)
+        win32gui.SetForegroundWindow(hwnd)
+        time.sleep(0.3)
+    except Exception:
+        pass
+
+
+def _wait_for_stable_file(path, timeout):
+    """Wait for `path` to exist and stop growing."""
+    deadline = time.time() + timeout
+    last, stable = -1, 0
+    while time.time() < deadline:
+        if os.path.exists(path):
+            try:
+                size = os.path.getsize(path)
+            except Exception:
+                size = -1
+            if size > 0 and size == last:
+                stable += 1
+                if stable >= 3:
+                    return True
+            else:
+                stable = 0
+            last = size
+        time.sleep(0.5)
+    return os.path.exists(path)
+
+
+def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=True):
+    """
+    Open `pdf_path` in Kofax Power PDF and convert it to Excel.
+
+    Key design decisions
+    ────────────────────
+    • Headless by default (KOFAX_HEADLESS=True): Kofax is launched minimised
+      so it never steals focus from whatever the user is doing.
+
+    • All ribbon keystrokes are sent via PostMessage(WM_KEYDOWN/WM_KEYUP)
+      directly to the Kofax window handle — NOT via WScript.Shell.SendKeys.
+      PostMessage targets the exact hwnd so the keys land inside Kofax
+      regardless of which window the user is currently looking at.
+
+    • WScript.Shell is only used for typing file paths into Save As dialogs
+      (text-box input, where WM_CHAR via PostMessage works fine too).
+
+    Flow
+    ────
+    1. Launch Kofax with the PDF (minimised in headless mode)
+    2. Wait for Kofax window to appear (EnumWindows, includes invisible)
+    3. Send Alt+H → U → Enter directly to the hwnd (ribbon: Convert → Excel)
+    4. Handle the optional "Convert Pages" dialog the same way
+    5. Handle the Save As dialog (restore window briefly, type path, Enter)
+    6. Wait for .xlsx file to finish writing
+    7. Close document (Ctrl+W → N) via PostMessage
+
+    Returns the converted .xlsx path, or None on failure.
+    """
+    def _log(m, l="info"):
+        if log:
+            log(m, l)
+
+    stem    = os.path.splitext(os.path.basename(pdf_path))[0]
+    out_dir = os.path.join(os.path.dirname(pdf_path), CONVERTED_SUBDIR) \
+              if keep_converted \
+              else os.path.join(os.environ.get("TEMP", "."), "po_kofax")
+    os.makedirs(out_dir, exist_ok=True)
+    out_xlsx = os.path.join(out_dir, stem + ".xlsx")
+
+    if reuse and os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0:
+        _log(f"  Reusing existing Excel: {os.path.basename(out_xlsx)}", "info")
+        return out_xlsx
+    if os.path.exists(out_xlsx):
+        try: os.remove(out_xlsx)
+        except Exception: pass
+
+    # WScript.Shell — only used for Save As path typing, not for ribbon keys
+    try:
+        shell = win32com.client.Dispatch("WScript.Shell")
+    except Exception as e:
+        _log(f"  [ERROR] WScript.Shell unavailable: {e}", "error")
+        return None
+
+    # ── 1. Launch Kofax ───────────────────────────────────────────────────────
+    try:
+        norm_pdf   = os.path.normpath(pdf_path)
+        exe        = KOFAX_EXE
+
+        # Resolve .lnk shortcut if needed
+        if exe and exe.lower().endswith('.lnk') and os.path.exists(exe):
+            try:
+                sc = shell.CreateShortcut(exe)
+                t  = getattr(sc, 'TargetPath', None)
+                if t and os.path.exists(t):
+                    exe = t
+            except Exception:
+                pass
+
+        if exe and os.path.exists(exe):
+            # SW_SHOWMINNOACTIVE (7) = launch minimised, don't steal focus
+            si = subprocess.STARTUPINFO()
+            si.dwFlags    = subprocess.STARTF_USESHOWWINDOW
+            si.wShowWindow = 7 if KOFAX_HEADLESS else 1  # 7=minimised 1=normal
+            try:
+                subprocess.Popen([exe, norm_pdf], startupinfo=si)
+            except Exception as e:
+                _log(f"  [WARN] Popen failed ({e}), trying os.startfile", "warn")
+                os.startfile(norm_pdf)
+        else:
+            os.startfile(norm_pdf)
+
+        _log(f"  {'[Headless] ' if KOFAX_HEADLESS else ''}Opening in Kofax: "
+             f"{os.path.basename(norm_pdf)}", "info")
+
+    except Exception as e:
+        _log(f"  [ERROR] Could not launch Kofax: {e}", "error")
+        return None
+
+    # ── 2. Find Kofax window (includes invisible/minimised) ───────────────────
+    win = _find_window(stem[:24], KOFAX_OPEN_WAIT, include_invisible=True)
+    if not win:
+        # Broader search — any Kofax window
+        win = _find_window("kofax", KOFAX_OPEN_WAIT, include_invisible=True) or \
+              _find_window("Power PDF", KOFAX_OPEN_WAIT, include_invisible=True)
+    if not win:
+        _log("  [ERROR] Kofax window not found after waiting. Aborting.", "error")
+        return None
+
+    hwnd = win[0]
+    _log(f"  Kofax window found: '{win[1][:60]}' (hwnd={hwnd})", "info")
+
+    # Short settle time after Kofax fully loads the PDF
+    time.sleep(1.5)
+
+    # ── 3. Send Alt+H → U → Enter directly to hwnd ───────────────────────────
+    # Virtual-key codes:  Alt=0x12  H=0x48  U=0x55  Enter=0x0D
+    # (hold_ms, gap_after) — ribbon needs slightly longer holds
+    _log("  Sending Alt+H → U → Enter to Kofax hwnd (headless-safe)…", "info")
+    try:
+        _send_keys_to_hwnd(hwnd, [
+            (0x12, 80),   # Alt down (80 ms hold)
+            (0x48, 80),   # H       (Alt still implicitly held via WM_KEYDOWN)
+            (0x12, 80),   # Alt up  (send as a second Alt event for release)
+        ])
+        time.sleep(1.2)   # ribbon opens
+
+        _send_keys_to_hwnd(hwnd, [(0x55, 80)])   # U
+        time.sleep(0.9)                            # sub-menu / dialog appears
+
+        _send_keys_to_hwnd(hwnd, [(0x0D, 80)])   # Enter
+        time.sleep(1.5)
+
+        _log("  Keys sent: Alt+H → U → Enter", "ok")
+    except Exception as e:
+        _log(f"  [ERROR] Key send failed: {e}", "error")
+        return None
+
+    # ── 4. "Convert Pages" dialog (some Kofax builds pop this) ───────────────
+    conv = (_find_window("Convert Pages", 5.0, include_invisible=True) or
+            _find_window("Convert to Excel", 3.0, include_invisible=True))
+    if conv:
+        _log("  Convert Pages dialog detected — pressing Enter (Whole document)", "info")
+        if KOFAX_HEADLESS:
+            _restore_window(conv[0])
+        _send_keys_to_hwnd(conv[0], [(0x0D, 80)])
+        time.sleep(1.0)
+
+    # ── 5. Save As dialog ─────────────────────────────────────────────────────
+    if KOFAX_TYPE_PATH:
+        save_win = (_find_window("Save As", KOFAX_SAVE_WAIT, include_invisible=True) or
+                    _find_window("Save",    KOFAX_SAVE_WAIT, include_invisible=True))
+        if save_win:
+            # Must restore the Save As dialog so the user can see it and we can type into it
+            _restore_window(save_win[0])
+            time.sleep(0.8)
+            try:
+                # Alt+D → address bar, type folder path, Enter
+                shell.SendKeys("%d");                                   time.sleep(0.5)
+                shell.SendKeys(_sk_escape(os.path.dirname(out_xlsx))); time.sleep(0.5)
+                shell.SendKeys("{ENTER}");                              time.sleep(1.5)
+                # Alt+N → filename field, Ctrl+A, type name, Alt+S = Save
+                shell.SendKeys("%n");                                   time.sleep(0.4)
+                shell.SendKeys("^a");                                   time.sleep(0.2)
+                shell.SendKeys(stem + ".xlsx");                         time.sleep(0.4)
+                shell.SendKeys("%s");                                   time.sleep(1.5)
+                _log(f"  Save As → {out_xlsx}", "info")
+                if KOFAX_OVERWRITE_KEYS:
+                    time.sleep(0.5)
+                    shell.SendKeys(KOFAX_OVERWRITE_KEYS)
+            except Exception as e:
+                _log(f"  [WARN] Save As typing failed: {e}", "warn")
+        else:
+            _log("  [WARN] Save As dialog not found — conversion may still succeed "
+                 "if Kofax used a default path.", "warn")
+
+    # ── 6. Wait for .xlsx ─────────────────────────────────────────────────────
+    ok = _wait_for_stable_file(out_xlsx, KOFAX_CONVERT_TIMEOUT)
+
+    # ── 7. Close document (Ctrl+W → N) via PostMessage ───────────────────────
+    try:
+        _send_keys_to_hwnd(hwnd, [(0x11, 80), (0x57, 80), (0x11, 80)])  # Ctrl+W
+        time.sleep(0.8)
+        _send_keys_to_hwnd(hwnd, [(0x4E, 80)])   # N = don't save
+    except Exception:
+        pass
+
+    if ok and os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0:
+        _log(f"  ✅ Converted: {os.path.basename(out_xlsx)}", "ok")
+        return out_xlsx
+
+    _log(f"  [ERROR] No Excel produced for {os.path.basename(pdf_path)}. "
+         f"Expected: {out_xlsx}", "error")
+    return None
+
+# =============================================================================
+# SECTION 4 -- OUTLOOK EMAIL / ATTACHMENT PROCESSING
+# =============================================================================
+
+PO_RE = re.compile(r'\b(4\d{9})\b')   # PO numbers: 4 followed by 9 digits
+
+
+def get_outlook():
+    """Get the running Outlook instance."""
+    try:
+        return win32com.client.GetActiveObject("Outlook.Application")
+    except Exception:
+        return win32com.client.Dispatch("Outlook.Application")
+
+
+def _walk_folders(parent, acc_name, depth, results, max_depth=3):
+    """Recursively walk the Outlook folder tree up to max_depth levels deep."""
+    try:
+        for folder in parent.Folders:
+            try:
+                fname = folder.Name
+                path = f"{acc_name} > {fname}" if depth == 1 else f"{acc_name} (sub) > {fname}"
+                results.append({
+                    "account": acc_name,
+                    "folder": fname,
+                    "full": path,
+                    "depth": depth,
+                    "entry_id": folder.EntryID,
+                    "store_id": folder.StoreID,
+                })
+                if depth < max_depth:
+                    _walk_folders(folder, acc_name, depth + 1, results, max_depth)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
+def list_shared_folders():
+    """
+    Return all folders Outlook can see, walking up to 3 levels deep. Shared
+    mailboxes appear as top-level entries in ns.Folders alongside the
+    user's own mailbox.
+    """
+    outlook = get_outlook()
+    ns = outlook.GetNamespace("MAPI")
+    folders = []
+    for account in ns.Folders:
+        try:
+            acc_name = account.Name
+            _walk_folders(account, acc_name, 1, folders, max_depth=3)
+        except Exception:
+            pass
+    return folders
+
+
+def find_folder(account_name, folder_name, entry_id=None, store_id=None):
+    """
+    Locate an Outlook folder object.
+    Priority:
+      1. By EntryID + StoreID (most reliable — survives renames)
+      2. By account name + folder name (walks 3 levels deep)
+    """
+    outlook = get_outlook()
+    ns = outlook.GetNamespace("MAPI")
+
+    if entry_id and store_id:
+        try:
+            return ns.GetFolderFromID(entry_id, store_id)
+        except Exception:
+            pass
+
+    target_acc = account_name.lower().strip()
+    target_fld = folder_name.lower().strip()
+
+    def search(parent, depth):
+        for folder in parent.Folders:
+            try:
+                if folder.Name.lower().strip() == target_fld:
+                    return folder
+                if depth < 3:
+                    found = search(folder, depth + 1)
+                    if found:
+                        return found
+            except Exception:
+                pass
+        return None
+
+    for account in ns.Folders:
+        try:
+            if account.Name.lower().strip() == target_acc:
+                result = search(account, 1)
+                if result:
+                    return result
+        except Exception:
+            pass
+    return None
+
+
+def extract_po_from_subject(subject):
+    """Return the first PO number (4XXXXXXXXX) found in the subject, or None."""
+    m = PO_RE.search(subject or "")
+    return m.group(1) if m else None
+
+
+def sanitise(name):
+    """Remove characters that are illegal in Windows folder/file names."""
+    return re.sub(r'[<>:"/\\|?*]', '_', name).strip()
+
+
+def save_email_as_msg(mail_item, dest_folder, base_name):
+    """Save the email as a .msg file using Outlook SaveAs."""
+    try:
+        msg_path = os.path.join(dest_folder, base_name + ".msg")
+        mail_item.SaveAs(msg_path, 3)   # olMSG = 3
+        return msg_path
+    except Exception:
+        return None
+
+# =============================================================================
+# SECTION 5 -- SQLITE DATABASE (processed-email tracking, activity log, extraction results)
+# =============================================================================
+
+# ── Config — change this ONE path so all users share the same DB + log ────
+SHARED_TRACKER_DIR = r"\portfolioeng_nlr\EFS\PO_Email_Tracker"
+
+DB_FILE   = os.path.join(SHARED_TRACKER_DIR, "processed_emails.db")
+LOG_CSV   = os.path.join(SHARED_TRACKER_DIR, "activity_log.csv")
+LOCK_FILE = os.path.join(SHARED_TRACKER_DIR, "db.lock")
+
+CURRENT_USER = os.environ.get("USERNAME", os.environ.get("USER", "unknown"))
+
+
+@contextlib.contextmanager
+def db_lock(timeout=30):
+    """Acquire a named lock file before every DB write. Releases on exit."""
+    deadline = _time.time() + timeout
+    while _time.time() < deadline:
+        try:
+            fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, CURRENT_USER.encode())
+            os.close(fd)
+            try:
+                yield
+            finally:
+                try:
+                    os.remove(LOCK_FILE)
+                except Exception:
+                    pass
+            return
+        except FileExistsError:
+            _time.sleep(0.4)
+    try:
+        os.remove(LOCK_FILE)
+    except Exception:
+        pass
+    yield
+
+
+def init_db():
+    """Create the shared tracker folder and DB (all tables) if missing."""
+    try:
+        os.makedirs(SHARED_TRACKER_DIR, exist_ok=True)
+    except Exception as e:
+        raise RuntimeError(
+            f"Cannot reach shared tracker folder:\n{SHARED_TRACKER_DIR}\n\nError: {e}\n\n"
+            f"Update SHARED_TRACKER_DIR near the top of this file to a network path all users can write to."
+        )
+    conn = sqlite3.connect(DB_FILE, timeout=20)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS processed (
+            entry_id      TEXT PRIMARY KEY,
+            po_number     TEXT,
+            subject       TEXT,
+            sender        TEXT,
+            downloaded_by TEXT,
+            machine       TEXT,
+            target_folder TEXT,
+            file_count    INTEGER DEFAULT 0,
+            processed_at  TEXT
+        )""")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            event         TEXT,
+            entry_id      TEXT,
+            po_number     TEXT,
+            subject       TEXT,
+            sender        TEXT,
+            filename      TEXT,
+            target_path   TEXT,
+            done_by       TEXT,
+            machine       TEXT,
+            ts            TEXT
+        )""")
+    # Extraction results — replaces the old Excel tracker workbook entirely.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS extractions (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id       TEXT,
+            po_number      TEXT,
+            vendor         TEXT,
+            report         TEXT,
+            file_name      TEXT,
+            source_xlsx    TEXT,
+            email_subject  TEXT,
+            email_received TEXT,
+            values_json    TEXT,
+            extracted_by   TEXT,
+            machine        TEXT,
+            extracted_at   TEXT
+        )""")
+    conn.commit()
+    conn.close()
+
+    if not os.path.exists(LOG_CSV):
+        with open(LOG_CSV, "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(["Timestamp", "Event", "PO Number", "Subject", "Sender",
+                        "Filename", "Target Path", "Done By", "Machine"])
+
+
+def _conn():
+    return sqlite3.connect(DB_FILE, timeout=20)
+
+
+# ── Processed-email tracking ────────────────────────────────────────────────
+def is_processed(entry_id):
+    """Check if this email's EntryID is already in the shared tracker."""
+    try:
+        conn = _conn()
+        row = conn.execute(
+            "SELECT downloaded_by, processed_at, target_folder FROM processed WHERE entry_id=?",
+            (entry_id,)
+        ).fetchone()
+        conn.close()
+        return row  # None = not processed; tuple = (user, time, folder)
+    except Exception:
+        return None  # fail-safe: allow processing if DB is unreachable
+
+
+def mark_processed(entry_id, po_number, subject, sender, target_folder, file_count):
+    """Record this email as processed in the shared DB."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    machine = os.environ.get("COMPUTERNAME", "unknown")
+    with db_lock():
+        conn = _conn()
+        conn.execute(
+            """INSERT OR IGNORE INTO processed
+               (entry_id,po_number,subject,sender,downloaded_by,machine,
+                target_folder,file_count,processed_at)
+               VALUES (?,?,?,?,?,?,?,?,?)""",
+            (entry_id, po_number, subject, sender, CURRENT_USER,
+             machine, target_folder, file_count, now)
+        )
+        conn.commit()
+        conn.close()
+
+
+# ── Activity log ─────────────────────────────────────────────────────────────
+def log_activity(event, entry_id, po, subject, sender, filename, target_path):
+    """Write one row to both the SQLite activity_log and the shared CSV."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    machine = os.environ.get("COMPUTERNAME", "unknown")
+    with db_lock():
+        try:
+            conn = _conn()
+            conn.execute(
+                """INSERT INTO activity_log
+                   (event,entry_id,po_number,subject,sender,filename,
+                    target_path,done_by,machine,ts)
+                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
+                (event, entry_id, po, subject, sender, filename,
+                 target_path, CURRENT_USER, machine, now)
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+        try:
+            with open(LOG_CSV, "a", newline="", encoding="utf-8") as f:
+                csv.writer(f).writerow([
+                    now, event, po, subject, sender,
+                    filename, target_path, CURRENT_USER, machine
+                ])
+        except Exception:
+            pass
+
+
+def get_all_processed():
+    """Return full processed-email history from the shared DB."""
+    try:
+        conn = _conn()
+        rows = conn.execute(
+            """SELECT po_number,subject,sender,downloaded_by,machine,
+                      target_folder,file_count,processed_at
+               FROM processed ORDER BY processed_at DESC"""
+        ).fetchall()
+        conn.close()
+        return [{"po": r[0], "subject": r[1], "sender": r[2],
+                 "by": r[3], "machine": r[4], "folder": r[5],
+                 "files": r[6], "at": r[7]} for r in rows]
+    except Exception:
+        return []
+
+
+def get_activity_log(limit=200):
+    """Return recent activity log rows."""
+    try:
+        conn = _conn()
+        rows = conn.execute(
+            """SELECT ts,event,po_number,subject,filename,target_path,done_by,machine
+               FROM activity_log ORDER BY id DESC LIMIT ?""", (limit,)
+        ).fetchall()
+        conn.close()
+        return [{"ts": r[0], "event": r[1], "po": r[2], "subject": r[3],
+                 "file": r[4], "path": r[5], "by": r[6], "machine": r[7]} for r in rows]
+    except Exception:
+        return []
+
+
+# ── Extraction results (replaces the old Excel tracker workbook) ──────────
+def save_extraction(entry_id, po, vendor, report, file_name, source_xlsx,
+                     email_subject, email_received, values):
+    """Persist one extracted report's results for the UI's results grid."""
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    machine = os.environ.get("COMPUTERNAME", "unknown")
+    with db_lock():
+        conn = _conn()
+        conn.execute(
+            """INSERT INTO extractions
+               (entry_id,po_number,vendor,report,file_name,source_xlsx,
+                email_subject,email_received,values_json,extracted_by,machine,extracted_at)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (entry_id, po, vendor, report, file_name, source_xlsx,
+             email_subject, email_received, json.dumps(values),
+             CURRENT_USER, machine, now)
+        )
+        conn.commit()
+        conn.close()
+
+
+def get_extractions(limit=1000):
+    """Return extraction results (most recent first) for the results grid."""
+    try:
+        conn = _conn()
+        rows = conn.execute(
+            """SELECT po_number,vendor,report,file_name,source_xlsx,email_subject,
+                      email_received,values_json,extracted_by,machine,extracted_at
+               FROM extractions ORDER BY id DESC LIMIT ?""", (limit,)
+        ).fetchall()
+        conn.close()
+        out = []
+        for r in rows:
+            try:
+                values = json.loads(r[7]) if r[7] else {}
+            except Exception:
+                values = {}
+            out.append({
+                "po": r[0], "vendor": r[1], "report": r[2], "file": r[3],
+                "source_xlsx": r[4], "subject": r[5], "received": r[6],
+                "values": values, "by": r[8], "machine": r[9], "at": r[10],
+            })
+        return out
+    except Exception:
+        return []
+
+# =============================================================================
+# SECTION 6 -- FLASK APP: ORCHESTRATION, ROUTES, UI
+# =============================================================================
+
+PORT = 5001
+app = Flask(__name__)
+
+# ── Background job state (single job at a time) ─────────────────────────────
+_job = {"running": False, "log": [], "summary": None}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  3-PHASE PIPELINE
+#  Phase 1 — Download ALL emails  → save MSG + PDFs, build a queue
+#  Phase 2 — Convert ALL PDFs     → Kofax → .xlsx (one by one, no Outlook open)
+#  Phase 3 — Extract ALL xlsx     → search vendor/report → fetch fields → UI
+# ══════════════════════════════════════════════════════════════════════════════
+
+# _job carries extra per-phase counters so the UI progress bar can show phase
+_job = {
+    "running":  False,
+    "phase":    "",        # "DOWNLOAD" | "CONVERT" | "EXTRACT" | ""
+    "log":      [],
+    "summary":  None,
+    "extractions": [],     # live-appended during Phase 3 for the results grid
+}
+
+
+# ─── PHASE 1: Download ────────────────────────────────────────────────────────
+def phase1_download(account_name, folder_name, target_root, skip_no_po,
+                    attachment_ext_filter, log, entry_id=None, store_id=None):
+    """
+    Scan the Outlook folder.  For each qualifying email:
+      • Save the .msg file
+      • Save all matching PDF attachments to the PO-numbered folder
+      • Mark the email as processed in the shared DB
+
+    Returns a list of dicts:
+      { "pdf": abs_path, "po": str, "subject": str, "sender": str,
+        "entry_id": str, "received": str }
+    """
+    queue = []   # PDFs to be converted later
+
+    try:
+        folder = find_folder(account_name, folder_name,
+                             entry_id=entry_id, store_id=store_id)
+        if not folder:
+            log(f"Cannot find folder '{folder_name}' in '{account_name}'", "error")
+            return queue
+
+        items = folder.Items
+        total = items.Count
+        log(f"[PHASE 1] Found {total} email(s) in {account_name} / {folder_name}", "info")
+
+        for idx in range(1, total + 1):
+            try:
+                mail = items[idx]
+                if mail.Class != 43:
+                    continue
+
+                subject       = mail.Subject or ""
+                sender        = mail.SenderEmailAddress or ""
+                mail_entry_id = mail.EntryID
+                try:
+                    received_str = mail.ReceivedTime.strftime("%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    received_str = ""
+
+                # Deduplication check
+                already = is_processed(mail_entry_id)
+                if already:
+                    who  = already[0] or "unknown"
+                    when = already[1] or "?"
+                    log(f"  [SKIP-DUP] {who} on {when}: {subject[:45]}", "warn")
+                    continue
+
+                # PO number
+                po = extract_po_from_subject(subject)
+                if not po:
+                    if skip_no_po:
+                        log(f"  [SKIP-NOPO] {subject[:60]}", "warn")
+                        log_activity("SKIP-NOPO", mail_entry_id, "", subject,
+                                     sender, "", target_root)
+                        continue
+                    else:
+                        po = "NO_PO_" + sanitise(subject[:20])
+
+                # Collect attachments
+                atts      = mail.Attachments
+                att_count = atts.Count
+                wanted    = []
+                for a in range(1, att_count + 1):
+                    try:
+                        att       = atts.Item(a)
+                        name_low  = (att.FileName or "").lower()
+                        if attachment_ext_filter:
+                            if any(name_low.endswith(x) for x in attachment_ext_filter):
+                                wanted.append(att)
+                        else:
+                            wanted.append(att)
+                    except Exception:
+                        pass
+
+                if not wanted:
+                    log(f"  [SKIP-NOATT] {subject[:60]}", "warn")
+                    log_activity("SKIP-NOATT", mail_entry_id, po, subject, sender, "", target_root)
+                    continue
+
+                # Create PO folder
+                po_folder  = os.path.join(target_root, po)
+                os.makedirs(po_folder, exist_ok=True)
+                ts_prefix  = datetime.now().strftime("%Y%m%d_%H%M%S")
+                saved_files = []
+
+                # Save .msg
+                msg_path = save_email_as_msg(mail, po_folder, f"{po}_{ts_prefix}")
+                if msg_path:
+                    saved_files.append(msg_path)
+                    log(f"  📧 MSG saved: {os.path.basename(msg_path)}", "ok")
+                    log_activity("SAVED-MSG", mail_entry_id, po, subject,
+                                 sender, os.path.basename(msg_path), msg_path)
+
+                # Save attachments
+                for att in wanted:
+                    try:
+                        safe_name = sanitise(att.FileName)
+                        dest      = os.path.join(po_folder, f"{ts_prefix}_{safe_name}")
+                        att.SaveAsFile(dest)
+                        saved_files.append(dest)
+                        log(f"  📎 Saved: {safe_name} → {po}/", "ok")
+                        log_activity("SAVED-ATT", mail_entry_id, po, subject,
+                                     sender, safe_name, dest)
+
+                        # Add PDF to the conversion queue
+                        if safe_name.lower().endswith(".pdf"):
+                            queue.append({
+                                "pdf":      dest,
+                                "po":       po,
+                                "subject":  subject,
+                                "sender":   sender,
+                                "entry_id": mail_entry_id,
+                                "received": received_str,
+                            })
+                    except Exception as ae:
+                        log(f"  [ERROR] Attachment save failed: {ae}", "error")
+                        log_activity("ERROR-ATT", mail_entry_id, po, subject,
+                                     sender, str(att.FileName), str(ae))
+
+                # Mark processed so other users skip this email
+                mark_processed(mail_entry_id, po, subject, sender,
+                               po_folder, len(saved_files))
+                log_activity("COMPLETED", mail_entry_id, po, subject, sender,
+                             f"{len(saved_files)} files", po_folder)
+                log(f"[OK] {po} — {subject[:55]} ({len(saved_files)} file(s) saved)", "ok")
+
+            except Exception as e:
+                log(f"[ERROR] Item {idx}: {e}", "error")
+
+    except Exception:
+        log(f"[FATAL] {traceback.format_exc()}", "error")
+
+    log(f"[PHASE 1 DONE] {len(queue)} PDF(s) queued for conversion.", "ok")
+    return queue
+
+
+# ─── PHASE 2: Convert ALL PDFs via Kofax ────────────────────────────────────
+def phase2_convert(queue, log, keep_converted=True):
+    """
+    Iterate the PDF queue built in Phase 1.
+    For each PDF, run the full Kofax pipeline:
+      STEP A: Open in Kofax
+      STEP B: Make Searchable (OCR)   — Alt+H → N → B → M → Enter
+      STEP C: Convert to Excel        — Alt+H → U → Enter
+      STEP D: Save As next to the PDF
+
+    Returns the same queue with "xlsx" key added (or None if conversion failed).
+    """
+    log(f"[PHASE 2] Converting {len(queue)} PDF(s) to Excel via Kofax…", "info")
+    log("  ⚠️  Do NOT touch the mouse or keyboard until Phase 2 finishes.", "warn")
+
+    for item in queue:
+        pdf  = item["pdf"]
+        po   = item["po"]
+        log(f"  Converting: {os.path.basename(pdf)} ({po})", "info")
+        try:
+            xlsx = convert_pdf_to_excel_kofax(pdf, log=log,
+                                              keep_converted=keep_converted,
+                                              reuse=True)
+            item["xlsx"] = xlsx
+            if xlsx:
+                log(f"  ✅ Excel ready: {os.path.basename(xlsx)}", "ok")
+                log_activity("CONVERTED-TO-EXCEL", item["entry_id"], po,
+                             item["subject"], item["sender"],
+                             os.path.basename(pdf), xlsx)
+            else:
+                log(f"  ❌ Conversion failed: {os.path.basename(pdf)}", "error")
+                log_activity("ERROR-CONVERT", item["entry_id"], po,
+                             item["subject"], item["sender"],
+                             os.path.basename(pdf), "Kofax conversion failed")
+        except Exception as e:
+            item["xlsx"] = None
+            log(f"  [ERROR] {os.path.basename(pdf)}: {e}", "error")
+
+    done  = sum(1 for i in queue if i.get("xlsx"))
+    failed = len(queue) - done
+    log(f"[PHASE 2 DONE] {done} converted, {failed} failed.", "ok")
+    return queue
+
+
+# ─── PHASE 3: Extract fields from Excel files ─────────────────────────────────
+def phase3_extract(queue, log):
+    """
+    For each converted xlsx in the queue:
+      1. Call extract_excel_fields() to search for vendor name and report keyword
+         inside the spreadsheet and pull the relevant data cells.
+      2. Save the extraction result to the shared SQLite DB
+         (so the UI results grid can show it immediately via /api/extractions).
+      3. Append it live to _job["extractions"] so the poll endpoint returns
+         new rows before the job finishes.
+
+    Returns summary counts.
+    """
+    log(f"[PHASE 3] Extracting data from {sum(1 for i in queue if i.get('xlsx'))} Excel file(s)…",
+        "info")
+
+    matched   = 0
+    unmatched = 0
+
+    for item in queue:
+        xlsx = item.get("xlsx")
+        if not xlsx or not os.path.exists(xlsx):
+            continue
+
+        po      = item["po"]
+        subject = item["subject"]
+        sender  = item["sender"]
+        entry_id = item["entry_id"]
+        received = item["received"]
+
+        log(f"  Searching: {os.path.basename(xlsx)}", "info")
+        try:
+            res = extract_excel_fields(xlsx)
+        except Exception as e:
+            log(f"  [ERROR] extract_excel_fields failed: {e}", "error")
+            continue
+
+        if not res:
+            unmatched += 1
+            log(f"  ⚠️  No vendor/report match: {os.path.basename(xlsx)}", "warn")
+            log_activity("EXTRACT-NO-MATCH", entry_id, po, subject, sender,
+                         os.path.basename(xlsx), xlsx)
+            continue
+
+        # Save to DB
+        save_extraction(
+            entry_id     = entry_id,
+            po           = po,
+            vendor       = res["vendor"],
+            report       = res["report"],
+            file_name    = os.path.basename(item["pdf"]),
+            source_xlsx  = xlsx,
+            email_subject = subject,
+            email_received = received,
+            values       = res["values"],
+        )
+        log_activity("EXTRACTED", entry_id, po, subject, sender,
+                     os.path.basename(xlsx), xlsx)
+
+        # Also push live to _job so the UI sees it immediately
+        row = {
+            "po":      po,
+            "vendor":  res["vendor"],
+            "report":  res["report"],
+            "file":    os.path.basename(item["pdf"]),
+            "subject": subject,
+            "values":  res["values"],
+            "at":      datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        _job["extractions"].append(row)
+
+        matched += 1
+        log(f"  ✅ {res['vendor']} — {res['report']} | PO {po}", "ok")
+        for col, val in res["values"].items():
+            log(f"     {col}: {val or '(empty)'}", "ok" if val else "warn")
+
+    log(f"[PHASE 3 DONE] {matched} matched, {unmatched} no-match.", "ok")
+    return {"matched": matched, "unmatched": unmatched}
+
+
+# ─── Background job runner (orchestrates all 3 phases) ───────────────────────
+def _run_job(account, folder, target, skip_no_po, ext_filter,
+             entry_id=None, store_id=None, keep_converted=True):
+
+    _job["running"]     = True
+    _job["phase"]       = "DOWNLOAD"
+    _job["log"]         = []
+    _job["summary"]     = None
+    _job["extractions"] = []
+
+    def cb(msg_or_entry, level="info"):
+        """
+        Unified log callback — accepts either:
+          cb("some message", "warn")   ← called by phase1/2/3 functions
+          cb({"t":…,"m":…,"l":…})     ← called directly in _run_job
+        """
+        if isinstance(msg_or_entry, dict):
+            _job["log"].append(msg_or_entry)
+        else:
+            _job["log"].append({
+                "t": datetime.now().strftime("%H:%M:%S"),
+                "m": msg_or_entry,
+                "l": level,
+            })
+
+    try:
+        # ── Phase 1 ──────────────────────────────────────────────────────────
+        _job["phase"] = "DOWNLOAD"
+        cb("═══ PHASE 1 — Downloading emails & saving PDFs ═══", "info")
+        queue = phase1_download(account, folder, target, skip_no_po, ext_filter,
+                                cb, entry_id=entry_id, store_id=store_id)
+
+        # ── Phase 2 ──────────────────────────────────────────────────────────
+        _job["phase"] = "CONVERT"
+        cb("═══ PHASE 2 — Converting PDFs to Excel via Kofax ═══", "info")
+        queue = phase2_convert(queue, cb, keep_converted=keep_converted)
+
+        # ── Phase 3 ──────────────────────────────────────────────────────────
+        _job["phase"] = "EXTRACT"
+        cb("═══ PHASE 3 — Extracting data from Excel files ═══", "info")
+        ext_counts = phase3_extract(queue, cb)
+
+        _job["summary"] = {
+            "processed":        sum(1 for i in queue),
+            "files_saved":      [i["pdf"] for i in queue] +
+                                [i["xlsx"] for i in queue if i.get("xlsx")],
+            "errors":           sum(1 for i in queue if not i.get("xlsx")),
+            "tracker_rows":     ext_counts["matched"],
+            "tracker_unmatched":ext_counts["unmatched"],
+            "extractions":      _job["extractions"],
+        }
+
+    except Exception as e:
+        _job["log"].append({"t": datetime.now().strftime("%H:%M:%S"),
+                            "m": f"[FATAL] {e}", "l": "error"})
+    finally:
+        _job["phase"]   = ""
+        _job["running"] = False
+
+
+def _run_kofax_test_job(pdf_path, keep_converted=True):
+    """
+    Background thread for 'Test Kofax on one PDF' — converts a single PDF,
+    extracts its fields from the resulting workbook, and reports the
+    result, for debugging/vendor onboarding (no email context involved).
+    """
+    _job["running"] = True
+    _job["log"] = []
+    _job["summary"] = None
+
+    def log(msg, level="info"):
+        _job["log"].append({"t": datetime.now().strftime("%H:%M:%S"), "m": msg, "l": level})
+
+    try:
+        log(f"Kofax test on: {pdf_path}", "info")
+        log("Do NOT touch the mouse or keyboard until this finishes.", "warn")
+        xlsx = convert_pdf_to_excel_kofax(pdf_path, log=log,
+                                                keep_converted=keep_converted, reuse=False)
+        if not xlsx:
+            log("Conversion failed — adjust KOFAX_KEYS / KOFAX_EXE near the top of this file.", "error")
+            _job["summary"] = {"processed": 1, "files_saved": [], "errors": 1,
+                               "tracker_rows": 0, "tracker_unmatched": 0}
+            return
+        log(f"Converted workbook: {xlsx}", "ok")
+
+        res = extract_excel_fields(xlsx)
+        if not res:
+            log("Workbook created, but no known vendor/report template was matched in it.", "warn")
+            _job["summary"] = {"processed": 1, "files_saved": [xlsx], "errors": 0,
+                               "tracker_rows": 1, "tracker_unmatched": 1}
+            return
+
+        log(f"Matched: {res['vendor']} - {res['report']}", "ok")
+        for col, val in res["values"].items():
+            log(f"   {col}: {val or '(empty)'}", "ok" if val else "warn")
+
+        # Persist so it also shows up under "Extracted Report Details" for review.
+        save_extraction(
+            entry_id=f"TEST-{datetime.now().strftime('%Y%m%d%H%M%S')}", po="(manual test)",
+            vendor=res["vendor"], report=res["report"], file_name=os.path.basename(pdf_path),
+            source_xlsx=xlsx, email_subject="(Test Kofax on one PDF)", email_received="",
+            values=res["values"])
+
+        _job["summary"] = {"processed": 1, "files_saved": [xlsx], "errors": 0,
+                           "tracker_rows": 1, "tracker_unmatched": 0}
+    except Exception as e:
+        log(f"[FATAL] {e}", "error")
+    finally:
+        _job["running"] = False
+
+
+# ── Flask routes ─────────────────────────────────────────────────────────
+@app.route("/")
+def index():
+    return render_template_string(HTML_PAGE)
+
+
+@app.route("/api/folders", methods=["GET"])
+def api_folders():
+    try:
+        return jsonify({"ok": True, "folders": list_shared_folders()})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/api/browse", methods=["POST"])
+def api_browse():
+    """Open a Windows folder-picker dialog and return the selected path."""
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk(); root.withdraw(); root.attributes("-topmost", True)
+        path = filedialog.askdirectory(title="Select Target Folder")
+        root.destroy()
+        return jsonify({"ok": True, "path": path or ""})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/api/start", methods=["POST"])
+def api_start():
+    """The single 'Process Emails' click — runs the entire pipeline."""
+    if _job["running"]:
+        return jsonify({"ok": False, "error": "A job is already running."})
+    data = request.get_json() or {}
+    account = data.get("account", "").strip()
+    folder = data.get("folder", "").strip()
+    target = data.get("target", "").strip()
+    skip_no_po = data.get("skip_no_po", True)
+    ext_types = data.get("ext_types", [".pdf"])
+    ext_filter = [e.lower() for e in ext_types]   # empty list = all types
+    entry_id = data.get("entry_id", "")
+    store_id = data.get("store_id", "")
+    keep_converted = bool(data.get("keep_converted", True))
+
+    if not account or not folder:
+        return jsonify({"ok": False, "error": "Account and folder are required."})
+    if not target or not os.path.isdir(target):
+        return jsonify({"ok": False, "error": "Target folder does not exist or is empty."})
+
+    threading.Thread(target=_run_job,
+                     args=(account, folder, target, skip_no_po, ext_filter),
+                     kwargs={"entry_id": entry_id, "store_id": store_id,
+                             "keep_converted": keep_converted},
+                     daemon=True).start()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/test_kofax", methods=["POST"])
+def api_test_kofax():
+    """Pick one PDF and run the full Kofax + extraction pipeline on it."""
+    if _job["running"]:
+        return jsonify({"ok": False, "error": "A job is already running."})
+    data = request.get_json() or {}
+    keep_converted = bool(data.get("keep_converted", True))
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk(); root.withdraw(); root.attributes("-topmost", True)
+        pdf_path = filedialog.askopenfilename(
+            title="Select one PDF to test the Kofax conversion",
+            filetypes=[("PDF file", "*.pdf")])
+        root.destroy()
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+    if not pdf_path:
+        return jsonify({"ok": False, "error": "No file selected."})
+    threading.Thread(target=_run_kofax_test_job, args=(pdf_path, keep_converted), daemon=True).start()
+    return jsonify({"ok": True, "path": pdf_path})
+
+
+@app.route("/api/poll", methods=["GET"])
+def api_poll():
+    offset = int(request.args.get("offset", 0))
+    return jsonify({
+        "running": _job["running"],
+        "log": _job["log"][offset:],
+        "summary": _job["summary"],
+    })
+
+
+@app.route("/api/history", methods=["GET"])
+def api_history():
+    return jsonify({"ok": True, "rows": get_all_processed()})
+
+
+@app.route("/api/activity", methods=["GET"])
+def api_activity():
+    limit = int(request.args.get("limit", 200))
+    return jsonify({"ok": True, "rows": get_activity_log(limit)})
+
+
+@app.route("/api/extractions", methods=["GET"])
+def api_extractions():
+    """Extracted Report Details tab — vendor/report options included for filters."""
+    limit = int(request.args.get("limit", 1000))
+    return jsonify({"ok": True, "rows": get_extractions(limit),
+                    "vendors": VENDOR_NAMES, "reports": REPORT_NAMES})
+
+
+@app.route("/api/tracker_info", methods=["GET"])
+def api_tracker_info():
+    return jsonify({
+        "ok": True,
+        "shared_path": SHARED_TRACKER_DIR,
+        "db_file": DB_FILE,
+        "log_csv": LOG_CSV,
+        "current_user": CURRENT_USER,
+        "db_exists": os.path.exists(DB_FILE),
+        "csv_exists": os.path.exists(LOG_CSV),
+    })
+
+
+# ── HTML / CSS / JS ─────────────────────────────────────────────────────────
+HTML_PAGE = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>PO Email Downloader — ALTEN / Rolls-Royce</title>
+<style>
+:root{
+  --bg:#eef2f9;--surface:#fff;--surface2:#f1f5fb;--border:#c8d4e8;
+  --accent:#1a4fad;--accent2:#1d6fdb;--green:#059669;--red:#dc2626;
+  --amber:#d97706;--text:#1e293b;--muted:#475569;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:system-ui,"Segoe UI",sans-serif;font-size:14px;background:var(--bg);color:var(--text);}
+header{background:var(--surface);border-bottom:3px solid var(--accent);padding:12px 28px;
+  display:flex;align-items:center;gap:18px;box-shadow:0 2px 6px rgba(0,0,0,.08);}
+.logo-rr{background:#1a1a1a;color:#fff;font-weight:900;font-size:15px;padding:6px 10px;border-radius:4px;letter-spacing:1px;}
+.logo-alten{background:var(--accent);color:#fff;font-weight:800;font-size:15px;padding:6px 10px;border-radius:4px;}
+.header-divider{width:1px;height:36px;background:var(--border);}
+.header-title h1{font-size:20px;font-weight:800;color:var(--accent);}
+.header-title p{font-size:12px;color:var(--muted);margin-top:2px;}
+main{max-width:1040px;margin:28px auto;padding:0 20px;}
+.steps{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;}
+.step-pill{padding:5px 14px;border-radius:20px;font-size:12px;font-weight:700;
+  background:var(--surface2);border:1.5px solid var(--border);color:var(--muted);}
+.step-pill.active{background:var(--accent);color:#fff;border-color:var(--accent);}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  padding:20px 22px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.06);}
+.card-title{font-size:15px;font-weight:700;color:var(--accent);margin-bottom:12px;
+  display:flex;align-items:center;gap:8px;}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;}
+.form-group{display:flex;flex-direction:column;gap:4px;}
+label{font-size:12px;font-weight:600;color:var(--muted);}
+select,input[type=text]{padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;
+  font-size:13px;background:var(--surface2);color:var(--text);outline:none;
+  transition:border-color .15s;width:100%;}
+select:focus,input:focus{border-color:var(--accent);}
+.path-row{display:flex;gap:8px;align-items:center;}
+.path-row input{flex:1;}
+.btn-browse{padding:7px 14px;background:var(--surface2);border:1.5px solid var(--border);
+  border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;transition:background .15s;}
+.btn-browse:hover{background:var(--border);}
+.check-row{display:flex;gap:18px;margin-top:6px;flex-wrap:wrap;}
+.check-row label{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;
+  color:var(--text);cursor:pointer;}
+input[type=checkbox]{width:15px;height:15px;accent-color:var(--accent);}
+.btn{padding:9px 22px;border:none;border-radius:7px;cursor:pointer;font-size:14px;
+  font-weight:700;transition:opacity .15s;}
+.btn:disabled{opacity:.45;cursor:not-allowed;}
+.btn-primary{background:var(--accent);color:#fff;}
+.btn-primary:hover:not(:disabled){background:var(--accent2);}
+.btn-sm{padding:5px 12px;font-size:12px;}
+#progressWrap{display:none;margin-top:14px;}
+.prog-bar-bg{height:10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);
+  overflow:hidden;margin-bottom:6px;}
+.prog-bar{height:100%;width:0%;background:var(--accent);transition:width .3s;border-radius:6px;}
+.phase-banner{display:none;padding:10px 16px;border-radius:10px;font-size:13px;font-weight:700;
+    margin:10px 0;text-align:center;letter-spacing:.5px;animation:phasePulse 1.5s ease-in-out infinite;}
+.phase-banner.dl{background:rgba(0,212,255,.1);border:1.5px solid rgba(0,212,255,.4);color:#00D4FF;}
+.phase-banner.cv{background:rgba(139,92,246,.1);border:1.5px solid rgba(139,92,246,.4);color:#a78bfa;}
+.phase-banner.ex{background:rgba(16,185,129,.1);border:1.5px solid rgba(16,185,129,.4);color:#10B981;}
+@keyframes phasePulse{0%,100%{opacity:.75;}50%{opacity:1;}}
+.result-card{background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.08);
+    border-radius:14px;padding:16px 18px;margin-bottom:12px;border-left:5px solid #10B981;}
+.result-card-header{display:flex;align-items:center;justify-content:space-between;
+    margin-bottom:10px;flex-wrap:wrap;gap:8px;}
+.result-badge{display:inline-block;padding:3px 10px;border-radius:20px;
+    font-size:10px;font-weight:700;}
+.result-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));
+    gap:8px;margin-top:8px;}
+.result-field{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);
+    border-radius:8px;padding:8px 10px;}
+.result-field-label{font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:2px;}
+.result-field-value{font-size:13px;font-weight:700;color:#e2e8f0;}
+#progMsg{font-size:12px;color:var(--muted);}
+#logBox{background:#0f172a;color:#e2e8f0;font-family:Consolas,monospace;font-size:12px;
+  padding:12px;border-radius:8px;height:280px;overflow-y:auto;display:none;margin-top:10px;}
+.log-ok{color:#4ade80;} .log-warn{color:#fbbf24;} .log-err{color:#f87171;} .log-info{color:#93c5fd;}
+#summaryGrid{display:none;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px;}
+.sum-card{background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;
+  padding:12px;text-align:center;}
+.sum-val{font-size:22px;font-weight:800;color:var(--accent);}
+.sum-lbl{font-size:11px;color:var(--muted);margin-top:2px;}
+table{width:100%;border-collapse:collapse;font-size:13px;}
+th{background:var(--surface2);font-size:11px;font-weight:700;text-transform:uppercase;
+  color:var(--muted);padding:7px 10px;border-bottom:2px solid var(--border);text-align:left;
+  cursor:pointer;user-select:none;}
+th:hover{color:var(--accent);}
+td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top;}
+tr:last-child td{border:none;}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;}
+.badge-po{background:#dbeafe;color:#1e40af;}
+.badge-vendor{background:#ede9fe;color:#5b21b6;}
+.tabs{display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border);}
+.tab{padding:8px 20px;cursor:pointer;font-weight:600;font-size:13px;border:none;
+  background:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-2px;
+  transition:all .15s;}
+.tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
+  border-top:1px solid var(--border);margin-top:28px;}
+.filter-row{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center;}
+.filter-row input,.filter-row select{width:auto;min-width:160px;}
+.detail-row td{background:var(--surface2);padding:12px 16px;}
+.detail-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px 18px;}
+.detail-field{font-size:12px;}
+.detail-field b{color:var(--muted);display:block;font-size:10px;text-transform:uppercase;
+  letter-spacing:.03em;margin-bottom:2px;}
+.expand-btn{background:none;border:1px solid var(--border);border-radius:5px;cursor:pointer;
+  font-size:11px;padding:3px 9px;color:var(--accent);}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-rr">RR</div>
+  <div class="logo-alten">ALTEN</div>
+  <div class="header-divider"></div>
+  <div class="header-title">
+    <h1>PO Email Attachment Downloader</h1>
+    <p>Single-click: download, convert, extract, and display — no manual steps after Process Emails.</p>
+  </div>
+</header>
+
+<main>
+
+  <div class="steps">
+    <div class="step-pill active">Step 1 — Select Mailbox &amp; Folder</div>
+    <div class="step-pill" id="step2pill">Step 2 — Set Target Folder</div>
+    <div class="step-pill" id="step3pill">Step 3 — Process Emails</div>
+  </div>
+
+  <!-- ── STEP 1: Mailbox & folder ── -->
+  <div class="card">
+    <div class="card-title">📬 Step 1 — Mailbox &amp; Folder</div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>Account (Mailbox)</label>
+        <select id="selAccount" onchange="filterFolders()">
+          <option value="">— Load folders first —</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Folder (e.g. Inbox)</label>
+        <select id="selFolder" onchange="updateFolderBadge(); checkReady()">
+          <option value="">— Select account first —</option>
+        </select>
+      </div>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="loadFolders()">🔄 Load Outlook Folders</button>
+    <span id="folderStatus" style="font-size:12px;color:var(--muted);margin-left:10px;"></span>
+    <div id="selectedFolderBadge" style="display:none;margin-top:10px;padding:8px 12px;
+         background:#dbeafe;border:1.5px solid #93c5fd;border-radius:7px;font-size:13px;">
+      📬 Selected: <b id="selectedFolderLabel">—</b>
+    </div>
+  </div>
+
+  <!-- ── STEP 2: Target folder ── -->
+  <div class="card">
+    <div class="card-title">📁 Step 2 — Target Root Folder</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:10px;">
+      PO folders will be created here automatically — one folder per PO number (e.g. <code>4XXXXXXXXX</code>).
+    </p>
+    <div class="path-row">
+      <input type="text" id="targetPath" placeholder="e.g. \\portfolioeng_nlr\EFS\PO_Downloads" oninput="checkReady()">
+      <button class="btn-browse" onclick="browseFolder()">📂 Browse…</button>
+    </div>
+  </div>
+
+  <!-- ── STEP 3: Options + single-click Run ── -->
+  <div class="card">
+    <div class="card-title">⚙️ Step 3 — Process Emails (single click)</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:10px;">
+      Downloads emails and attachments, creates PO folders, saves the email as .msg,
+      converts every PDF attachment to Excel with Kofax, detects the vendor, extracts
+      the fields, and displays the results below — automatically, in one run.
+    </p>
+    <div style="margin-bottom:10px;">
+      <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;">
+        📎 Attachment types to download:
+      </div>
+      <div class="check-row">
+        <label><input type="checkbox" id="chkPdf" checked> PDF (.pdf)</label>
+        <label><input type="checkbox" id="chkExcel" checked> Excel (.xlsx / .xls)</label>
+        <label><input type="checkbox" id="chkWord"> Word (.docx / .doc)</label>
+        <label><input type="checkbox" id="chkAll"> All file types</label>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px;">
+        ℹ Only PDF attachments go through Kofax + extraction. Other saved types are kept as-is.
+      </div>
+    </div>
+    <div class="check-row">
+      <label><input type="checkbox" id="chkSkipNoPo" checked>
+        Skip emails without a PO number (4XXXXXXXXX) in subject</label>
+      <label><input type="checkbox" id="chkSaveMsg" checked disabled>
+        Save email as .msg (always on)</label>
+      <label><input type="checkbox" id="chkKeepConverted" checked>
+        Keep converted Excel files (in a <code>_converted</code> folder next to the PDF)</label>
+    </div>
+
+    <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+      <button class="btn btn-primary" id="runBtn" disabled onclick="startJob()">
+        ▶ Process Emails
+      </button>
+      <button class="btn btn-primary btn-sm" id="testKofaxBtn" onclick="testKofax()"
+              style="background:var(--surface2);color:var(--accent);border:1.5px solid var(--accent);">
+        🧪 Test Kofax on one PDF
+      </button>
+      <span id="runStatus" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div style="font-size:11px;color:var(--amber);margin-top:6px;">
+      ⚠ Kofax conversion drives the keyboard automatically. Do not use the mouse or keyboard
+      while a run or test is in progress.
+    </div>
+
+    <div class="phase-banner" id="phaseBanner"></div>
+    <div id="progressWrap">
+      <div class="prog-bar-bg"><div class="prog-bar" id="progBar"></div></div>
+      <span id="progMsg">Starting…</span>
+    </div>
+    <div id="logBox"></div>
+
+    <div id="liveResultsWrap" style="display:none;margin-top:18px;">
+      <div style="font-size:13px;font-weight:700;color:#10B981;margin-bottom:10px;">
+        📊 Extracted Report Details
+      </div>
+      <div id="liveResultsGrid"></div>
+    </div>
+
+    <div id="summaryGrid">
+      <div class="sum-card"><div class="sum-val" id="sProcessed">—</div><div class="sum-lbl">Emails processed</div></div>
+      <div class="sum-card"><div class="sum-val" id="sFiles">—</div><div class="sum-lbl">Files saved</div></div>
+      <div class="sum-card"><div class="sum-val" id="sTrackerRows">—</div><div class="sum-lbl">Reports extracted</div></div>
+      <div class="sum-card"><div class="sum-val" id="sErrors">—</div><div class="sum-lbl">Errors</div></div>
+    </div>
+  </div>
+
+  <!-- ── Shared Tracker status banner ── -->
+  <div id="trackerBanner" class="card" style="border-left:4px solid var(--amber);padding:12px 18px;">
+    <div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:4px;">
+      🔗 Shared Processed-Email Tracker (dedup + activity log)
+    </div>
+    <div id="trackerPath" style="font-family:Consolas,monospace;font-size:12px;color:var(--muted);">
+      Loading…
+    </div>
+    <div id="trackerStatus" style="font-size:12px;margin-top:4px;"></div>
+  </div>
+
+  <!-- ── Tabs ── -->
+  <div class="tabs">
+    <button class="tab active" id="tabBtnExtracted" onclick="showTab('extracted',this)">
+      🧾 Extracted Report Details
+    </button>
+    <button class="tab" id="tabBtnHistory" onclick="showTab('history',this)">
+      📋 Download History
+    </button>
+    <button class="tab" id="tabBtnActivity" onclick="showTab('activity',this)">
+      📜 Activity Log
+    </button>
+  </div>
+
+  <!-- Extracted Report Details tab -->
+  <div id="tabExtracted" class="card">
+    <div class="filter-row">
+      <input type="text" id="extSearch" placeholder="🔍 Search PO, vendor, report, subject, file…"
+             oninput="renderExtractions()">
+      <select id="extVendorFilter" onchange="renderExtractions()"><option value="">All vendors</option></select>
+      <select id="extReportFilter" onchange="renderExtractions()"><option value="">All report types</option></select>
+      <select id="extPoFilter" onchange="renderExtractions()"><option value="">All PO numbers</option></select>
+      <button class="btn btn-primary btn-sm" onclick="loadExtractions()">🔄 Refresh</button>
+      <span id="extCount" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th onclick="sortExtractions('po')">PO Number</th>
+          <th onclick="sortExtractions('vendor')">Vendor</th>
+          <th onclick="sortExtractions('report')">Report</th>
+          <th onclick="sortExtractions('file')">File</th>
+          <th onclick="sortExtractions('subject')">Email Subject</th>
+          <th onclick="sortExtractions('received')">Received</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="extractedBody">
+        <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">
+          Click Refresh, or run "Process Emails" to populate this tab.
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- History tab -->
+  <div id="tabHistory" class="card" style="display:none;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <span style="font-size:13px;font-weight:600;color:var(--muted);">
+        All emails processed (cross-user — shared tracker). These will <b>never</b> be re-downloaded.
+      </span>
+      <button class="btn btn-primary btn-sm" onclick="loadHistory()">🔄 Refresh</button>
+    </div>
+    <table>
+      <thead><tr>
+        <th>PO Number</th><th>Subject</th><th>Sender</th><th>Downloaded By</th>
+        <th>Machine</th><th>Target Folder</th><th>Files</th><th>Processed At</th>
+      </tr></thead>
+      <tbody id="historyBody">
+        <tr><td colspan="8" style="color:var(--muted);text-align:center;padding:18px;">Click Refresh to load history.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Activity Log tab -->
+  <div id="tabActivity" class="card" style="display:none;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+      <span style="font-size:13px;font-weight:600;color:var(--muted);">
+        Per-file activity log — every save, conversion, extraction, skip, and error.
+        Also saved as <code>activity_log.csv</code> in the shared tracker folder.
+      </span>
+      <button class="btn btn-primary btn-sm" onclick="loadActivity()">🔄 Refresh</button>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Time</th><th>Event</th><th>PO</th><th>Subject</th><th>File / Note</th><th>Done By</th><th>Machine</th>
+      </tr></thead>
+      <tbody id="activityBody">
+        <tr><td colspan="7" style="color:var(--muted);text-align:center;padding:18px;">Click Refresh to load activity log.</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</main>
+
+<footer>© 2026 Alten-Rolls-Royce. All rights reserved. Confidential – Internal Use Only.</footer>
+
+<script>
+let allFolders = [], pollInterval = null, logOffset = 0, isRunning = false;
+let extractionsData = [], extSort = {col: 'at', dir: -1};
+
+// ── Load Outlook folders ──
+async function loadFolders() {
+  const s = document.getElementById('folderStatus');
+  s.textContent = 'Loading Outlook folders…';
+  try {
+    const r = await fetch('/api/folders'); const d = await r.json();
+    if (!d.ok) throw new Error(d.error);
+    allFolders = d.folders;
+    const accounts = [...new Set(allFolders.map(f => f.account))];
+    const sel = document.getElementById('selAccount');
+    sel.innerHTML = '<option value="">— Select account —</option>';
+    accounts.forEach(a => { const o=document.createElement('option'); o.value=a; o.textContent=a; sel.appendChild(o); });
+    const rs = accounts.find(a => a.toLowerCase().includes('rotables'));
+    if (rs) sel.value = rs;
+    s.textContent = `✅ Loaded ${allFolders.length} folder(s) from ${accounts.length} account(s).`;
+    filterFolders();
+  } catch(e) { s.textContent = '❌ ' + e.message; console.error(e); }
+}
+
+function filterFolders() {
+  const account = document.getElementById('selAccount').value;
+  const sel = document.getElementById('selFolder');
+  const filtered = allFolders.filter(f => f.account === account);
+  sel.innerHTML = '<option value="">— Select folder —</option>';
+  filtered.forEach(f => {
+    const o = document.createElement('option');
+    o.value = JSON.stringify({folder: f.folder, entry_id: f.entry_id||'', store_id: f.store_id||''});
+    o.textContent = (f.depth > 1 ? '    '.repeat(f.depth-1) + '└ ' : '') + f.folder;
+    sel.appendChild(o);
+  });
+  const inboxOpt = [...sel.options].find(o => { try { return JSON.parse(o.value).folder.toLowerCase()==='inbox'; } catch { return false; } });
+  if (inboxOpt) sel.value = inboxOpt.value;
+  updateFolderBadge(); checkReady();
+}
+
+function updateFolderBadge() {
+  const account = document.getElementById('selAccount').value;
+  const folderRaw = document.getElementById('selFolder').value;
+  const badge = document.getElementById('selectedFolderBadge'), label = document.getElementById('selectedFolderLabel');
+  let folder = ''; try { folder = JSON.parse(folderRaw).folder; } catch { folder = folderRaw; }
+  if (account && folder) { badge.style.display='block'; label.textContent = account + '  ›  ' + folder; }
+  else badge.style.display = 'none';
+}
+
+async function browseFolder() {
+  try {
+    const r = await fetch('/api/browse', {method:'POST'}); const d = await r.json();
+    if (d.ok && d.path) { document.getElementById('targetPath').value = d.path; checkReady(); }
+  } catch(e) { alert('Browse failed: ' + e.message); }
+}
+
+function checkReady() {
+  const account = document.getElementById('selAccount').value;
+  const folderRaw = document.getElementById('selFolder').value;
+  let folder = ''; try { folder = JSON.parse(folderRaw).folder; } catch { folder = folderRaw; }
+  const target = document.getElementById('targetPath').value.trim();
+  document.getElementById('runBtn').disabled = !(account && folder && target && !isRunning);
+  document.getElementById('testKofaxBtn').disabled = isRunning;
+  if (account && folder) document.getElementById('step2pill').classList.add('active');
+  if (target) document.getElementById('step3pill').classList.add('active');
+}
+
+async function startJob() {
+  const account = document.getElementById('selAccount').value;
+  let folder='', entry_id='', store_id='';
+  try { const fv = JSON.parse(document.getElementById('selFolder').value);
+        folder=fv.folder||''; entry_id=fv.entry_id||''; store_id=fv.store_id||''; }
+  catch(e) { folder = document.getElementById('selFolder').value; }
+  const target = document.getElementById('targetPath').value.trim();
+  const chkAll = document.getElementById('chkAll').checked;
+  let ext_types = [];
+  if (!chkAll) {
+    if (document.getElementById('chkPdf').checked) ext_types.push('.pdf');
+    if (document.getElementById('chkExcel').checked) ext_types.push('.xlsx', '.xls');
+    if (document.getElementById('chkWord').checked) ext_types.push('.docx', '.doc');
+    if (ext_types.length === 0) ext_types = ['.pdf'];
+  }
+  const skipNoPo = document.getElementById('chkSkipNoPo').checked;
+  const keepConverted = document.getElementById('chkKeepConverted').checked;
+
+  resetRunUI('Running…');
+  try {
+    const r = await fetch('/api/start', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({account, folder, target, ext_types, skip_no_po: skipNoPo,
+                            entry_id, store_id, keep_converted: keepConverted})
+    });
+    const d = await r.json();
+    if (!d.ok) { alert('Error: ' + d.error); isRunning=false; checkReady(); return; }
+    pollInterval = setInterval(pollJob, 900);
+  } catch(e) { alert('Error: ' + e.message); isRunning=false; checkReady(); }
+}
+
+async function testKofax() {
+  if (isRunning) { alert('A job is already running.'); return; }
+  resetRunUI('Testing Kofax conversion…');
+  try {
+    const r = await fetch('/api/test_kofax', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({keep_converted: document.getElementById('chkKeepConverted').checked})
+    });
+    const d = await r.json();
+    if (!d.ok) { alert('Error: ' + d.error); isRunning=false; checkReady(); return; }
+    pollInterval = setInterval(pollJob, 900);
+  } catch(e) { alert('Error: ' + e.message); isRunning=false; checkReady(); }
+}
+
+function resetRunUI(statusText) {
+  document.getElementById('logBox').style.display = 'block';
+  document.getElementById('logBox').innerHTML = '';
+  document.getElementById('progressWrap').style.display = 'block';
+  document.getElementById('summaryGrid').style.display = 'none';
+  document.getElementById('runStatus').textContent = statusText;
+  logOffset = 0; extOffset = 0; isRunning = true;
+  document.getElementById('liveResultsGrid').innerHTML = '';
+  document.getElementById('liveResultsWrap').style.display = 'none';
+  checkReady(); animateBar();
+}
+
+let extOffset = 0;
+const PHASE_CONFIG = {
+  DOWNLOAD:{cls:'dl',label:'📥  Phase 1 of 3 — Downloading emails & saving PDFs…'},
+  CONVERT: {cls:'cv',label:'⚙️   Phase 2 of 3 — Converting PDFs to Excel via Kofax… (do NOT touch PC)'},
+  EXTRACT: {cls:'ex',label:'🔍  Phase 3 of 3 — Extracting data from Excel files…'},
+};
+
+async function pollJob() {
+  try {
+    const r = await fetch(`/api/poll?offset=${logOffset}&ext_offset=${extOffset}`);
+    const d = await r.json();
+    // Phase banner
+    const banner = document.getElementById('phaseBanner');
+    if (d.phase && PHASE_CONFIG[d.phase]) {
+      const pc = PHASE_CONFIG[d.phase];
+      banner.className = 'phase-banner ' + pc.cls;
+      banner.textContent = pc.label;
+      banner.style.display = 'block';
+    } else if (!d.running) { banner.style.display = 'none'; }
+    // Log
+    d.log.forEach(entry => { logOffset++; appendLog(entry.t, entry.m, entry.l); });
+    // Live extraction cards streamed during Phase 3
+    if (d.extractions && d.extractions.length > 0) {
+      document.getElementById('liveResultsWrap').style.display = 'block';
+      d.extractions.forEach(row => { extOffset++; appendResultCard(row); });
+    }
+    if (!d.running) {
+      clearInterval(pollInterval); isRunning = false;
+      banner.style.display = 'none';
+      document.getElementById('runStatus').textContent = '✅ All 3 phases complete!';
+      document.getElementById('progBar').style.width = '100%';
+      document.getElementById('progMsg').textContent = 'Done — all 3 phases complete.';
+      if (d.summary) showSummary(d.summary);
+      checkReady(); loadHistory(); loadExtractions();
+    }
+  } catch(e) { appendLog('--', 'Poll error: ' + e.message, 'error'); }
+}
+
+function appendResultCard(row) {
+  const grid = document.getElementById('liveResultsGrid');
+  const vals = row.values || {};
+  const fields = Object.entries(vals).map(([k,v]) =>
+    '<div class="result-field"><div class="result-field-label">'+esc(k)+'</div>' +
+    '<div class="result-field-value">'+esc(v||'—')+'</div></div>').join('');
+  const card = document.createElement('div');
+  card.className = 'result-card';
+  card.innerHTML =
+    '<div class="result-card-header">' +
+    '<div>' +
+    '<span class="result-badge" style="background:rgba(16,185,129,.15);color:#10B981;border:1px solid rgba(16,185,129,.3);">✅ '+esc(row.vendor)+'</span>&nbsp;' +
+    '<span class="result-badge" style="background:rgba(0,212,255,.1);color:#00D4FF;border:1px solid rgba(0,212,255,.3);">'+esc(row.report)+'</span>' +
+    '</div>' +
+    '<div style="font-size:11px;color:#64748b;">PO <b style="color:#e2e8f0;">'+esc(row.po)+'</b> · '+esc(row.file)+' · '+esc(row.at)+'</div>' +
+    '</div>' +
+    '<div style="font-size:11px;color:#475569;margin-bottom:8px;">'+esc(row.subject)+'</div>' +
+    '<div class="result-grid">'+fields+'</div>';
+  grid.appendChild(card);
+}
+
+
+function appendLog(ts, msg, level) {
+  const box = document.getElementById('logBox');
+  const cls = level==='ok'?'log-ok':level==='warn'?'log-warn':level==='error'?'log-err':'log-info';
+  const span = document.createElement('div'); span.className = cls; span.textContent = `[${ts}] ${msg}`;
+  box.appendChild(span); box.scrollTop = box.scrollHeight;
+}
+
+function animateBar() {
+  if (!isRunning) return;
+  const bar = document.getElementById('progBar'); let w = 0;
+  const iv = setInterval(() => {
+    if (!isRunning) { clearInterval(iv); return; }
+    w = (w + 1.5) % 90; bar.style.width = w + '%';
+    document.getElementById('progMsg').textContent = 'Processing…';
+  }, 120);
+}
+
+function showSummary(s) {
+  document.getElementById('summaryGrid').style.display = 'grid';
+  document.getElementById('sProcessed').textContent = s.processed;
+  document.getElementById('sFiles').textContent = s.files_saved ? s.files_saved.length : 0;
+  document.getElementById('sTrackerRows').textContent = s.tracker_rows||0;
+  document.getElementById('sErrors').textContent = s.errors||0;
+}
+
+// ── Tabs ──
+function showTab(name, btn) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tabExtracted').style.display = name==='extracted' ? '' : 'none';
+  document.getElementById('tabHistory').style.display  = name==='history'  ? '' : 'none';
+  document.getElementById('tabActivity').style.display = name==='activity' ? '' : 'none';
+  if (name==='extracted') loadExtractions();
+  if (name==='history')  loadHistory();
+  if (name==='activity') loadActivity();
+}
+
+// ── Extracted Report Details ──
+async function loadExtractions() {
+  try {
+    const r = await fetch('/api/extractions'); const d = await r.json();
+    extractionsData = d.rows || [];
+    const vSel = document.getElementById('extVendorFilter'), rSel = document.getElementById('extReportFilter'),
+          pSel = document.getElementById('extPoFilter');
+    const curV = vSel.value, curR = rSel.value, curP = pSel.value;
+    const vendors = [...new Set(extractionsData.map(x=>x.vendor).filter(Boolean))].sort();
+    const reports = [...new Set(extractionsData.map(x=>x.report).filter(Boolean))].sort();
+    const pos = [...new Set(extractionsData.map(x=>x.po).filter(Boolean))].sort();
+    vSel.innerHTML = '<option value="">All vendors</option>' + vendors.map(v=>`<option>${esc(v)}</option>`).join('');
+    rSel.innerHTML = '<option value="">All report types</option>' + reports.map(v=>`<option>${esc(v)}</option>`).join('');
+    pSel.innerHTML = '<option value="">All PO numbers</option>' + pos.map(v=>`<option>${esc(v)}</option>`).join('');
+    vSel.value = curV; rSel.value = curR; pSel.value = curP;
+    renderExtractions();
+  } catch(e) { console.error(e); }
+}
+
+function sortExtractions(col) {
+  extSort.dir = (extSort.col === col) ? -extSort.dir : 1;
+  extSort.col = col;
+  renderExtractions();
+}
+
+function renderExtractions() {
+  const q = document.getElementById('extSearch').value.trim().toLowerCase();
+  const vf = document.getElementById('extVendorFilter').value;
+  const rf = document.getElementById('extReportFilter').value;
+  const pf = document.getElementById('extPoFilter').value;
+
+  let rows = extractionsData.filter(x => {
+    if (vf && x.vendor !== vf) return false;
+    if (rf && x.report !== rf) return false;
+    if (pf && x.po !== pf) return false;
+    if (!q) return true;
+    const hay = [x.po, x.vendor, x.report, x.subject, x.file].join(' ').toLowerCase();
+    return hay.includes(q);
+  });
+
+  rows.sort((a,b) => {
+    const av = (a[extSort.col]||'').toString().toLowerCase(), bv = (b[extSort.col]||'').toString().toLowerCase();
+    return av < bv ? -extSort.dir : av > bv ? extSort.dir : 0;
+  });
+
+  document.getElementById('extCount').textContent = `${rows.length} of ${extractionsData.length} report(s)`;
+  const tbody = document.getElementById('extractedBody');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">No extracted reports match.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = rows.map((row, i) => `
+    <tr>
+      <td><span class="badge badge-po">${esc(row.po||'—')}</span></td>
+      <td><span class="badge badge-vendor">${esc(row.vendor||'—')}</span></td>
+      <td>${esc(row.report||'—')}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(row.file||'')}">${esc(row.file||'—')}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(row.subject||'')}">${esc(row.subject||'—')}</td>
+      <td style="font-size:12px;color:var(--muted);">${esc(row.received||row.at||'')}</td>
+      <td><button class="expand-btn" onclick="toggleDetail(this,${i})">Details ▾</button></td>
+    </tr>
+    <tr class="detail-row" id="detail-${i}" style="display:none;"><td colspan="7">
+      <div class="detail-grid">
+        ${Object.entries(row.values||{}).map(([k,v])=>`
+          <div class="detail-field"><b>${esc(k)}</b>${esc(v)||'<span style="color:var(--muted);">(empty)</span>'}</div>
+        `).join('')}
+      </div>
+    </td></tr>
+  `).join('');
+  window._extRowsSorted = rows;
+}
+
+function toggleDetail(btn, i) {
+  const row = document.getElementById('detail-' + i);
+  const open = row.style.display !== 'none';
+  row.style.display = open ? 'none' : '';
+  btn.textContent = open ? 'Details ▾' : 'Details ▴';
+}
+
+// ── History & Activity ──
+async function loadHistory() {
+  try {
+    const r = await fetch('/api/history'); const d = await r.json();
+    const tbody = document.getElementById('historyBody');
+    if (!d.rows || !d.rows.length) { tbody.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:16px;">No emails processed yet.</td></tr>'; return; }
+    tbody.innerHTML = d.rows.map(row=>`
+      <tr>
+        <td><span class="badge badge-po">${row.po||'—'}</span></td>
+        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(row.subject||'')}">${esc(row.subject||'—')}</td>
+        <td style="color:var(--muted);font-size:12px;">${esc(row.sender||'—')}</td>
+        <td style="font-weight:700;color:var(--accent);">${esc(row.by||'—')}</td>
+        <td style="color:var(--muted);font-size:12px;">${esc(row.machine||'—')}</td>
+        <td style="font-size:11px;color:var(--muted);font-family:Consolas,monospace;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(row.folder||'')}">${esc(row.folder||'—')}</td>
+        <td style="text-align:center;">${row.files||0}</td>
+        <td style="color:var(--muted);font-size:12px;">${row.at||''}</td>
+      </tr>`).join('');
+  } catch(e) { console.error(e); }
+}
+
+const EVENT_COLORS = {
+  'COMPLETED':'#059669','SAVED-MSG':'#1a4fad','SAVED-ATT':'#059669','SKIP-DUP':'#d97706',
+  'SKIP-NOPO':'#d97706','SKIP-NOATT':'#94a3b8','ERROR-ATT':'#dc2626','ERROR-CONVERT':'#dc2626',
+  'CONVERTED-TO-EXCEL':'#7c3aed','EXTRACTED':'#059669','EXTRACT-NO-MATCH':'#d97706',
+};
+
+async function loadActivity() {
+  try {
+    const r = await fetch('/api/activity?limit=300'); const d = await r.json();
+    const tbody = document.getElementById('activityBody');
+    if (!d.rows || !d.rows.length) { tbody.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">No activity yet.</td></tr>'; return; }
+    tbody.innerHTML = d.rows.map(row=>{
+      const col = EVENT_COLORS[row.event] || '#475569';
+      return `<tr>
+        <td style="color:var(--muted);font-size:11px;white-space:nowrap;">${row.ts||''}</td>
+        <td><span style="background:${col}22;color:${col};padding:2px 7px;border-radius:8px;font-size:11px;font-weight:700;">${row.event||''}</span></td>
+        <td><span class="badge badge-po">${row.po||'—'}</span></td>
+        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;" title="${esc(row.subject||'')}">${esc(row.subject||'—')}</td>
+        <td style="font-size:11px;color:var(--muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(row.file||'')}">${esc(row.file||'—')}</td>
+        <td style="font-weight:700;color:var(--accent);font-size:12px;">${esc(row.by||'—')}</td>
+        <td style="color:var(--muted);font-size:12px;">${esc(row.machine||'—')}</td>
+      </tr>`;
+    }).join('');
+  } catch(e) { console.error(e); }
+}
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function loadTrackerInfo() {
+  try {
+    const r = await fetch('/api/tracker_info'); const d = await r.json();
+    document.getElementById('trackerPath').textContent = 'DB: ' + d.db_file + '   |   Log: ' + d.log_csv;
+    const ok = d.db_exists;
+    document.getElementById('trackerStatus').innerHTML = ok
+      ? '<span style="color:var(--green);">✅ Shared tracker reachable — running as <b>' + esc(d.current_user) + '</b></span>'
+      : '<span style="color:var(--red);">❌ Shared tracker NOT found at above path. Update SHARED_TRACKER_DIR in py.</span>';
+    document.getElementById('trackerBanner').style.borderColor = ok ? 'var(--green)' : 'var(--red)';
+  } catch(e) { console.error(e); }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const chkAll = document.getElementById('chkAll');
+  if (chkAll) chkAll.addEventListener('change', () => {
+    const disabled = chkAll.checked;
+    ['chkPdf','chkExcel','chkWord'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) { el.disabled = disabled; if (disabled) el.checked = true; }
+    });
+  });
+});
+
+window.onload = () => { loadFolders(); loadExtractions(); loadTrackerInfo(); };
+</script>
+</body>
+</html>
+"""
+
+
+# ── Entry point ─────────────────────────────────────────────────────────
+def open_browser():
+    time.sleep(1.2)
+    webbrowser.open(f"http://127.0.0.1:{PORT}")
+
+
+if __name__ == "__main__":
+    init_db()
+    print(f"Starting PO Email Downloader on http://127.0.0.1:{PORT}")
+    threading.Thread(target=open_browser, daemon=True).start()
+    app.run(host="127.0.0.1", port=PORT, debug=False, use_reloader=False)
