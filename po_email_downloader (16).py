@@ -593,6 +593,59 @@ def _close_window_containing(title_part, timeout=3.0):
     return True
 
 
+def _candidate_kofax_output_dirs():
+    """
+    Likely folders Kofax's "Open PDF/XPS" conversion saves to by default,
+    in priority order: the real (shell-resolved) Documents folder, plus
+    any OneDrive-redirected Documents folder alongside it (common on
+    corporate O365 machines where Documents is redirected into OneDrive).
+    """
+    dirs = []
+    docs = _get_documents_folder()
+    if docs:
+        dirs.append(docs)
+    home = os.path.expanduser("~")
+    try:
+        for entry in os.listdir(home):
+            if entry.lower().startswith("onedrive"):
+                od_docs = os.path.join(home, entry, "Documents")
+                if os.path.isdir(od_docs) and od_docs not in dirs:
+                    dirs.append(od_docs)
+    except Exception:
+        pass
+    return dirs
+
+
+def _find_recent_output_xlsx(stem, since_ts, timeout):
+    """
+    Search the likely Kofax default-output folders (Documents, OneDrive
+    Documents) for an .xlsx file matching `stem` that was created/modified
+    at or after `since_ts`. Polls until `timeout` seconds have elapsed.
+    Returns the found path, or None.
+    """
+    dirs = _candidate_kofax_output_dirs()
+    stem_l = stem.lower()
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        for d in dirs:
+            try:
+                for fn in os.listdir(d):
+                    if not fn.lower().endswith(".xlsx"):
+                        continue
+                    if stem_l not in fn.lower():
+                        continue
+                    fp = os.path.join(d, fn)
+                    try:
+                        if os.path.getmtime(fp) >= since_ts:
+                            return fp
+                    except Exception:
+                        continue
+            except Exception:
+                continue
+        time.sleep(1.0)
+    return None
+
+
 def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=True):
     """
     Convert a PDF to Excel using the "Kofax PDF" tab inside Microsoft Excel.
@@ -749,11 +802,19 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
             pass
         return None
 
-    # ── 6. Wait for the conversion to land as a new open workbook ───────────
-    _log("  Step 6: Waiting for the converted workbook to open…", "info")
+    # ── 6. Locate the converted file ─────────────────────────────────────────
+    # On this machine, Kofax converts + saves the .xlsx straight to its own
+    # default output folder (typically Documents, or OneDrive-redirected
+    # Documents) and then opens it — it does NOT land in our own `xl`
+    # Excel.Application's Workbooks collection (it's evidently a separate
+    # process/instance), so we check both: a quick opportunistic look at
+    # our own instance first, then a disk search of the likely default
+    # output folders for the rest of the timeout.
+    _log("  Step 6: Waiting for the converted file…", "info")
+    since_ts = time.time() - 3   # small buffer for clock/filesystem skew
     new_wb = None
-    deadline = time.time() + KOFAX_CONVERT_TIMEOUT
-    while time.time() < deadline:
+    quick_deadline = time.time() + 6
+    while time.time() < quick_deadline:
         try:
             if xl.Workbooks.Count > initial_count:
                 new_wb = xl.Workbooks(xl.Workbooks.Count)
@@ -762,61 +823,72 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
             pass
         time.sleep(0.5)
 
-    if new_wb is None:
-        # Fallback: maybe Kofax wrote the file straight to disk instead of
-        # opening it as a workbook (some configurations do this).
-        _log("  No new workbook detected in Excel — checking disk as a fallback…", "warn")
-        if _wait_for_stable_file(out_xlsx, 20):
-            _log(f"  Found file on disk: {os.path.basename(out_xlsx)}", "ok")
-            try:
-                xl.Quit()
-            except Exception:
-                pass
-            return out_xlsx
-        _log("  [ERROR] Conversion did not produce a workbook or a file within the timeout. "
-             "Check KOFAX_TAB_KEYTIP / KOFAX_OPEN_PDF_KEYTIP near the top of this file.", "error")
+    produced_path = None
+    if new_wb is not None:
+        try:
+            fn = new_wb.FullName
+            if fn and os.path.isfile(fn):
+                produced_path = fn
+        except Exception:
+            pass
+
+    if not produced_path:
+        _log("  Searching Documents / OneDrive Documents for the converted file…", "info")
+        remaining = max(10, KOFAX_CONVERT_TIMEOUT - int(time.time() - since_ts))
+        produced_path = _find_recent_output_xlsx(stem, since_ts, remaining)
+
+    if not produced_path:
+        _log("  [ERROR] Conversion did not produce a findable file within the timeout. "
+             "Check KOFAX_TAB_KEYTIP / KOFAX_OPEN_PDF_KEYTIP near the top of this file, "
+             "or that Kofax's default output folder is Documents / OneDrive Documents.", "error")
         try:
             xl.Quit()
         except Exception:
             pass
         return None
 
-    # ── 7. Get it next to the PDF, however Kofax actually saved it ──────────
-    # Kofax may have already saved the converted file to its own default
-    # output folder (not necessarily beside the PDF) before opening it here
-    # — `FullName` tells us exactly where, with no guessing. If it hasn't
-    # been saved anywhere yet, Excel's own SaveAs writes it directly.
-    _log(f"  Step 7: Getting the converted file beside the PDF → {os.path.basename(out_xlsx)}", "info")
-    ok = False
-    try:
-        produced_path = None
+    _wait_for_stable_file(produced_path, 20)   # let Kofax finish writing it
+    _log(f"  Found converted file: {produced_path}", "ok")
+
+    # ── 7. Close the Excel window Kofax opened to show the result ───────────
+    # This releases the file lock so it can be moved, and satisfies "no need
+    # to keep the converted workbook open" — it's closed automatically.
+    _log("  Step 7: Closing the Excel window Kofax opened for the result…", "info")
+    if new_wb is not None:
         try:
-            produced_path = new_wb.FullName
+            new_wb.Close(SaveChanges=False)
         except Exception:
-            produced_path = None
+            pass
+    for _ in range(3):   # a couple of passes in case more than one window matches
+        if not _close_window_containing(os.path.basename(produced_path), timeout=4.0):
+            break
+        time.sleep(0.4)
+    _close_window_containing(stem, timeout=3.0)
+    time.sleep(0.5)
 
-        already_saved = bool(produced_path) and os.path.isfile(produced_path)
-        same_location = already_saved and (
-            os.path.normcase(os.path.abspath(produced_path)) == os.path.normcase(os.path.abspath(out_xlsx))
-        )
+    # ── 8. Move the converted file beside the PDF, close our blank Excel ────
+    _log(f"  Step 8: Moving the converted file beside the PDF → {os.path.basename(out_xlsx)}", "info")
+    ok = False
+    same_location = os.path.normcase(os.path.abspath(produced_path)) == os.path.normcase(os.path.abspath(out_xlsx))
+    if same_location:
+        ok = os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0
+    else:
+        for attempt in range(4):   # the file may still be briefly locked right after closing
+            try:
+                shutil.move(produced_path, out_xlsx)
+                ok = os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0
+                break
+            except Exception as e:
+                if attempt == 3:
+                    _log(f"  [WARN] Move failed ({e}) — copying instead and leaving the original in place.", "warn")
+                    try:
+                        shutil.copy2(produced_path, out_xlsx)
+                        ok = os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0
+                    except Exception as e2:
+                        _log(f"  [ERROR] Copy also failed: {e2}", "error")
+                else:
+                    time.sleep(1.5)
 
-        if already_saved and not same_location:
-            _log(f"  Kofax saved it to its own default location: {produced_path}", "info")
-            new_wb.Close(SaveChanges=False)
-            shutil.copy2(produced_path, out_xlsx)
-            ok = os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0
-            _log(f"  Copied beside the PDF: {out_xlsx}", "ok" if ok else "warn")
-        elif same_location:
-            new_wb.Close(SaveChanges=False)
-            ok = os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0
-        else:
-            new_wb.SaveAs(out_xlsx, FileFormat=51)   # 51 = xlOpenXMLWorkbook (.xlsx)
-            ok = os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0
-            new_wb.Close(SaveChanges=False)
-    except Exception as e:
-        _log(f"  [ERROR] Could not save/relocate the converted workbook: {e}", "error")
-
-    # ── 8. Close everything cleanly, no save prompts ────────────────────────
     try:
         for i in range(xl.Workbooks.Count, 0, -1):
             try:
