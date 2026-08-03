@@ -718,18 +718,18 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
         return None
     _activate_window(hwnd, "Excel")
     _log("  Excel ready.", "info")
-    time.sleep(1.0)
+    time.sleep(0.6)
 
     # ── 2. Ribbon: Alt → Kofax PDF tab (y2) → Open PDF/XPS (y) ──────────────
     _log("  Step 2: Opening Kofax PDF → Open PDF/XPS on the ribbon…", "info")
     try:
         _activate_window(hwnd, "Excel")
         shell.SendKeys("%")                     # Alt — shows ribbon KeyTips
-        time.sleep(0.8)
+        time.sleep(0.5)
         shell.SendKeys(KOFAX_TAB_KEYTIP)          # "y2" — selects the Kofax PDF tab
-        time.sleep(0.8)
+        time.sleep(0.5)
         shell.SendKeys(KOFAX_OPEN_PDF_KEYTIP)     # "y" — clicks Open PDF/XPS
-        time.sleep(1.2)
+        time.sleep(0.8)
     except Exception as e:
         _log(f"  [ERROR] Ribbon navigation failed: {e}", "error")
         try:
@@ -744,16 +744,16 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
                 or _find_window("Choose", 5.0))
     if file_dlg:
         _activate_window(file_dlg[0], file_dlg[1])
-        time.sleep(0.5)
+        time.sleep(0.3)
     else:
         _log("  [WARN] Open dialog not detected — typing path into the active window anyway.", "warn")
 
     try:
         shell.SendKeys(_sk_escape(norm_pdf))
-        time.sleep(0.5)
+        time.sleep(0.3)
         shell.SendKeys("{ENTER}")
         _log("  PDF path sent → Enter.", "info")
-        time.sleep(1.5)
+        time.sleep(0.9)
     except Exception as e:
         _log(f"  [ERROR] Could not type the PDF path: {e}", "error")
         try:
@@ -762,36 +762,31 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
             pass
         return None
 
-    # ── 4. Kofax Convert Assistant: dismiss the "already exists" prompt ─────
-    # If a previous run already produced a file at Kofax's own default
-    # output location, it asks whether to add numeric suffixes or
-    # overwrite. Click "No" (overwrite) so this never needs a person at
-    # the keyboard. If the prompt doesn't appear, this is a harmless no-op.
-    assistant_win = (_find_window("Kofax Convert Assistant", 6.0)
-                     or _find_window("Convert Assistant", 4.0))
-    if assistant_win:
-        _activate_window(assistant_win[0], assistant_win[1])
-        if _click_button_by_text(assistant_win[0], ["No"], timeout=3.0):
-            _log("  'Output file already exists' prompt detected — clicked No (overwrite).", "info")
-            time.sleep(0.8)
-
-    # ── 5. Kofax converter window: Ctrl+5 → Enter ───────────────────────────
-    _log("  Step 5: Starting the conversion (Ctrl+5 → Enter)…", "info")
-    conv_win = (_find_window("Kofax", KOFAX_OPEN_WAIT)
-                or _find_window("Convert", KOFAX_OPEN_WAIT / 2)
-                or _find_window("PDF", KOFAX_OPEN_WAIT / 2))
+    # ── 4. Kofax Convert Assistant: dismiss "already exists" if it shows, then Ctrl+5 → Enter ─
+    # This is the same converter window throughout — search for it once,
+    # try the "No" (overwrite) button with a short timeout (fails fast as a
+    # no-op on the very common case where that prompt never appears — the
+    # old code searched for this window twice and waited up to 3s for a
+    # button that usually isn't there, costing several seconds on every
+    # single PDF for nothing), then send Ctrl+5 → Enter directly on it.
+    _log("  Step 4: Kofax converter window → Ctrl+5 → Enter…", "info")
+    conv_win = (_find_window("Kofax Convert Assistant", 8.0)
+                or _find_window("Convert Assistant", 4.0)
+                or _find_window("Kofax", 4.0))
     if conv_win:
         _activate_window(conv_win[0], conv_win[1])
         _log(f"  Converter window: '{conv_win[1][:60]}'", "info")
-        time.sleep(0.6)
+        if _click_button_by_text(conv_win[0], ["No"], timeout=1.2):
+            _log("  'Output file already exists' prompt detected — clicked No (overwrite).", "info")
+            time.sleep(0.6)
     else:
         _log("  [WARN] Converter window not detected — sending keys to the active window anyway.", "warn")
-        time.sleep(1.0)
+        time.sleep(0.8)
 
     try:
         shell.SendKeys(KOFAX_CONVERT_KEYS)   # Ctrl+5 — start conversion
         _log(f"  Sent {KOFAX_CONVERT_KEYS} to start the conversion.", "info")
-        time.sleep(1.2)
+        time.sleep(0.9)
         shell.SendKeys("{ENTER}")            # confirm
         _log("  Enter sent to confirm.", "info")
     except Exception as e:
@@ -810,7 +805,7 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
     # process/instance), so we check both: a quick opportunistic look at
     # our own instance first, then a disk search of the likely default
     # output folders for the rest of the timeout.
-    _log("  Step 6: Waiting for the converted file…", "info")
+    _log("  Step 5: Waiting for the converted file…", "info")
     since_ts = time.time() - 3   # small buffer for clock/filesystem skew
     new_wb = None
     quick_deadline = time.time() + 6
@@ -853,7 +848,7 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
     # ── 7. Close the Excel window Kofax opened to show the result ───────────
     # This releases the file lock so it can be moved, and satisfies "no need
     # to keep the converted workbook open" — it's closed automatically.
-    _log("  Step 7: Closing the Excel window Kofax opened for the result…", "info")
+    _log("  Step 6: Closing the Excel window Kofax opened for the result…", "info")
     if new_wb is not None:
         try:
             new_wb.Close(SaveChanges=False)
@@ -867,7 +862,7 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
     time.sleep(0.5)
 
     # ── 8. Move the converted file beside the PDF, close our blank Excel ────
-    _log(f"  Step 8: Moving the converted file beside the PDF → {os.path.basename(out_xlsx)}", "info")
+    _log(f"  Step 7: Moving the converted file beside the PDF → {os.path.basename(out_xlsx)}", "info")
     ok = False
     same_location = os.path.normcase(os.path.abspath(produced_path)) == os.path.normcase(os.path.abspath(out_xlsx))
     if same_location:
@@ -1043,13 +1038,18 @@ CURRENT_USER = os.environ.get("USERNAME", os.environ.get("USER", "unknown"))
 
 
 @contextlib.contextmanager
-def db_lock(timeout=30):
-    """Acquire a named lock file before every DB write. Releases on exit."""
+def db_lock(timeout=30, stale_after=45):
+    """
+    Acquire a named lock file before every DB write. Releases on exit.
+    If the lock file is older than `stale_after` seconds, it's assumed to
+    be abandoned (left behind by a crashed/killed run) and is cleared
+    immediately instead of waiting out the full `timeout` on every call.
+    """
     deadline = _time.time() + timeout
     while _time.time() < deadline:
         try:
             fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(fd, CURRENT_USER.encode())
+            os.write(fd, f"{CURRENT_USER}|{_time.time()}".encode())
             os.close(fd)
             try:
                 yield
@@ -1060,6 +1060,12 @@ def db_lock(timeout=30):
                     pass
             return
         except FileExistsError:
+            try:
+                if _time.time() - os.path.getmtime(LOCK_FILE) > stale_after:
+                    os.remove(LOCK_FILE)   # abandoned lock — clear it now, don't wait it out
+                    continue
+            except Exception:
+                pass
             _time.sleep(0.4)
     try:
         os.remove(LOCK_FILE)
@@ -1131,41 +1137,103 @@ def init_db():
                         "Filename", "Target Path", "Done By", "Machine"])
 
 
+_thread_local = threading.local()
+
+
 def _conn():
-    return sqlite3.connect(DB_FILE, timeout=20)
+    """
+    One SQLite connection per thread, reused for the rest of that thread's
+    life instead of reconnecting for every single query. `sqlite3.connect()`
+    over a UNC/network path is the single biggest per-call cost in this
+    file — reusing the connection cuts that out almost entirely for
+    everything after the first call in a given thread (e.g. the whole
+    background download/convert/extract run).
+    """
+    conn = getattr(_thread_local, "conn", None)
+    if conn is None:
+        conn = sqlite3.connect(DB_FILE, timeout=20, check_same_thread=False)
+        _thread_local.conn = conn
+    return conn
+
+
+def _reset_conn():
+    """Drop this thread's cached connection so the next _conn() call opens a fresh one."""
+    try:
+        conn = getattr(_thread_local, "conn", None)
+        if conn is not None:
+            conn.close()
+    except Exception:
+        pass
+    _thread_local.conn = None
 
 
 # ── Processed-email tracking ────────────────────────────────────────────────
-def is_processed(entry_id):
-    """Check if this email's EntryID is already in the shared tracker."""
-    try:
-        conn = _conn()
-        row = conn.execute(
-            "SELECT downloaded_by, processed_at, target_folder FROM processed WHERE entry_id=?",
-            (entry_id,)
-        ).fetchone()
-        conn.close()
-        return row  # None = not processed; tuple = (user, time, folder)
-    except Exception:
-        return None  # fail-safe: allow processing if DB is unreachable
+def is_processed(entry_id, log=None):
+    """
+    Check if this email's EntryID is already in the shared tracker.
+    Retries once with a fresh connection on error (covers a transient
+    network hiccup on the UNC path) before falling back to "not processed"
+    — and that fallback is now logged instead of silently swallowed, so a
+    flaky shared drive shows up as a warning rather than silent duplicates.
+    """
+    for attempt in (1, 2):
+        try:
+            conn = _conn()
+            row = conn.execute(
+                "SELECT downloaded_by, processed_at, target_folder FROM processed WHERE entry_id=?",
+                (entry_id,)
+            ).fetchone()
+            return row  # None = not processed; tuple = (user, time, folder)
+        except Exception as e:
+            _reset_conn()
+            if attempt == 2:
+                msg = (f"  [WARN] Shared tracker DB unreachable ({e}) — treating as NOT "
+                       f"processed for this item. Check the network path to SHARED_TRACKER_DIR.")
+                if log:
+                    log(msg, "warn")
+                else:
+                    print(msg)
+                return None  # fail-safe: allow processing if DB is unreachable
 
 
-def mark_processed(entry_id, po_number, subject, sender, target_folder, file_count):
-    """Record this email as processed in the shared DB."""
+def mark_processed(entry_id, po_number, subject, sender, target_folder, file_count, log=None):
+    """
+    Record this email as processed in the shared DB. Verifies the write
+    actually landed (rather than assuming success) so a failed insert over
+    a flaky network path is visible instead of silently causing the same
+    email to be re-downloaded on the next run.
+    """
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     machine = os.environ.get("COMPUTERNAME", "unknown")
-    with db_lock():
-        conn = _conn()
-        conn.execute(
-            """INSERT OR IGNORE INTO processed
-               (entry_id,po_number,subject,sender,downloaded_by,machine,
-                target_folder,file_count,processed_at)
-               VALUES (?,?,?,?,?,?,?,?,?)""",
-            (entry_id, po_number, subject, sender, CURRENT_USER,
-             machine, target_folder, file_count, now)
-        )
-        conn.commit()
-        conn.close()
+    for attempt in (1, 2):
+        try:
+            with db_lock():
+                conn = _conn()
+                conn.execute(
+                    """INSERT OR IGNORE INTO processed
+                       (entry_id,po_number,subject,sender,downloaded_by,machine,
+                        target_folder,file_count,processed_at)
+                       VALUES (?,?,?,?,?,?,?,?,?)""",
+                    (entry_id, po_number, subject, sender, CURRENT_USER,
+                     machine, target_folder, file_count, now)
+                )
+                conn.commit()
+            ok = is_processed(entry_id, log=log) is not None
+            if not ok:
+                msg = f"  [WARN] mark_processed() did not verify for {po_number} — it may be re-downloaded next run."
+                if log:
+                    log(msg, "warn")
+                else:
+                    print(msg)
+            return
+        except Exception as e:
+            _reset_conn()
+            if attempt == 2:
+                msg = f"  [WARN] Could not record {po_number} as processed ({e}) — it may be re-downloaded next run."
+                if log:
+                    log(msg, "warn")
+                else:
+                    print(msg)
 
 
 # ── Activity log ─────────────────────────────────────────────────────────────
@@ -1173,8 +1241,8 @@ def log_activity(event, entry_id, po, subject, sender, filename, target_path):
     """Write one row to both the SQLite activity_log and the shared CSV."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     machine = os.environ.get("COMPUTERNAME", "unknown")
-    with db_lock():
-        try:
+    try:
+        with db_lock():
             conn = _conn()
             conn.execute(
                 """INSERT INTO activity_log
@@ -1185,17 +1253,16 @@ def log_activity(event, entry_id, po, subject, sender, filename, target_path):
                  target_path, CURRENT_USER, machine, now)
             )
             conn.commit()
-            conn.close()
-        except Exception:
-            pass
-        try:
-            with open(LOG_CSV, "a", newline="", encoding="utf-8") as f:
-                csv.writer(f).writerow([
-                    now, event, po, subject, sender,
-                    filename, target_path, CURRENT_USER, machine
-                ])
-        except Exception:
-            pass
+    except Exception:
+        _reset_conn()
+    try:
+        with open(LOG_CSV, "a", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow([
+                now, event, po, subject, sender,
+                filename, target_path, CURRENT_USER, machine
+            ])
+    except Exception:
+        pass
 
 
 def get_all_processed():
@@ -1207,11 +1274,11 @@ def get_all_processed():
                       target_folder,file_count,processed_at
                FROM processed ORDER BY processed_at DESC"""
         ).fetchall()
-        conn.close()
         return [{"po": r[0], "subject": r[1], "sender": r[2],
                  "by": r[3], "machine": r[4], "folder": r[5],
                  "files": r[6], "at": r[7]} for r in rows]
     except Exception:
+        _reset_conn()
         return []
 
 
@@ -1223,10 +1290,10 @@ def get_activity_log(limit=200):
             """SELECT ts,event,po_number,subject,filename,target_path,done_by,machine
                FROM activity_log ORDER BY id DESC LIMIT ?""", (limit,)
         ).fetchall()
-        conn.close()
         return [{"ts": r[0], "event": r[1], "po": r[2], "subject": r[3],
                  "file": r[4], "path": r[5], "by": r[6], "machine": r[7]} for r in rows]
     except Exception:
+        _reset_conn()
         return []
 
 
@@ -1236,19 +1303,21 @@ def save_extraction(entry_id, po, vendor, report, file_name, source_xlsx,
     """Persist one extracted report's results for the UI's results grid."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     machine = os.environ.get("COMPUTERNAME", "unknown")
-    with db_lock():
-        conn = _conn()
-        conn.execute(
-            """INSERT INTO extractions
-               (entry_id,po_number,vendor,report,file_name,source_xlsx,
-                email_subject,email_received,values_json,extracted_by,machine,extracted_at)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-            (entry_id, po, vendor, report, file_name, source_xlsx,
-             email_subject, email_received, json.dumps(values),
-             CURRENT_USER, machine, now)
-        )
-        conn.commit()
-        conn.close()
+    try:
+        with db_lock():
+            conn = _conn()
+            conn.execute(
+                """INSERT INTO extractions
+                   (entry_id,po_number,vendor,report,file_name,source_xlsx,
+                    email_subject,email_received,values_json,extracted_by,machine,extracted_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (entry_id, po, vendor, report, file_name, source_xlsx,
+                 email_subject, email_received, json.dumps(values),
+                 CURRENT_USER, machine, now)
+            )
+            conn.commit()
+    except Exception:
+        _reset_conn()
 
 
 def get_extractions(limit=1000):
@@ -1260,7 +1329,6 @@ def get_extractions(limit=1000):
                       email_received,values_json,extracted_by,machine,extracted_at
                FROM extractions ORDER BY id DESC LIMIT ?""", (limit,)
         ).fetchall()
-        conn.close()
         out = []
         for r in rows:
             try:
@@ -1345,7 +1413,7 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
                 except Exception:
                     received_str = ""
 
-                already = is_processed(mail_entry_id)
+                already = is_processed(mail_entry_id, log=log)
                 if already:
                     who  = already[0] or "unknown"
                     when = already[1] or "?"
@@ -1419,7 +1487,7 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
                                      sender, str(att.FileName), str(ae))
 
                 mark_processed(mail_entry_id, po, subject, sender,
-                               po_folder, len(saved_files))
+                               po_folder, len(saved_files), log=log)
                 log_activity("COMPLETED", mail_entry_id, po, subject, sender,
                              f"{len(saved_files)} files", po_folder)
                 log(f"[OK] {po} — {subject[:55]} ({len(saved_files)} file(s))", "ok")
