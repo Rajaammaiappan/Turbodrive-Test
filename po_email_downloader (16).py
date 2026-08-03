@@ -80,8 +80,10 @@ VENDOR_REPORTS = [
         {"column": "Removal Date",              "labels": ["Removal Date"]},
      ]},
 
-    # ── 3. Agro Tech Eaton ────────────────────────────────────────────────────
+    # ── 3. Agro Tech Eaton / Eaton ───────────────────────────────────────────
+    # Matches both "Agro Tech Eaton" and plain "Eaton" as they appear in reports
     {"vendor": "Agro Tech Eaton", "report": "INSPECTION & REPAIR REPORT",
+     "aliases": ["Eaton", "Agro Tech Eaton", "Agro-Tech Eaton"],
      "fields": [
         {"column": "Purchase Order #",          "labels": ["Purchase Order", "Customer PO", "Customer P.O."], "tabular": True},
         {"column": "Part Number",               "labels": ["Part Number", "P/N"], "tabular": True},
@@ -222,16 +224,33 @@ def identify_vendor_report(workbook_text):
     text that came from Excel cells (never from a PDF). Returns the entry
     dict, or None if no vendor/report match is found anywhere in the
     workbook.
+
+    Matching order:
+      1. Vendor name (or any alias) AND report title both present → best match
+      2. Vendor name (or any alias) only → fallback
     """
     norm = _norm_ws(workbook_text).lower()
-    # Prefer an entry where both vendor name and report title are present
+
+    def _vendor_names(entry):
+        """Return the primary vendor name plus any aliases defined on the entry."""
+        names = [entry["vendor"]]
+        names.extend(entry.get("aliases", []))
+        return names
+
+    # Pass 1: both vendor (or alias) AND report found in the text
     for entry in VENDOR_REPORTS:
-        if _norm_ws(entry["vendor"]).lower() in norm and _norm_ws(entry["report"]).lower() in norm:
-            return entry
-    # Fall back to vendor name only
+        report_found = _norm_ws(entry["report"]).lower() in norm
+        if report_found:
+            for name in _vendor_names(entry):
+                if _norm_ws(name).lower() in norm:
+                    return entry
+
+    # Pass 2: vendor name (or alias) only
     for entry in VENDOR_REPORTS:
-        if _norm_ws(entry["vendor"]).lower() in norm:
-            return entry
+        for name in _vendor_names(entry):
+            if _norm_ws(name).lower() in norm:
+                return entry
+
     return None
 
 
