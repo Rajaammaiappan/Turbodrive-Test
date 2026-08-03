@@ -45,6 +45,7 @@ from flask import Flask, request, jsonify, render_template_string
 # =============================================================================
 
 VENDOR_REPORTS = [
+    # ── 1. Parker ─────────────────────────────────────────────────────────────
     {"vendor": "Parker", "report": "CONDITION REPORT",
      "fields": [
         {"column": "PO",                  "labels": ["CUSTOMER P.O.", "CUSTOMER PO"], "tabular": True},
@@ -60,60 +61,130 @@ VENDOR_REPORTS = [
          "multiline": True, "stop_at": ["Shop Findings", "Incoming Condition", "Disposition"]},
         {"column": "Date Removed",        "labels": ["Date Removed"]},
      ]},
-    {"vendor": "Parker Meggitt", "report": "CONDITION REPORT",
+
+    # ── 2. Parker MEGGITT ─────────────────────────────────────────────────────
+    {"vendor": "Parker MEGGITT", "report": "Service Breakdown Report",
      "fields": [
-        {"column": "PO",                  "labels": ["CUSTOMER P.O.", "CUSTOMER PO"], "tabular": True},
-        {"column": "P/N Shipped",         "labels": ["P/N Shipped"], "tabular": True},
-        {"column": "S/N REC",             "labels": ["S/N REC"], "tabular": True},
-        {"column": "TSN Hours",           "labels": ["TSN Hours"], "stop_at": ["TSR Hours"]},
-        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["CSR"]},
-        {"column": "Reason For Removal",  "labels": ["Reason For Removal"], "multiline": True,
+        {"column": "PO",                        "labels": ["CUSTOMER P.O.", "CUSTOMER PO"], "tabular": True},
+        {"column": "P/N Shipped",               "labels": ["P/N Shipped"], "tabular": True},
+        {"column": "S/N REC",                   "labels": ["S/N REC"], "tabular": True},
+        {"column": "TSN",                       "labels": ["TSN Hours", "TSN"], "stop_at": ["TSR Hours", "TSR", "TT"]},
+        {"column": "CSN",                       "labels": ["CSN"], "stop_at": ["CSR"]},
+        {"column": "TSI",                       "labels": ["TSI"]},
+        {"column": "CSI",                       "labels": ["CSI"]},
+        {"column": "TSO",                       "labels": ["TSO"]},
+        {"column": "CSO",                       "labels": ["CSO"]},
+        {"column": "Reason For Removal",        "labels": ["Reason For Removal"], "multiline": True,
          "stop_at": ["Incoming/Confirmation", "Received Visual Condition", "Warranty"]},
-        {"column": "Aircraft Registration No.", "labels": ["Aircraft Registration No"],
-         "stop_at": ["TSR Hours"]},
-        {"column": "Date Removed",        "labels": ["Date Removed"], "stop_at": ["TSN Hours"]},
+        {"column": "Date Removed",              "labels": ["Date Removed"], "stop_at": ["TSN Hours"]},
+        {"column": "Removal Date",              "labels": ["Removal Date"]},
      ]},
-    {"vendor": "Eaton", "report": "INSPECTION & REPAIR REPORT",
+
+    # ── 3. Agro Tech Eaton ────────────────────────────────────────────────────
+    {"vendor": "Agro Tech Eaton", "report": "INSPECTION & REPAIR REPORT",
      "fields": [
-        {"column": "PO",                  "labels": ["Customer PO", "Customer P.O.", "Purchase Order"], "tabular": True},
-        {"column": "Part Number",         "labels": ["Part Number", "P/N"], "tabular": True},
-        {"column": "Serial Number",       "labels": ["Serial Number", "S/N"], "tabular": True},
-        {"column": "Hours",               "labels": ["Hours"]},
-        {"column": "Cycles",              "labels": ["Cycles"]},
-        {"column": "Findings",            "labels": ["Findings", "Inspection Findings"],
+        {"column": "Purchase Order #",          "labels": ["Purchase Order", "Customer PO", "Customer P.O."], "tabular": True},
+        {"column": "Part Number",               "labels": ["Part Number", "P/N"], "tabular": True},
+        {"column": "Serial Number",             "labels": ["Serial Number", "S/N"], "tabular": True},
+        {"column": "TSN Hours",                 "labels": ["TSN Hours", "TSN"]},
+        {"column": "CSN",                       "labels": ["CSN", "Cycles"]},
+        {"column": "Reason For Removal",        "labels": ["Reason For Removal", "Reason for Return"],
          "multiline": True, "stop_at": ["Repair Actions", "Disposition"]},
-        {"column": "Date Removed",        "labels": ["Date Removed"]},
+        {"column": "Aircraft Registration No.", "labels": ["Aircraft Registration No", "Aircraft Reg"]},
+        {"column": "Date Removed",              "labels": ["Date Removed"]},
+        {"column": "Scheduled Removal",         "labels": ["Scheduled Removal", "Scheduled"]},
      ]},
+
+    # ── 4. UTC Aerospace Systems ──────────────────────────────────────────────
     {"vendor": "UTC Aerospace Systems", "report": "SCRAP STRIP REPORT",
      "fields": [
-        {"column": "Cust PO",             "labels": ["Cust PO"], "tabular": True},
-        {"column": "Cust Part No",        "labels": ["Cust Part No"], "tabular": True},
-        {"column": "In Serial No",        "labels": ["In Serial No"], "tabular": True},
-        {"column": "Hours",               "labels": ["Hours"]},
-        {"column": "Cycles",              "labels": ["Cycles"]},
-        {"column": "Reason For Removal",  "labels": ["Customer Reason for Return"], "multiline": True,
+        {"column": "Cust PO",                   "labels": ["Cust PO"], "tabular": True},
+        {"column": "Cust Part No",              "labels": ["Cust Part No"], "tabular": True},
+        {"column": "In Serial No",              "labels": ["In Serial No"], "tabular": True},
+        {"column": "Hours",                     "labels": ["Hours"]},
+        {"column": "Cycles",                    "labels": ["Cycles"]},
+        {"column": "Reason For Removal",        "labels": ["Customer Reason for Return"], "multiline": True,
          "stop_at": ["DOM:", "ESD (First Date)", "Administrative Notes"]},
-        {"column": "ESN",                 "labels": ["ESN"]},
-        {"column": "Date Removed",        "labels": ["Date Removed"]},
-        {"column": "Removal Date",        "labels": ["Removal Date"]},
+        {"column": "ESN",                       "labels": ["ESN"]},
+        {"column": "Date Removed",              "labels": ["Date Removed"]},
+        {"column": "Removal Date",              "labels": ["Removal Date"]},
+        {"column": "Removal - Unscheduled/Scheduled", "labels": ["Unscheduled", "Scheduled", "Removal -"]},
      ]},
+
+    # ── 5. Sumitomo Precision USA Repair Station ──────────────────────────────
     {"vendor": "Sumitomo Precision USA Repair Station", "report": "Receiving Teardown/Analysis Report",
      "fields": [
-        {"column": "Customer's RO",       "labels": ["Customer's RO", "Customers RO"], "tabular": True},
-        {"column": "S/N",                 "labels": ["Serial number"], "tabular": True},
-        {"column": "Part Number",         "labels": ["Part Number"], "tabular": True},
-        {"column": "TSN",                 "labels": ["TSN"]},
-        {"column": "CSN",                 "labels": ["CSN"]},
-        {"column": "TSI",                 "labels": ["TSI"]},
-        {"column": "CSI",                 "labels": ["CSI"]},
-        {"column": "TSO",                 "labels": ["TSO"]},
-        {"column": "CSO",                 "labels": ["CSO"]},
-        {"column": "Reason For Removal",  "labels": ["Shop Findings", "Receiving Inspection"],
+        {"column": "Customer's RO",             "labels": ["Customer's RO", "Customers RO"], "tabular": True},
+        {"column": "S/N",                       "labels": ["Serial number", "S/N"], "tabular": True},
+        {"column": "Part Number",               "labels": ["Part Number"], "tabular": True},
+        {"column": "TSN",                       "labels": ["TSN"]},
+        {"column": "CSN",                       "labels": ["CSN"]},
+        {"column": "TSI",                       "labels": ["TSI"]},
+        {"column": "CSI",                       "labels": ["CSI"]},
+        {"column": "TSO",                       "labels": ["TSO"]},
+        {"column": "CSO",                       "labels": ["CSO"]},
+        {"column": "Reason For Removal",        "labels": ["Shop Findings", "Receiving Inspection"],
          "multiline": True, "stop_at": ["LABOR", "Delivery Point", "100% Parts"]},
-        {"column": "Removal Date",        "labels": ["Removal Date"]},
-        {"column": "Date Removed",        "labels": ["Date Removed"]},
+        {"column": "Removal Date",              "labels": ["Removal Date"]},
+        {"column": "Date Removed",              "labels": ["Date Removed"]},
      ]},
-    # ── Add future vendors here — no other file needs to change ──────────────
+
+    # ── 6. Sumotimo Precision Products ───────────────────────────────────────
+    {"vendor": "Sumotimo Precision Products", "report": "Shop Finding Report",
+     "fields": [
+        {"column": "PO",                        "labels": ["PO", "Purchase Order", "Customer PO"], "tabular": True},
+        {"column": "Part Number",               "labels": ["Part Number", "P/N"], "tabular": True},
+        {"column": "Serial Number",             "labels": ["Serial Number", "S/N"], "tabular": True},
+        {"column": "TSN",                       "labels": ["TSN"]},
+        {"column": "CSN",                       "labels": ["CSN"]},
+        {"column": "Date Removed",              "labels": ["Date Removed"]},
+        {"column": "Scheduled",                 "labels": ["Scheduled"]},
+        {"column": "Engine S/N",                "labels": ["Engine S/N", "Engine Serial Number", "ESN"]},
+        {"column": "Reason For Removal",        "labels": ["Reason for removal", "Reason for Return"],
+         "multiline": True, "stop_at": ["Disposition", "Findings"]},
+     ]},
+
+    # ── 7. Goodrich Aerospace PTE LTD.(SINGAPORE) ────────────────────────────
+    {"vendor": "Goodrich Aerospace PTE LTD.(SINGAPORE)", "report": "Teardown Report",
+     "fields": [
+        {"column": "Cust PO",                   "labels": ["Cust Po", "Customer PO", "PO"], "tabular": True},
+        {"column": "Input Part",                "labels": ["Input Part", "Part Number", "P/N"], "tabular": True},
+        {"column": "Input Serial",              "labels": ["Input Serial", "Serial Number", "S/N"], "tabular": True},
+        {"column": "Failure Date",              "labels": ["Failure Date", "Date Removed"]},
+        {"column": "Reason For Return",         "labels": ["Reason for Return", "Reason For Return"],
+         "multiline": True, "stop_at": ["Findings", "TSN", "CSN"]},
+        {"column": "TSN",                       "labels": ["TSN"]},
+        {"column": "CSN",                       "labels": ["CSN"]},
+        {"column": "Engine Serial Number",      "labels": ["Engine Serial Number", "ESN"]},
+     ]},
+
+    # ── 8. UTAS SENSORS - USA ─────────────────────────────────────────────────
+    {"vendor": "UTAS SENSORS - USA", "report": "SCRAP STRIP REPORT",
+     "fields": [
+        {"column": "Cust PO",                   "labels": ["Cust Po", "Customer PO", "PO"], "tabular": True},
+        {"column": "Input Part",                "labels": ["Input Part", "Part Number", "P/N"], "tabular": True},
+        {"column": "Input Serial",              "labels": ["Input Serial", "Serial Number", "S/N"], "tabular": True},
+        {"column": "Reason For Return",         "labels": ["Reason for Return", "Reason For Return"],
+         "multiline": True, "stop_at": ["TSN", "CSN", "ESN"]},
+        {"column": "TSN",                       "labels": ["TSN"]},
+        {"column": "CSN",                       "labels": ["CSN"]},
+        {"column": "ESN",                       "labels": ["ESN", "Engine Serial Number"]},
+     ]},
+
+    # ── 9. Honeywell ──────────────────────────────────────────────────────────
+    {"vendor": "Honeywell", "report": "Initial Findings Report",
+     "fields": [
+        {"column": "Customer PO",               "labels": ["Customer PO", "Customer P.O.", "PO"], "tabular": True},
+        {"column": "Part Number",               "labels": ["Part Number", "P/N"], "tabular": True},
+        {"column": "Serial Number",             "labels": ["Serial Number", "S/N"], "tabular": True},
+        {"column": "Reason For Removal",        "labels": ["Reason for removal", "Reason for Return"],
+         "multiline": True, "stop_at": ["Findings", "Removal type", "TSN"]},
+        {"column": "Removal Type",              "labels": ["Removal type", "Removal Type"]},
+        {"column": "TSN",                       "labels": ["TSN"]},
+        {"column": "CSN",                       "labels": ["CSN"]},
+     ]},
+
+    # ── Add future vendors here — no other file needs to change ───────────────
 ]
 
 # Fixed columns always shown for every extracted result, regardless of vendor,
@@ -1030,17 +1101,24 @@ def save_email_as_msg(mail_item, dest_folder, base_name):
 # ── Config — change this ONE path so all users share the same DB + log ────
 SHARED_TRACKER_DIR = r"\portfolioeng_nlr\EFS\PO_Email_Tracker"
 
-DB_FILE   = os.path.join(SHARED_TRACKER_DIR, "processed_emails.db")
-LOG_CSV   = os.path.join(SHARED_TRACKER_DIR, "activity_log.csv")
-LOCK_FILE = os.path.join(SHARED_TRACKER_DIR, "db.lock")
+DB_FILE       = os.path.join(SHARED_TRACKER_DIR, "processed_emails.db")
+LOG_CSV       = os.path.join(SHARED_TRACKER_DIR, "activity_log.csv")
+LOCK_FILE     = os.path.join(SHARED_TRACKER_DIR, "db.lock")
+
+# Shared Excel tracker — every extracted report is appended as a new row
+# below whatever is already there, so this file grows across every run,
+# every user. Change the path if you want it somewhere other than the
+# shared tracker folder above.
+TRACKER_XLSX      = os.path.join(SHARED_TRACKER_DIR, "Extracted_Report_Tracker.xlsx")
+TRACKER_LOCK_FILE = os.path.join(SHARED_TRACKER_DIR, "tracker_xlsx.lock")
 
 CURRENT_USER = os.environ.get("USERNAME", os.environ.get("USER", "unknown"))
 
 
 @contextlib.contextmanager
-def db_lock(timeout=30, stale_after=45):
+def _file_lock(lock_path, timeout=30, stale_after=45):
     """
-    Acquire a named lock file before every DB write. Releases on exit.
+    Acquire a named lock file before a shared-file write. Releases on exit.
     If the lock file is older than `stale_after` seconds, it's assumed to
     be abandoned (left behind by a crashed/killed run) and is cleared
     immediately instead of waiting out the full `timeout` on every call.
@@ -1048,30 +1126,35 @@ def db_lock(timeout=30, stale_after=45):
     deadline = _time.time() + timeout
     while _time.time() < deadline:
         try:
-            fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.write(fd, f"{CURRENT_USER}|{_time.time()}".encode())
             os.close(fd)
             try:
                 yield
             finally:
                 try:
-                    os.remove(LOCK_FILE)
+                    os.remove(lock_path)
                 except Exception:
                     pass
             return
         except FileExistsError:
             try:
-                if _time.time() - os.path.getmtime(LOCK_FILE) > stale_after:
-                    os.remove(LOCK_FILE)   # abandoned lock — clear it now, don't wait it out
+                if _time.time() - os.path.getmtime(lock_path) > stale_after:
+                    os.remove(lock_path)   # abandoned lock — clear it now, don't wait it out
                     continue
             except Exception:
                 pass
             _time.sleep(0.4)
     try:
-        os.remove(LOCK_FILE)
+        os.remove(lock_path)
     except Exception:
         pass
     yield
+
+
+def db_lock(timeout=30, stale_after=45):
+    """Lock for the shared SQLite DB — see _file_lock()."""
+    return _file_lock(LOCK_FILE, timeout=timeout, stale_after=stale_after)
 
 
 def init_db():
@@ -1318,6 +1401,83 @@ def save_extraction(entry_id, po, vendor, report, file_name, source_xlsx,
             conn.commit()
     except Exception:
         _reset_conn()
+
+
+def append_to_tracker_workbook(entry_id, po, vendor, report, file_name,
+                                email_subject, email_received, values, log=None):
+    """
+    Append one extracted report as a new row at the BOTTOM of the shared
+    Excel tracker (TRACKER_XLSX) — this never overwrites or reorders
+    existing rows; every run, from every user, just adds more rows
+    underneath whatever is already there.
+
+    Columns: PO Number, Vendor Name, Report Name, File Name, Email
+    Subject, Email Received Date, every extracted field (added
+    automatically the first time it's seen — onboarding a new vendor
+    later just grows the header, it never disturbs older rows), plus
+    Extracted By / Extracted At for traceability.
+
+    Locked with its own lock file (separate from the SQLite DB lock) so
+    a slow Excel save never blocks unrelated database writes. Failure
+    here is non-fatal — the result is already safely in the app's own
+    database either way, so this only ever logs a warning, never breaks
+    the run.
+    """
+    import openpyxl
+
+    def _log(msg, level="info"):
+        if log:
+            log(msg, level)
+
+    row_data = {
+        "PO Number": po,
+        "Vendor Name": vendor,
+        "Report Name": report,
+        "File Name": file_name,
+        "Email Subject": email_subject,
+        "Email Received Date": email_received,
+    }
+    row_data.update(values or {})
+    row_data["Extracted By"] = CURRENT_USER
+    row_data["Extracted At"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    try:
+        with _file_lock(TRACKER_LOCK_FILE):
+            os.makedirs(os.path.dirname(TRACKER_XLSX), exist_ok=True)
+            if os.path.exists(TRACKER_XLSX):
+                wb = openpyxl.load_workbook(TRACKER_XLSX)
+                ws = wb.active
+                headers = [c.value for c in ws[1]]
+                headers = [h for h in headers if h]   # drop trailing blanks
+            else:
+                wb = openpyxl.Workbook()
+                ws = wb.active
+                ws.title = "Extracted Reports"
+                headers = []
+
+            # Extend the header row with any new columns this row introduces
+            # — existing columns/rows are never touched or reordered.
+            header_changed = False
+            for key in row_data.keys():
+                if key not in headers:
+                    headers.append(key)
+                    header_changed = True
+            if header_changed:
+                for col_idx, h in enumerate(headers, start=1):
+                    ws.cell(row=1, column=col_idx, value=h)
+
+            next_row = ws.max_row + 1   # append below whatever is already there
+
+            for col_idx, h in enumerate(headers, start=1):
+                ws.cell(row=next_row, column=col_idx, value=row_data.get(h, ""))
+
+            wb.save(TRACKER_XLSX)
+        _log(f"  Tracker row added (row {next_row} of {os.path.basename(TRACKER_XLSX)}).", "info")
+        return True
+    except Exception as e:
+        _log(f"  [WARN] Could not update the shared tracker workbook ({e}) — "
+             f"the result is still saved in the app's own history.", "warn")
+        return False
 
 
 def get_extractions(limit=1000):
@@ -1585,15 +1745,21 @@ def phase3_extract(queue, log):
         log_activity("EXTRACTED", entry_id, po, subject, sender,
                      os.path.basename(xlsx), xlsx)
 
+        append_to_tracker_workbook(
+            entry_id=entry_id, po=po, vendor=res["vendor"], report=res["report"],
+            file_name=os.path.basename(item["pdf"]), email_subject=subject,
+            email_received=received, values=res["values"], log=log)
+
         # Push live to UI (poll endpoint streams these during Phase 3)
         _job["extractions"].append({
-            "po":      po,
-            "vendor":  res["vendor"],
-            "report":  res["report"],
-            "file":    os.path.basename(item["pdf"]),
-            "subject": subject,
-            "values":  res["values"],
-            "at":      datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "po":       po,
+            "vendor":   res["vendor"],
+            "report":   res["report"],
+            "file":     os.path.basename(item["pdf"]),
+            "subject":  subject,
+            "received": received,
+            "values":   res["values"],
+            "at":       datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         })
 
         matched += 1
@@ -1690,11 +1856,17 @@ def _run_kofax_test_job(pdf_path, keep_converted=True):
             log(f"   {col}: {val or '(empty)'}", "ok" if val else "warn")
 
         # Persist so it also shows up under "Extracted Report Details" for review.
+        test_entry_id = f"TEST-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        test_received = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         save_extraction(
-            entry_id=f"TEST-{datetime.now().strftime('%Y%m%d%H%M%S')}", po="(manual test)",
+            entry_id=test_entry_id, po="(manual test)",
             vendor=res["vendor"], report=res["report"], file_name=os.path.basename(pdf_path),
-            source_xlsx=xlsx, email_subject="(Test Kofax on one PDF)", email_received="",
+            source_xlsx=xlsx, email_subject="(Test Kofax on one PDF)", email_received=test_received,
             values=res["values"])
+        append_to_tracker_workbook(
+            entry_id=test_entry_id, po="(manual test)", vendor=res["vendor"], report=res["report"],
+            file_name=os.path.basename(pdf_path), email_subject="(Test Kofax on one PDF)",
+            email_received=test_received, values=res["values"], log=log)
 
         _job["summary"] = {"processed": 1, "files_saved": [xlsx], "errors": 0,
                            "tracker_rows": 1, "tracker_unmatched": 0}
@@ -1823,9 +1995,11 @@ def api_tracker_info():
         "shared_path": SHARED_TRACKER_DIR,
         "db_file": DB_FILE,
         "log_csv": LOG_CSV,
+        "tracker_xlsx": TRACKER_XLSX,
         "current_user": CURRENT_USER,
         "db_exists": os.path.exists(DB_FILE),
         "csv_exists": os.path.exists(LOG_CSV),
+        "tracker_xlsx_exists": os.path.exists(TRACKER_XLSX),
     })
 
 
@@ -2332,9 +2506,10 @@ function appendResultCard(row) {
     '<span class="rbadge" style="background:rgba(16,185,129,.15);color:#10B981;border:1px solid rgba(16,185,129,.3);">✅ '+esc(row.vendor)+'</span>&nbsp;' +
     '<span class="rbadge" style="background:rgba(0,174,239,.1);color:#00AEEF;border:1px solid rgba(0,174,239,.3);">'+esc(row.report)+'</span>' +
     '</div>' +
-    '<div style="font-size:11px;color:#64748b;">PO <b style="color:#e2e8f0;">'+esc(row.po)+'</b> · '+esc(row.file)+' · '+esc(row.at)+'</div>' +
+    '<div style="font-size:11px;color:#64748b;">PO <b style="color:#e2e8f0;">'+esc(row.po)+'</b> · '+esc(row.file)+' · extracted '+esc(row.at)+'</div>' +
     '</div>' +
-    '<div style="font-size:11px;color:#475569;margin-bottom:6px;">'+esc(row.subject)+'</div>' +
+    '<div style="font-size:11px;color:#475569;margin-bottom:2px;">'+esc(row.subject)+'</div>' +
+    '<div style="font-size:11px;color:#64748b;margin-bottom:6px;">📧 Email received: <b style="color:#94a3b8;">'+esc(row.received||'—')+'</b></div>' +
     '<div class="rgrid">'+fields+'</div>';
   grid.appendChild(card);
 }
@@ -2506,7 +2681,9 @@ function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').re
 async function loadTrackerInfo() {
   try {
     const r = await fetch('/api/tracker_info'); const d = await r.json();
-    document.getElementById('trackerPath').textContent = 'DB: ' + d.db_file + '   |   Log: ' + d.log_csv;
+    document.getElementById('trackerPath').innerHTML =
+      'DB: ' + d.db_file + '   |   Log: ' + d.log_csv +
+      '<br>Excel tracker: ' + d.tracker_xlsx + (d.tracker_xlsx_exists ? '' : '  <span style="color:var(--amber);">(not created yet — first extraction will create it)</span>');
     const ok = d.db_exists;
     document.getElementById('trackerStatus').innerHTML = ok
       ? '<span style="color:var(--green);">✅ Shared tracker reachable — running as <b>' + esc(d.current_user) + '</b></span>'
