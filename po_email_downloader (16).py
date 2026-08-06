@@ -1053,19 +1053,14 @@ def _file_lock(lock_path, timeout=30, stale_after=45):
     immediately instead of waiting out the full `timeout` on every call.
     """
     deadline = _time.time() + timeout
+    acquired = False
     while _time.time() < deadline:
         try:
             fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             os.write(fd, f"{CURRENT_USER}|{_time.time()}".encode())
             os.close(fd)
-            try:
-                yield
-            finally:
-                try:
-                    os.remove(lock_path)
-                except Exception:
-                    pass
-            return
+            acquired = True
+            break
         except FileExistsError:
             try:
                 if _time.time() - os.path.getmtime(lock_path) > stale_after:
@@ -1074,11 +1069,15 @@ def _file_lock(lock_path, timeout=30, stale_after=45):
             except Exception:
                 pass
             _time.sleep(0.4)
+    if not acquired:
+        raise TimeoutError(f"Could not acquire lock file: {lock_path}")
     try:
-        os.remove(lock_path)
-    except Exception:
-        pass
-    yield
+        yield
+    finally:
+        try:
+            os.remove(lock_path)
+        except Exception:
+            pass
 
 
 def db_lock(timeout=30, stale_after=45):
@@ -1485,7 +1484,7 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
             log(f"Cannot find folder '{folder_name}' in '{account_name}'", "error")
             return queue
 
-items = folder.Items
+        items = folder.Items
         total = items.Count
         log(f"[PHASE 1] {total} email(s) in {account_name} / {folder_name}", "info")
 
@@ -1733,7 +1732,8 @@ def phase3_extract(queue, log):
 
 # ── Background job runner ─────────────────────────────────────────────────────
 def _run_job(account, folder, target, skip_no_po, ext_filter,
-             entry_id=None, store_id=None, keep_converted=True):
+             entry_id=None, store_id=None, keep_converted=True,
+             start_date=None, end_date=None):
 
     _job["running"]     = True
     _job["phase"]       = ""
@@ -1751,7 +1751,8 @@ def _run_job(account, folder, target, skip_no_po, ext_filter,
         _job["phase"] = "DOWNLOAD"
         log("═══ PHASE 1 — Downloading emails & saving PDFs ═══", "info")
         queue = phase1_download(account, folder, target, skip_no_po, ext_filter,
-                                log, entry_id=entry_id, store_id=store_id)
+                                log, entry_id=entry_id, store_id=store_id,
+                                start_date=start_date, end_date=end_date)
 
         # ── Phase 2: Convert (Kofax — existing working code) ─────────────────
         _job["phase"] = "CONVERT"
@@ -1879,16 +1880,25 @@ def api_start():
     entry_id = data.get("entry_id", "")
     store_id = data.get("store_id", "")
     keep_converted = bool(data.get("keep_converted", True))
+    start_date = data.get("start_date", "")
+    end_date = data.get("end_date", "")
 
     if not account or not folder:
         return jsonify({"ok": False, "error": "Account and folder are required."})
     if not target or not os.path.isdir(target):
         return jsonify({"ok": False, "error": "Target folder does not exist or is empty."})
+    if start_date and end_date:
+        try:
+            datetime.strptime(start_date, "%Y-%m-%d")
+            datetime.strptime(end_date, "%Y-%m-%d")
+        except Exception:
+            return jsonify({"ok": False, "error": "Invalid date format for start or end date."})
 
     threading.Thread(target=_run_job,
                      args=(account, folder, target, skip_no_po, ext_filter),
                      kwargs={"entry_id": entry_id, "store_id": store_id,
-                             "keep_converted": keep_converted},
+                             "keep_converted": keep_converted,
+                             "start_date": start_date, "end_date": end_date},
                      daemon=True).start()
     return jsonify({"ok": True})
 
@@ -2155,10 +2165,23 @@ footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
     <div class="check-row">
       <label><input type="checkbox" id="chkSkipNoPo" checked>
         Skip emails without a PO number (4XXXXXXXXX) in subject</label>
+      <label><input type="checkbox" id="chkDateFilter">
+        Filter emails by received date range</label>
       <label><input type="checkbox" id="chkSaveMsg" checked disabled>
         Save email as .msg (always on)</label>
       <label><input type="checkbox" id="chkKeepConverted" checked>
         Keep converted Excel files (in a <code>_converted</code> folder next to the PDF)</label>
+    </div>
+
+    <div id="dateFilterRow" class="form-row" style="display:none; margin-top:10px;">
+      <div class="form-group">
+        <label>Start date</label>
+        <input type="date" id="startDate" disabled onchange="checkReady()">
+      </div>
+      <div class="form-group">
+        <label>End date</label>
+        <input type="date" id="endDate" disabled onchange="checkReady()">
+      </div>
     </div>
 
     <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
@@ -2380,6 +2403,9 @@ async function startJob() {
     if (ext_types.length === 0) ext_types = ['.pdf'];
   }
   const skipNoPo = document.getElementById('chkSkipNoPo').checked;
+  const useDateFilter = document.getElementById('chkDateFilter').checked;
+  const startDate = useDateFilter ? document.getElementById('startDate').value : '';
+  const endDate = useDateFilter ? document.getElementById('endDate').value : '';
   const keepConverted = document.getElementById('chkKeepConverted').checked;
 
   resetRunUI('Running…');
@@ -2387,7 +2413,8 @@ async function startJob() {
     const r = await fetch('/api/start', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({account, folder, target, ext_types, skip_no_po: skipNoPo,
-                            entry_id, store_id, keep_converted: keepConverted})
+                            entry_id, store_id, keep_converted: keepConverted,
+                            start_date: startDate, end_date: endDate})
     });
     const d = await r.json();
     if (!d.ok) { alert('Error: ' + d.error); isRunning=false; checkReady(); return; }
@@ -2661,6 +2688,19 @@ document.addEventListener('DOMContentLoaded', () => {
       if (el) { el.disabled = disabled; if (disabled) el.checked = true; }
     });
   });
+
+  const chkDateFilter = document.getElementById('chkDateFilter');
+  const dateFilterRow = document.getElementById('dateFilterRow');
+  const startDate = document.getElementById('startDate');
+  const endDate = document.getElementById('endDate');
+  if (chkDateFilter) {
+    chkDateFilter.addEventListener('change', () => {
+      const on = chkDateFilter.checked;
+      dateFilterRow.style.display = on ? 'grid' : 'none';
+      startDate.disabled = !on;
+      endDate.disabled = !on;
+    });
+  }
 });
 
 window.onload = () => { loadFolders(); loadExtractions(); loadTrackerInfo(); };
