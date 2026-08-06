@@ -36,7 +36,7 @@ import time as _time
 from datetime import datetime
 
 import win32com.client
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, send_file
 
 
 
@@ -361,6 +361,26 @@ def extract_excel_fields(xlsx_path):
         values[f["column"]] = val
 
     return {"vendor": entry["vendor"], "report": entry["report"], "values": values}
+
+
+def calculate_vendor_score(vendor, values):
+    """Compute a vendor score from extracted field completeness."""
+    try:
+        values = values or {}
+        if not vendor or not isinstance(values, dict):
+            return 0
+        entry = next((e for e in VENDOR_REPORTS
+                      if _norm_ws(e["vendor"]).lower() == _norm_ws(vendor).lower()), None)
+        if not entry:
+            return 0
+        expected = len(entry["fields"])
+        if expected <= 0:
+            return 0
+        filled = sum(1 for v in values.values() if str(v).strip())
+        score = int(round(min(1.0, filled / expected) * 100))
+        return max(0, min(score, 100))
+    except Exception:
+        return 0
 
 # =============================================================================
 # SECTION 3 -- KOFAX POWER PDF AUTOMATION (PDF -> Excel only)
@@ -719,7 +739,14 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
             pass
         return None
     if not background_mode:
-        _activate_window(hwnd, "Excel")
+        ok = _activate_window(hwnd, "Excel")
+        if not ok:
+            _log("  [ERROR] Could not activate Excel window for SendKeys.", "error")
+            try:
+                xl.Quit()
+            except Exception:
+                pass
+            return None
         _log("  Excel ready.", "info")
         time.sleep(0.6)
     else:
@@ -729,7 +756,9 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
     _log("  Step 2: Opening Kofax PDF → Open PDF/XPS on the ribbon…", "info")
     if not background_mode:
         try:
-            _activate_window(hwnd, "Excel")
+            ok = _activate_window(hwnd, "Excel")
+            if not ok:
+                raise RuntimeError("Could not activate Excel window")
             shell.SendKeys("%")                     # Alt — shows ribbon KeyTips
             time.sleep(0.5)
             shell.SendKeys(KOFAX_TAB_KEYTIP)          # "y2" — selects the Kofax PDF tab
@@ -752,7 +781,9 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
         file_dlg = (_find_window("Open", KOFAX_OPEN_WAIT)
                     or _find_window("Choose", 5.0))
         if file_dlg:
-            _activate_window(file_dlg[0], file_dlg[1])
+            ok = _activate_window(file_dlg[0], file_dlg[1])
+            if not ok:
+                _log("  [WARN] Could not activate Open dialog — typing path to active window.", "warn")
             time.sleep(0.3)
         else:
             _log("  [WARN] Open dialog not detected — typing path into the active window anyway.", "warn")
@@ -889,12 +920,16 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
             new_wb.Close(SaveChanges=False)
         except Exception:
             pass
-    for _ in range(3):   # a couple of passes in case more than one window matches
-        if not _close_window_containing(os.path.basename(produced_path), timeout=4.0):
-            break
-        time.sleep(0.4)
-    _close_window_containing(stem, timeout=3.0)
-    time.sleep(0.5)
+    # Only attempt to close/force-close windows when not running background_mode
+    if not background_mode:
+        for _ in range(3):   # a couple of passes in case more than one window matches
+            if not _close_window_containing(os.path.basename(produced_path), timeout=4.0):
+                break
+            time.sleep(0.4)
+        _close_window_containing(stem, timeout=3.0)
+        time.sleep(0.5)
+    else:
+        _log("  Background mode: skipping window-close actions.", "info")
 
     # ── 8. Move the converted file beside the PDF, close our blank Excel ────
     _log(f"  Step 7: Moving the converted file beside the PDF → {os.path.basename(out_xlsx)}", "info")
@@ -1165,6 +1200,7 @@ def init_db():
             vendor         TEXT,
             report         TEXT,
             file_name      TEXT,
+            pdf_path       TEXT,
             source_xlsx    TEXT,
             email_subject  TEXT,
             email_received TEXT,
@@ -1173,6 +1209,12 @@ def init_db():
             machine        TEXT,
             extracted_at   TEXT
         )""")
+    existing_cols = [r[1] for r in conn.execute("PRAGMA table_info(extractions)").fetchall()]
+    if "pdf_path" not in existing_cols:
+        try:
+            conn.execute("ALTER TABLE extractions ADD COLUMN pdf_path TEXT")
+        except Exception:
+            pass
     conn.commit()
     conn.close()
 
@@ -1344,7 +1386,7 @@ def get_activity_log(limit=200):
 
 
 # ── Extraction results (replaces the old Excel tracker workbook) ──────────
-def save_extraction(entry_id, po, vendor, report, file_name, source_xlsx,
+def save_extraction(entry_id, po, vendor, report, file_name, pdf_path, source_xlsx,
                      email_subject, email_received, values):
     """Persist one extracted report's results for the UI's results grid."""
     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1354,10 +1396,10 @@ def save_extraction(entry_id, po, vendor, report, file_name, source_xlsx,
             conn = _conn()
             conn.execute(
                 """INSERT INTO extractions
-                   (entry_id,po_number,vendor,report,file_name,source_xlsx,
+                   (entry_id,po_number,vendor,report,file_name,pdf_path,source_xlsx,
                     email_subject,email_received,values_json,extracted_by,machine,extracted_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (entry_id, po, vendor, report, file_name, source_xlsx,
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (entry_id, po, vendor, report, file_name, pdf_path, source_xlsx,
                  email_subject, email_received, json.dumps(values),
                  CURRENT_USER, machine, now)
             )
@@ -1397,6 +1439,7 @@ def append_to_tracker_workbook(entry_id, po, vendor, report, file_name,
         "Vendor Name": vendor,
         "Report Name": report,
         "File Name": file_name,
+        "PDF Path": pdf_path or "",
         "Email Subject": email_subject,
         "Email Received Date": email_received,
     }
@@ -1448,7 +1491,7 @@ def get_extractions(limit=1000):
     try:
         conn = _conn()
         rows = conn.execute(
-            """SELECT po_number,vendor,report,file_name,source_xlsx,email_subject,
+            """SELECT po_number,vendor,report,file_name,pdf_path,source_xlsx,email_subject,
                       email_received,values_json,extracted_by,machine,extracted_at
                FROM extractions ORDER BY id DESC LIMIT ?""", (limit,)
         ).fetchall()
@@ -1460,8 +1503,9 @@ def get_extractions(limit=1000):
                 values = {}
             out.append({
                 "po": r[0], "vendor": r[1], "report": r[2], "file": r[3],
-                "source_xlsx": r[4], "subject": r[5], "received": r[6],
-                "values": values, "by": r[8], "machine": r[9], "at": r[10],
+                "pdf_path": r[4], "source_xlsx": r[5], "subject": r[6],
+                "received": r[7], "values": values, "by": r[9], "machine": r[10],
+                "at": r[11], "score": calculate_vendor_score(r[1], values),
             })
         return out
     except Exception:
@@ -1736,7 +1780,7 @@ def phase3_extract(queue, log):
         save_extraction(
             entry_id=entry_id, po=po, vendor=res["vendor"],
             report=res["report"], file_name=os.path.basename(item["pdf"]),
-            source_xlsx=xlsx, email_subject=subject,
+            pdf_path=item["pdf"], source_xlsx=xlsx, email_subject=subject,
             email_received=received, values=res["values"])
         log_activity("EXTRACTED", entry_id, po, subject, sender,
                      os.path.basename(xlsx), xlsx)
@@ -1752,9 +1796,11 @@ def phase3_extract(queue, log):
             "vendor":   res["vendor"],
             "report":   res["report"],
             "file":     os.path.basename(item["pdf"]),
+            "pdf_path": item["pdf"],
             "subject":  subject,
             "received": received,
             "values":   res["values"],
+            "score":    calculate_vendor_score(res["vendor"], res["values"]),
             "at":       datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         })
 
@@ -1865,8 +1911,8 @@ def _run_kofax_test_job(pdf_path, keep_converted=True, background_mode=False):
         save_extraction(
             entry_id=test_entry_id, po="(manual test)",
             vendor=res["vendor"], report=res["report"], file_name=os.path.basename(pdf_path),
-            source_xlsx=xlsx, email_subject="(Test Kofax on one PDF)", email_received=test_received,
-            values=res["values"])
+            pdf_path=pdf_path, source_xlsx=xlsx, email_subject="(Test Kofax on one PDF)",
+            email_received=test_received, values=res["values"])
         append_to_tracker_workbook(
             entry_id=test_entry_id, po="(manual test)", vendor=res["vendor"], report=res["report"],
             file_name=os.path.basename(pdf_path), email_subject="(Test Kofax on one PDF)",
@@ -1938,13 +1984,13 @@ def api_start():
         except Exception:
             return jsonify({"ok": False, "error": "Invalid date format for start or end date."})
 
-        threading.Thread(target=_run_job,
-                 args=(account, folder, target, skip_no_po, ext_filter),
-                 kwargs={"entry_id": entry_id, "store_id": store_id,
-                     "keep_converted": keep_converted,
-                     "start_date": start_date, "end_date": end_date,
-                     "background_mode": background_mode},
-                 daemon=True).start()
+    threading.Thread(target=_run_job,
+             args=(account, folder, target, skip_no_po, ext_filter),
+             kwargs={"entry_id": entry_id, "store_id": store_id,
+                 "keep_converted": keep_converted,
+                 "start_date": start_date, "end_date": end_date,
+                 "background_mode": background_mode},
+             daemon=True).start()
     return jsonify({"ok": True})
 
 
@@ -2002,6 +2048,20 @@ def api_extractions():
     limit = int(request.args.get("limit", 1000))
     return jsonify({"ok": True, "rows": get_extractions(limit),
                     "vendors": VENDOR_NAMES, "reports": REPORT_NAMES})
+
+
+@app.route("/api/open_pdf", methods=["GET"])
+def api_open_pdf():
+    path = request.args.get("path", "")
+    if not path:
+        return jsonify({"ok": False, "error": "Missing file path."}), 400
+    try:
+        path = os.path.abspath(path)
+        if not os.path.isfile(path):
+            return jsonify({"ok": False, "error": "File not found."}), 404
+        return send_file(path, as_attachment=False)
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
 
 
 @app.route("/api/tracker_info", methods=["GET"])
@@ -2307,6 +2367,7 @@ footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
         <tr>
           <th onclick="sortExtractions('po')">PO Number</th>
           <th onclick="sortExtractions('vendor')">Vendor</th>
+          <th onclick="sortExtractions('score')">Score</th>
           <th onclick="sortExtractions('report')">Report</th>
           <th onclick="sortExtractions('file')">File</th>
           <th onclick="sortExtractions('subject')">Email Subject</th>
@@ -2315,7 +2376,7 @@ footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
         </tr>
       </thead>
       <tbody id="extractedBody">
-        <tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">
+        <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:18px;">
           Click Refresh, or run "Process Emails" to populate this tab.
         </td></tr>
       </tbody>
@@ -2544,12 +2605,14 @@ function appendResultCard(row) {
     '<div class="result-card-hdr">' +
     '<div>' +
     '<span class="rbadge" style="background:rgba(16,185,129,.15);color:#10B981;border:1px solid rgba(16,185,129,.3);">✅ '+esc(row.vendor)+'</span>&nbsp;' +
+    '<span class="rbadge" style="background:rgba(245,158,11,.12);color:#b45309;border:1px solid rgba(245,158,11,.24);">Score '+esc((row.score||0) + '%')+'</span>&nbsp;' +
     '<span class="rbadge" style="background:rgba(0,174,239,.1);color:#00AEEF;border:1px solid rgba(0,174,239,.3);">'+esc(row.report)+'</span>' +
     '</div>' +
     '<div style="font-size:11px;color:#64748b;">PO <b style="color:#e2e8f0;">'+esc(row.po)+'</b> · '+esc(row.file)+' · extracted '+esc(row.at)+'</div>' +
     '</div>' +
     '<div style="font-size:11px;color:#475569;margin-bottom:2px;">'+esc(row.subject)+'</div>' +
     '<div style="font-size:11px;color:#64748b;margin-bottom:6px;">📧 Email received: <b style="color:#94a3b8;">'+esc(row.received||'—')+'</b></div>' +
+    (row.pdf_path ? '<div style="font-size:12px;margin-bottom:8px;"><a href="/api/open_pdf?path='+encodeURIComponent(row.pdf_path)+'" target="_blank">Open source PDF</a></div>' : '') +
     '<div class="rgrid">'+fields+'</div>';
   grid.appendChild(card);
 }
@@ -2632,27 +2695,37 @@ function renderExtractions() {
   });
 
   rows.sort((a,b) => {
-    const av = (a[extSort.col]||'').toString().toLowerCase(), bv = (b[extSort.col]||'').toString().toLowerCase();
-    return av < bv ? -extSort.dir : av > bv ? extSort.dir : 0;
+    const av = a[extSort.col] ?? '';
+    const bv = b[extSort.col] ?? '';
+    if (extSort.col === 'score') {
+      return (Number(av) - Number(bv)) * extSort.dir;
+    }
+    const as = av.toString().toLowerCase();
+    const bs = bv.toString().toLowerCase();
+    return as < bs ? -extSort.dir : as > bs ? extSort.dir : 0;
   });
 
   document.getElementById('extCount').textContent = `${rows.length} of ${extractionsData.length} report(s)`;
   const tbody = document.getElementById('extractedBody');
   if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:18px;">No extracted reports match.</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:18px;">No extracted reports match.</td></tr>';
     return;
   }
   tbody.innerHTML = rows.map((row, i) => `
     <tr>
       <td><span class="badge badge-po">${esc(row.po||'—')}</span></td>
       <td><span class="badge badge-vendor">${esc(row.vendor||'—')}</span></td>
+      <td><span class="badge badge-score" style="background:rgba(245,158,11,.12);color:#b45309;border:1px solid rgba(245,158,11,.24);">${esc((row.score||0) + '%')}</span></td>
       <td>${esc(row.report||'—')}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(row.file||'')}">${esc(row.file||'—')}</td>
+      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(row.file||'')}">` +
+        `<div>${esc(row.file||'—')}</div>` +
+        `${row.pdf_path ? `<div style="margin-top:4px;font-size:11px;"><a href="/api/open_pdf?path=${encodeURIComponent(row.pdf_path)}" target="_blank">Open PDF</a></div>` : ''}` +
+      `</td>
       <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(row.subject||'')}">${esc(row.subject||'—')}</td>
       <td style="font-size:12px;color:var(--muted);">${esc(row.received||row.at||'')}</td>
       <td><button class="expand-btn" onclick="toggleDetail(this,${i})">Details ▾</button></td>
     </tr>
-    <tr class="detail-row" id="detail-${i}" style="display:none;"><td colspan="7">
+    <tr class="detail-row" id="detail-${i}" style="display:none;"><td colspan="9">
       <div class="detail-grid">
         ${Object.entries(row.values||{}).map(([k,v])=>`
           <div class="detail-field"><b>${esc(k)}</b>${esc(v)||'<span style="color:var(--muted);">(empty)</span>'}</div>
