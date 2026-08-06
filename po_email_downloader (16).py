@@ -1553,6 +1553,11 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
       • Save .msg  
       • Save PDF attachments to PO-numbered folder  
       • Mark email as processed in shared DB  
+
+    Filters applied via Outlook's Restrict() BEFORE the loop so only
+    matching emails are iterated — not the entire folder:
+      • Date range  (start_date / end_date)
+      • Read / Unread state
     Returns list of dicts: {pdf, po, subject, sender, entry_id, received}
     """
     queue = []
@@ -1564,31 +1569,67 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
             return queue
 
         items_all = folder.Items
-        items = items_all
-        total = items.Count
-        # If a date range is provided, try to restrict the Items collection
-        if start_date or end_date:
+        items     = items_all
+
+        # ── Build Outlook Restrict() filter from Step 3 selections ────────────
+        # This runs server-side inside Outlook so only matching items come back.
+        # The loop below never sees emails that don't match — much faster on
+        # large folders like the 867-email Rotables Services / Inbox.
+        filter_parts = []
+
+        # ── Date range filter ──────────────────────────────────────────────────
+        if start_date:
             try:
-                parts = []
-                if start_date:
-                    sd = datetime.strptime(start_date, "%Y-%m-%d").strftime("%Y-%m-%d 00:00")
-                    parts.append(f"[ReceivedTime] >= '{sd}'")
-                if end_date:
-                    ed = datetime.strptime(end_date, "%Y-%m-%d").strftime("%Y-%m-%d 23:59:59")
-                    parts.append(f"[ReceivedTime] <= '{ed}'")
-                restr = " AND ".join(parts)
-                restricted = items_all.Restrict(restr)
-                # If Restrict returns a useful collection, use it
+                sd = datetime.strptime(start_date, "%Y-%m-%d").strftime("%m/%d/%Y 00:00 AM")
+                filter_parts.append(f"[ReceivedTime] >= '{sd}'")
+            except Exception:
+                log(f"  [WARN] Invalid start date '{start_date}' — date filter ignored", "warn")
+
+        if end_date:
+            try:
+                ed = datetime.strptime(end_date, "%Y-%m-%d").strftime("%m/%d/%Y 11:59 PM")
+                filter_parts.append(f"[ReceivedTime] <= '{ed}'")
+            except Exception:
+                log(f"  [WARN] Invalid end date '{end_date}' — date filter ignored", "warn")
+
+        # ── Read / Unread filter ───────────────────────────────────────────────
+        # [UnRead] = True  means the email is UNREAD
+        # [UnRead] = False means the email is READ
+        if include_unread and not include_read:
+            # Unread only
+            filter_parts.append("[UnRead] = True")
+        elif include_read and not include_unread:
+            # Read only
+            filter_parts.append("[UnRead] = False")
+        elif not include_read and not include_unread:
+            # Nothing selected — nothing to process
+            log("[PHASE 1] No read/unread option selected — nothing to process.", "warn")
+            return queue
+        # else both checked → no UnRead filter needed (include everything)
+
+        # ── Apply Restrict() if any filter was built ───────────────────────────
+        if filter_parts:
+            restrict_str = " AND ".join(filter_parts)
+            log(f"[PHASE 1] Applying Outlook filter: {restrict_str}", "info")
+            try:
+                restricted = items_all.Restrict(restrict_str)
                 if restricted is not None:
                     items = restricted
                     total = items.Count
-                    log(f"[PHASE 1] {total} email(s) in {account_name} / {folder_name} (date-restricted)", "info")
+                    log(f"[PHASE 1] {total} email(s) matched filter in "
+                        f"{account_name} / {folder_name}", "info")
                 else:
-                    log(f"[PHASE 1] Restrict returned no collection; scanning all items.", "warn")
-            except Exception:
-                log(f"[PHASE 1] Could not apply Restrict() — falling back to full scan.", "warn")
+                    total = items_all.Count
+                    log(f"[PHASE 1] Restrict() returned nothing — falling back to "
+                        f"full scan of {total} email(s)", "warn")
+            except Exception as re_err:
+                total = items_all.Count
+                log(f"[PHASE 1] Restrict() failed ({re_err}) — falling back to "
+                    f"full scan of {total} email(s)", "warn")
         else:
-            log(f"[PHASE 1] {total} email(s) in {account_name} / {folder_name}", "info")
+            total = items.Count
+            log(f"[PHASE 1] {total} email(s) in {account_name} / {folder_name} "
+                f"(no filter — processing all)", "info")
 
         for idx in range(1, total + 1):
             try:
@@ -1604,40 +1645,21 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
                 except Exception:
                     received_str = ""
 
-                # ── Optional received-date filter (From / To) ──────────────────
-                if start_date or end_date:
+                # ── Date filter ───────────────────────────────────────────────
+                # Already handled by Outlook Restrict() before the loop.
+                # Fallback check only if Restrict() failed (full-scan mode).
+                if (start_date or end_date) and items is items_all:
                     try:
                         recv_dt = mail.ReceivedTime.date()
-                    except Exception:
-                        recv_dt = None
-                    if recv_dt is not None:
                         if start_date:
-                            try:
-                                from_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
-                            except Exception:
-                                from_dt = None
-                            if from_dt and recv_dt < from_dt:
-                                log(f"  [SKIP-DATE] Before {start_date} ({received_str[:10]}): {subject[:45]}", "warn")
-                                log_activity("SKIP-DATE", mail_entry_id, "", subject,
-                                             sender, "", f"before {start_date}")
+                            from_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+                            if recv_dt < from_dt:
                                 continue
                         if end_date:
-                            try:
-                                to_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
-                            except Exception:
-                                to_dt = None
-                            if to_dt and recv_dt > to_dt:
-                                log(f"  [SKIP-DATE] After {end_date} ({received_str[:10]}): {subject[:45]}", "warn")
-                                log_activity("SKIP-DATE", mail_entry_id, "", subject,
-                                             sender, "", f"after {end_date}")
+                            to_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+                            if recv_dt > to_dt:
                                 continue
-                    else:
-                        # If date filter is enabled but we cannot read the ReceivedTime,
-                        # treat the message as out-of-range and skip it to avoid
-                        # processing items outside the requested window.
-                        log(f"  [SKIP-NODATE] Could not read received date — skipping message: {subject[:45]}", "warn")
-                        log_activity("SKIP-NODATE", mail_entry_id, "", subject,
-                                     sender, "", target_root)
+                    except Exception:
                         continue
 
                 already = is_processed(mail_entry_id, log=log)
@@ -1648,33 +1670,18 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
                     continue
 
                 # ── Optional read/unread filter ─────────────────────────────
-                try:
-                    is_unread = bool(mail.UnRead)
-                except Exception:
-                    is_unread = None
-                if include_read and include_unread:
-                    pass
-                else:
-                    if is_unread is None:
-                        # cannot determine read state — skip filter
-                        pass
-                    else:
-                        if include_unread and not include_read:
-                            # only include unread messages
-                            if not is_unread:
-                                log(f"  [SKIP-READ] Read message skipped: {subject[:45]}", "warn")
-                                log_activity("SKIP-READ", mail_entry_id, "", subject, sender, "", target_root)
-                                continue
-                        elif include_read and not include_unread:
-                            # only include read messages
-                            if is_unread:
-                                log(f"  [SKIP-UNREAD] Unread message skipped: {subject[:45]}", "warn")
-                                log_activity("SKIP-UNREAD", mail_entry_id, "", subject, sender, "", target_root)
-                                continue
-                        elif not include_read and not include_unread:
-                            # nothing selected — skip all
-                            log(f"  [SKIP-READ-UNREAD] No read/unread option selected — skipping message: {subject[:45]}", "warn")
-                            log_activity("SKIP-READ-UNREAD", mail_entry_id, "", subject, sender, "", target_root)
+                # Note: already handled by Outlook Restrict() above.
+                # This fallback only runs if Restrict() failed and we are in
+                # full-scan mode — avoids processing wrong emails in that case.
+                if not (include_read and include_unread):
+                    try:
+                        is_unread = bool(mail.UnRead)
+                    except Exception:
+                        is_unread = None
+                    if is_unread is not None:
+                        if include_unread and not include_read and not is_unread:
+                            continue
+                        elif include_read and not include_unread and is_unread:
                             continue
 
                 po = extract_po_from_subject(subject)
