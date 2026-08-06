@@ -1547,7 +1547,7 @@ def _make_log(progress_cb):
 # ── Phase 1: Download ALL emails ─────────────────────────────────────────────
 def phase1_download(account_name, folder_name, target_root, skip_no_po,
                     attachment_ext_filter, log, entry_id=None, store_id=None,
-                    start_date=None, end_date=None):
+                    start_date=None, end_date=None, include_read=True, include_unread=True):
     """
     Scan the Outlook folder. For every qualifying email:
       • Save .msg  
@@ -1609,7 +1609,13 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
                                              sender, "", f"after {end_date}")
                                 continue
                     else:
-                        log(f"  [WARN] Could not read received date — skipping date filter for: {subject[:45]}", "warn")
+                        # If date filter is enabled but we cannot read the ReceivedTime,
+                        # treat the message as out-of-range and skip it to avoid
+                        # processing items outside the requested window.
+                        log(f"  [SKIP-NODATE] Could not read received date — skipping message: {subject[:45]}", "warn")
+                        log_activity("SKIP-NODATE", mail_entry_id, "", subject,
+                                     sender, "", target_root)
+                        continue
 
                 already = is_processed(mail_entry_id, log=log)
                 if already:
@@ -1617,6 +1623,36 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
                     when = already[1] or "?"
                     log(f"  [SKIP-DUP] {who} on {when}: {subject[:45]}", "warn")
                     continue
+
+                # ── Optional read/unread filter ─────────────────────────────
+                try:
+                    is_unread = bool(mail.UnRead)
+                except Exception:
+                    is_unread = None
+                if include_read and include_unread:
+                    pass
+                else:
+                    if is_unread is None:
+                        # cannot determine read state — skip filter
+                        pass
+                    else:
+                        if include_unread and not include_read:
+                            # only include unread messages
+                            if not is_unread:
+                                log(f"  [SKIP-READ] Read message skipped: {subject[:45]}", "warn")
+                                log_activity("SKIP-READ", mail_entry_id, "", subject, sender, "", target_root)
+                                continue
+                        elif include_read and not include_unread:
+                            # only include read messages
+                            if is_unread:
+                                log(f"  [SKIP-UNREAD] Unread message skipped: {subject[:45]}", "warn")
+                                log_activity("SKIP-UNREAD", mail_entry_id, "", subject, sender, "", target_root)
+                                continue
+                        elif not include_read and not include_unread:
+                            # nothing selected — skip all
+                            log(f"  [SKIP-READ-UNREAD] No read/unread option selected — skipping message: {subject[:45]}", "warn")
+                            log_activity("SKIP-READ-UNREAD", mail_entry_id, "", subject, sender, "", target_root)
+                            continue
 
                 po = extract_po_from_subject(subject)
                 if not po:
@@ -1816,7 +1852,8 @@ def phase3_extract(queue, log):
 # ── Background job runner ─────────────────────────────────────────────────────
 def _run_job(account, folder, target, skip_no_po, ext_filter,
              entry_id=None, store_id=None, keep_converted=True,
-             start_date=None, end_date=None, background_mode=False):
+             start_date=None, end_date=None, background_mode=False,
+             include_read=True, include_unread=True):
 
     _job["running"]     = True
     _job["phase"]       = ""
@@ -1834,8 +1871,9 @@ def _run_job(account, folder, target, skip_no_po, ext_filter,
         _job["phase"] = "DOWNLOAD"
         log("═══ PHASE 1 — Downloading emails & saving PDFs ═══", "info")
         queue = phase1_download(account, folder, target, skip_no_po, ext_filter,
-                                log, entry_id=entry_id, store_id=store_id,
-                                start_date=start_date, end_date=end_date)
+                    log, entry_id=entry_id, store_id=store_id,
+                    start_date=start_date, end_date=end_date,
+                    include_read=include_read, include_unread=include_unread)
 
         # Attach the background_mode flag to every queued item so Phase 2 can honor it
         if background_mode and queue:
@@ -1971,6 +2009,8 @@ def api_start():
     keep_converted = bool(data.get("keep_converted", True))
     start_date = data.get("start_date", "")
     end_date = data.get("end_date", "")
+    include_read = bool(data.get("include_read", True))
+    include_unread = bool(data.get("include_unread", True))
     background_mode = bool(data.get("background_mode", False))
 
     if not account or not folder:
@@ -1989,7 +2029,8 @@ def api_start():
              kwargs={"entry_id": entry_id, "store_id": store_id,
                  "keep_converted": keep_converted,
                  "start_date": start_date, "end_date": end_date,
-                 "background_mode": background_mode},
+                 "background_mode": background_mode,
+                 "include_read": include_read, "include_unread": include_unread},
              daemon=True).start()
     return jsonify({"ok": True})
 
@@ -2273,8 +2314,10 @@ footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
         Skip emails without a PO number (4XXXXXXXXX) in subject</label>
             <label><input type="checkbox" id="chkDateFilter">
                 Filter emails by received date range</label>
-            <label><input type="checkbox" id="chkBackgroundMode">
-                Background mode (do not bring Excel/Kofax to foreground)</label>
+                        <label><input type="checkbox" id="chkBackgroundMode">
+                                Background mode (do not bring Excel/Kofax to foreground)</label>
+            <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="chkIncludeRead" checked> Include read</label>
+            <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="chkIncludeUnread" checked> Include unread</label>
       <label><input type="checkbox" id="chkSaveMsg" checked disabled>
         Save email as .msg (always on)</label>
       <label><input type="checkbox" id="chkKeepConverted" checked>
@@ -2516,17 +2559,21 @@ async function startJob() {
     const startDate = useDateFilter ? document.getElementById('startDate').value : '';
     const endDate = useDateFilter ? document.getElementById('endDate').value : '';
     const backgroundMode = document.getElementById('chkBackgroundMode') && document.getElementById('chkBackgroundMode').checked;
+    const includeRead = document.getElementById('chkIncludeRead') ? document.getElementById('chkIncludeRead').checked : true;
+    const includeUnread = document.getElementById('chkIncludeUnread') ? document.getElementById('chkIncludeUnread').checked : true;
   const keepConverted = document.getElementById('chkKeepConverted').checked;
 
   resetRunUI('Running…');
   try {
-    const r = await fetch('/api/start', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({account, folder, target, ext_types, skip_no_po: skipNoPo,
-                            entry_id, store_id, keep_converted: keepConverted,
-                            start_date: startDate, end_date: endDate,
-                            background_mode: backgroundMode})
-    });
+        const r = await fetch('/api/start', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({account, folder, target, ext_types, skip_no_po: skipNoPo,
+                                                        entry_id, store_id, keep_converted: keepConverted,
+                                                        start_date: startDate, end_date: endDate,
+                                                        background_mode: backgroundMode,
+                                                        include_read: includeRead, include_unread: includeUnread
+                                                    })
+        });
     const d = await r.json();
     if (!d.ok) { alert('Error: ' + d.error); isRunning=false; checkReady(); return; }
     pollInterval = setInterval(pollJob, 900);
