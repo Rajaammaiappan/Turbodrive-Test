@@ -1409,7 +1409,7 @@ def save_extraction(entry_id, po, vendor, report, file_name, pdf_path, source_xl
 
 
 def append_to_tracker_workbook(entry_id, po, vendor, report, file_name,
-                                email_subject, email_received, values, log=None):
+                                email_subject, email_received, values, log=None, pdf_path=None):
     """
     Append one extracted report as a new row at the BOTTOM of the shared
     Excel tracker (TRACKER_XLSX) — this never overwrites or reorders
@@ -1854,7 +1854,8 @@ def phase3_extract(queue, log):
         append_to_tracker_workbook(
             entry_id=entry_id, po=po, vendor=res["vendor"], report=res["report"],
             file_name=os.path.basename(item["pdf"]), email_subject=subject,
-            email_received=received, values=res["values"], log=log)
+            email_received=received, values=res["values"], log=log,
+            pdf_path=item["pdf"])
 
         # Push live to UI (poll endpoint streams these during Phase 3)
         _job["extractions"].append({
@@ -1984,7 +1985,8 @@ def _run_kofax_test_job(pdf_path, keep_converted=True, background_mode=False):
         append_to_tracker_workbook(
             entry_id=test_entry_id, po="(manual test)", vendor=res["vendor"], report=res["report"],
             file_name=os.path.basename(pdf_path), email_subject="(Test Kofax on one PDF)",
-            email_received=test_received, values=res["values"], log=log)
+            email_received=test_received, values=res["values"], log=log,
+            pdf_path=pdf_path)
 
         _job["summary"] = {"processed": 1, "files_saved": [xlsx], "errors": 0,
                            "tracker_rows": 1, "tracker_unmatched": 0}
