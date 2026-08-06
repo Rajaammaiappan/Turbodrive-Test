@@ -1563,9 +1563,32 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
             log(f"Cannot find folder '{folder_name}' in '{account_name}'", "error")
             return queue
 
-        items = folder.Items
+        items_all = folder.Items
+        items = items_all
         total = items.Count
-        log(f"[PHASE 1] {total} email(s) in {account_name} / {folder_name}", "info")
+        # If a date range is provided, try to restrict the Items collection
+        if start_date or end_date:
+            try:
+                parts = []
+                if start_date:
+                    sd = datetime.strptime(start_date, "%Y-%m-%d").strftime("%Y-%m-%d 00:00")
+                    parts.append(f"[ReceivedTime] >= '{sd}'")
+                if end_date:
+                    ed = datetime.strptime(end_date, "%Y-%m-%d").strftime("%Y-%m-%d 23:59:59")
+                    parts.append(f"[ReceivedTime] <= '{ed}'")
+                restr = " AND ".join(parts)
+                restricted = items_all.Restrict(restr)
+                # If Restrict returns a useful collection, use it
+                if restricted is not None:
+                    items = restricted
+                    total = items.Count
+                    log(f"[PHASE 1] {total} email(s) in {account_name} / {folder_name} (date-restricted)", "info")
+                else:
+                    log(f"[PHASE 1] Restrict returned no collection; scanning all items.", "warn")
+            except Exception:
+                log(f"[PHASE 1] Could not apply Restrict() — falling back to full scan.", "warn")
+        else:
+            log(f"[PHASE 1] {total} email(s) in {account_name} / {folder_name}", "info")
 
         for idx in range(1, total + 1):
             try:
