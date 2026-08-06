@@ -45,7 +45,6 @@ from flask import Flask, request, jsonify, render_template_string
 # =============================================================================
 
 VENDOR_REPORTS = [
-    # ── 1. Parker ─────────────────────────────────────────────────────────────
     {"vendor": "Parker", "report": "CONDITION REPORT",
      "fields": [
         {"column": "PO",                  "labels": ["CUSTOMER P.O.", "CUSTOMER PO"], "tabular": True},
@@ -61,132 +60,60 @@ VENDOR_REPORTS = [
          "multiline": True, "stop_at": ["Shop Findings", "Incoming Condition", "Disposition"]},
         {"column": "Date Removed",        "labels": ["Date Removed"]},
      ]},
-
-    # ── 2. Parker MEGGITT ─────────────────────────────────────────────────────
-    {"vendor": "Parker MEGGITT", "report": "Service Breakdown Report",
+    {"vendor": "Parker Meggitt", "report": "CONDITION REPORT",
      "fields": [
-        {"column": "PO",                        "labels": ["CUSTOMER P.O.", "CUSTOMER PO"], "tabular": True},
-        {"column": "P/N Shipped",               "labels": ["P/N Shipped"], "tabular": True},
-        {"column": "S/N REC",                   "labels": ["S/N REC"], "tabular": True},
-        {"column": "TSN",                       "labels": ["TSN Hours", "TSN"], "stop_at": ["TSR Hours", "TSR", "TT"]},
-        {"column": "CSN",                       "labels": ["CSN"], "stop_at": ["CSR"]},
-        {"column": "TSI",                       "labels": ["TSI"]},
-        {"column": "CSI",                       "labels": ["CSI"]},
-        {"column": "TSO",                       "labels": ["TSO"]},
-        {"column": "CSO",                       "labels": ["CSO"]},
-        {"column": "Reason For Removal",        "labels": ["Reason For Removal"], "multiline": True,
+        {"column": "PO",                  "labels": ["CUSTOMER P.O.", "CUSTOMER PO"], "tabular": True},
+        {"column": "P/N Shipped",         "labels": ["P/N Shipped"], "tabular": True},
+        {"column": "S/N REC",             "labels": ["S/N REC"], "tabular": True},
+        {"column": "TSN Hours",           "labels": ["TSN Hours"], "stop_at": ["TSR Hours"]},
+        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["CSR"]},
+        {"column": "Reason For Removal",  "labels": ["Reason For Removal"], "multiline": True,
          "stop_at": ["Incoming/Confirmation", "Received Visual Condition", "Warranty"]},
-        {"column": "Date Removed",              "labels": ["Date Removed"], "stop_at": ["TSN Hours"]},
-        {"column": "Removal Date",              "labels": ["Removal Date"]},
+        {"column": "Aircraft Registration No.", "labels": ["Aircraft Registration No"],
+         "stop_at": ["TSR Hours"]},
+        {"column": "Date Removed",        "labels": ["Date Removed"], "stop_at": ["TSN Hours"]},
      ]},
-
-    # ── 3. Agro Tech Eaton / Eaton ───────────────────────────────────────────
-    # Matches both "Agro Tech Eaton" and plain "Eaton" as they appear in reports
-    {"vendor": "Agro Tech Eaton", "report": "INSPECTION & REPAIR REPORT",
-     "aliases": ["Eaton", "Agro Tech Eaton", "Agro-Tech Eaton"],
+    {"vendor": "Eaton", "report": "INSPECTION & REPAIR REPORT",
      "fields": [
-        {"column": "Purchase Order #",          "labels": ["Purchase Order", "Customer PO", "Customer P.O."], "tabular": True},
-        {"column": "Part Number",               "labels": ["Part Number", "P/N"], "tabular": True},
-        {"column": "Serial Number",             "labels": ["Serial Number", "S/N"], "tabular": True},
-        {"column": "TSN Hours",                 "labels": ["TSN Hours", "TSN"]},
-        {"column": "CSN",                       "labels": ["CSN", "Cycles"]},
-        {"column": "Reason For Removal",        "labels": ["Reason For Removal", "Reason for Return"],
+        {"column": "PO",                  "labels": ["Customer PO", "Customer P.O.", "Purchase Order"], "tabular": True},
+        {"column": "Part Number",         "labels": ["Part Number", "P/N"], "tabular": True},
+        {"column": "Serial Number",       "labels": ["Serial Number", "S/N"], "tabular": True},
+        {"column": "Hours",               "labels": ["Hours"]},
+        {"column": "Cycles",              "labels": ["Cycles"]},
+        {"column": "Findings",            "labels": ["Findings", "Inspection Findings"],
          "multiline": True, "stop_at": ["Repair Actions", "Disposition"]},
-        {"column": "Aircraft Registration No.", "labels": ["Aircraft Registration No", "Aircraft Reg"]},
-        {"column": "Date Removed",              "labels": ["Date Removed"]},
-        {"column": "Scheduled Removal",         "labels": ["Scheduled Removal", "Scheduled"]},
+        {"column": "Date Removed",        "labels": ["Date Removed"]},
      ]},
-
-    # ── 4. UTC Aerospace Systems ──────────────────────────────────────────────
     {"vendor": "UTC Aerospace Systems", "report": "SCRAP STRIP REPORT",
      "fields": [
-        {"column": "Cust PO",                   "labels": ["Cust PO"], "tabular": True},
-        {"column": "Cust Part No",              "labels": ["Cust Part No"], "tabular": True},
-        {"column": "In Serial No",              "labels": ["In Serial No"], "tabular": True},
-        {"column": "Hours",                     "labels": ["Hours"]},
-        {"column": "Cycles",                    "labels": ["Cycles"]},
-        {"column": "Reason For Removal",        "labels": ["Customer Reason for Return"], "multiline": True,
+        {"column": "Cust PO",             "labels": ["Cust PO"], "tabular": True},
+        {"column": "Cust Part No",        "labels": ["Cust Part No"], "tabular": True},
+        {"column": "In Serial No",        "labels": ["In Serial No"], "tabular": True},
+        {"column": "Hours",               "labels": ["Hours"]},
+        {"column": "Cycles",              "labels": ["Cycles"]},
+        {"column": "Reason For Removal",  "labels": ["Customer Reason for Return"], "multiline": True,
          "stop_at": ["DOM:", "ESD (First Date)", "Administrative Notes"]},
-        {"column": "ESN",                       "labels": ["ESN"]},
-        {"column": "Date Removed",              "labels": ["Date Removed"]},
-        {"column": "Removal Date",              "labels": ["Removal Date"]},
-        {"column": "Removal - Unscheduled/Scheduled", "labels": ["Unscheduled", "Scheduled", "Removal -"]},
+        {"column": "ESN",                 "labels": ["ESN"]},
+        {"column": "Date Removed",        "labels": ["Date Removed"]},
+        {"column": "Removal Date",        "labels": ["Removal Date"]},
      ]},
-
-    # ── 5. Sumitomo Precision USA Repair Station ──────────────────────────────
     {"vendor": "Sumitomo Precision USA Repair Station", "report": "Receiving Teardown/Analysis Report",
      "fields": [
-        {"column": "Customer's RO",             "labels": ["Customer's RO", "Customers RO"], "tabular": True},
-        {"column": "S/N",                       "labels": ["Serial number", "S/N"], "tabular": True},
-        {"column": "Part Number",               "labels": ["Part Number"], "tabular": True},
-        {"column": "TSN",                       "labels": ["TSN"]},
-        {"column": "CSN",                       "labels": ["CSN"]},
-        {"column": "TSI",                       "labels": ["TSI"]},
-        {"column": "CSI",                       "labels": ["CSI"]},
-        {"column": "TSO",                       "labels": ["TSO"]},
-        {"column": "CSO",                       "labels": ["CSO"]},
-        {"column": "Reason For Removal",        "labels": ["Shop Findings", "Receiving Inspection"],
+        {"column": "Customer's RO",       "labels": ["Customer's RO", "Customers RO"], "tabular": True},
+        {"column": "S/N",                 "labels": ["Serial number"], "tabular": True},
+        {"column": "Part Number",         "labels": ["Part Number"], "tabular": True},
+        {"column": "TSN",                 "labels": ["TSN"]},
+        {"column": "CSN",                 "labels": ["CSN"]},
+        {"column": "TSI",                 "labels": ["TSI"]},
+        {"column": "CSI",                 "labels": ["CSI"]},
+        {"column": "TSO",                 "labels": ["TSO"]},
+        {"column": "CSO",                 "labels": ["CSO"]},
+        {"column": "Reason For Removal",  "labels": ["Shop Findings", "Receiving Inspection"],
          "multiline": True, "stop_at": ["LABOR", "Delivery Point", "100% Parts"]},
-        {"column": "Removal Date",              "labels": ["Removal Date"]},
-        {"column": "Date Removed",              "labels": ["Date Removed"]},
+        {"column": "Removal Date",        "labels": ["Removal Date"]},
+        {"column": "Date Removed",        "labels": ["Date Removed"]},
      ]},
-
-    # ── 6. Sumotimo Precision Products ───────────────────────────────────────
-    {"vendor": "Sumotimo Precision Products", "report": "Shop Finding Report",
-     "fields": [
-        {"column": "PO",                        "labels": ["PO", "Purchase Order", "Customer PO"], "tabular": True},
-        {"column": "Part Number",               "labels": ["Part Number", "P/N"], "tabular": True},
-        {"column": "Serial Number",             "labels": ["Serial Number", "S/N"], "tabular": True},
-        {"column": "TSN",                       "labels": ["TSN"]},
-        {"column": "CSN",                       "labels": ["CSN"]},
-        {"column": "Date Removed",              "labels": ["Date Removed"]},
-        {"column": "Scheduled",                 "labels": ["Scheduled"]},
-        {"column": "Engine S/N",                "labels": ["Engine S/N", "Engine Serial Number", "ESN"]},
-        {"column": "Reason For Removal",        "labels": ["Reason for removal", "Reason for Return"],
-         "multiline": True, "stop_at": ["Disposition", "Findings"]},
-     ]},
-
-    # ── 7. Goodrich Aerospace PTE LTD.(SINGAPORE) ────────────────────────────
-    {"vendor": "Goodrich Aerospace PTE LTD.(SINGAPORE)", "report": "Teardown Report",
-     "fields": [
-        {"column": "Cust PO",                   "labels": ["Cust Po", "Customer PO", "PO"], "tabular": True},
-        {"column": "Input Part",                "labels": ["Input Part", "Part Number", "P/N"], "tabular": True},
-        {"column": "Input Serial",              "labels": ["Input Serial", "Serial Number", "S/N"], "tabular": True},
-        {"column": "Failure Date",              "labels": ["Failure Date", "Date Removed"]},
-        {"column": "Reason For Return",         "labels": ["Reason for Return", "Reason For Return"],
-         "multiline": True, "stop_at": ["Findings", "TSN", "CSN"]},
-        {"column": "TSN",                       "labels": ["TSN"]},
-        {"column": "CSN",                       "labels": ["CSN"]},
-        {"column": "Engine Serial Number",      "labels": ["Engine Serial Number", "ESN"]},
-     ]},
-
-    # ── 8. UTAS SENSORS - USA ─────────────────────────────────────────────────
-    {"vendor": "UTAS SENSORS - USA", "report": "SCRAP STRIP REPORT",
-     "fields": [
-        {"column": "Cust PO",                   "labels": ["Cust Po", "Customer PO", "PO"], "tabular": True},
-        {"column": "Input Part",                "labels": ["Input Part", "Part Number", "P/N"], "tabular": True},
-        {"column": "Input Serial",              "labels": ["Input Serial", "Serial Number", "S/N"], "tabular": True},
-        {"column": "Reason For Return",         "labels": ["Reason for Return", "Reason For Return"],
-         "multiline": True, "stop_at": ["TSN", "CSN", "ESN"]},
-        {"column": "TSN",                       "labels": ["TSN"]},
-        {"column": "CSN",                       "labels": ["CSN"]},
-        {"column": "ESN",                       "labels": ["ESN", "Engine Serial Number"]},
-     ]},
-
-    # ── 9. Honeywell ──────────────────────────────────────────────────────────
-    {"vendor": "Honeywell", "report": "Initial Findings Report",
-     "fields": [
-        {"column": "Customer PO",               "labels": ["Customer PO", "Customer P.O.", "PO"], "tabular": True},
-        {"column": "Part Number",               "labels": ["Part Number", "P/N"], "tabular": True},
-        {"column": "Serial Number",             "labels": ["Serial Number", "S/N"], "tabular": True},
-        {"column": "Reason For Removal",        "labels": ["Reason for removal", "Reason for Return"],
-         "multiline": True, "stop_at": ["Findings", "Removal type", "TSN"]},
-        {"column": "Removal Type",              "labels": ["Removal type", "Removal Type"]},
-        {"column": "TSN",                       "labels": ["TSN"]},
-        {"column": "CSN",                       "labels": ["CSN"]},
-     ]},
-
-    # ── Add future vendors here — no other file needs to change ───────────────
+    # ── Add future vendors here — no other file needs to change ──────────────
 ]
 
 # Fixed columns always shown for every extracted result, regardless of vendor,
@@ -224,33 +151,16 @@ def identify_vendor_report(workbook_text):
     text that came from Excel cells (never from a PDF). Returns the entry
     dict, or None if no vendor/report match is found anywhere in the
     workbook.
-
-    Matching order:
-      1. Vendor name (or any alias) AND report title both present → best match
-      2. Vendor name (or any alias) only → fallback
     """
     norm = _norm_ws(workbook_text).lower()
-
-    def _vendor_names(entry):
-        """Return the primary vendor name plus any aliases defined on the entry."""
-        names = [entry["vendor"]]
-        names.extend(entry.get("aliases", []))
-        return names
-
-    # Pass 1: both vendor (or alias) AND report found in the text
+    # Prefer an entry where both vendor name and report title are present
     for entry in VENDOR_REPORTS:
-        report_found = _norm_ws(entry["report"]).lower() in norm
-        if report_found:
-            for name in _vendor_names(entry):
-                if _norm_ws(name).lower() in norm:
-                    return entry
-
-    # Pass 2: vendor name (or alias) only
+        if _norm_ws(entry["vendor"]).lower() in norm and _norm_ws(entry["report"]).lower() in norm:
+            return entry
+    # Fall back to vendor name only
     for entry in VENDOR_REPORTS:
-        for name in _vendor_names(entry):
-            if _norm_ws(name).lower() in norm:
-                return entry
-
+        if _norm_ws(entry["vendor"]).lower() in norm:
+            return entry
     return None
 
 
@@ -1558,7 +1468,8 @@ def _make_log(progress_cb):
 
 # ── Phase 1: Download ALL emails ─────────────────────────────────────────────
 def phase1_download(account_name, folder_name, target_root, skip_no_po,
-                    attachment_ext_filter, log, entry_id=None, store_id=None):
+                    attachment_ext_filter, log, entry_id=None, store_id=None,
+                    start_date=None, end_date=None):
     """
     Scan the Outlook folder. For every qualifying email:
       • Save .msg  
@@ -1574,7 +1485,7 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
             log(f"Cannot find folder '{folder_name}' in '{account_name}'", "error")
             return queue
 
-        items = folder.Items
+items = folder.Items
         total = items.Count
         log(f"[PHASE 1] {total} email(s) in {account_name} / {folder_name}", "info")
 
@@ -1591,6 +1502,36 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
                     received_str = mail.ReceivedTime.strftime("%Y-%m-%d %H:%M:%S")
                 except Exception:
                     received_str = ""
+
+                # ── Optional received-date filter (From / To) ──────────────────
+                if start_date or end_date:
+                    try:
+                        recv_dt = mail.ReceivedTime.date()
+                    except Exception:
+                        recv_dt = None
+                    if recv_dt is not None:
+                        if start_date:
+                            try:
+                                from_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
+                            except Exception:
+                                from_dt = None
+                            if from_dt and recv_dt < from_dt:
+                                log(f"  [SKIP-DATE] Before {start_date} ({received_str[:10]}): {subject[:45]}", "warn")
+                                log_activity("SKIP-DATE", mail_entry_id, "", subject,
+                                             sender, "", f"before {start_date}")
+                                continue
+                        if end_date:
+                            try:
+                                to_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
+                            except Exception:
+                                to_dt = None
+                            if to_dt and recv_dt > to_dt:
+                                log(f"  [SKIP-DATE] After {end_date} ({received_str[:10]}): {subject[:45]}", "warn")
+                                log_activity("SKIP-DATE", mail_entry_id, "", subject,
+                                             sender, "", f"after {end_date}")
+                                continue
+                    else:
+                        log(f"  [WARN] Could not read received date — skipping date filter for: {subject[:45]}", "warn")
 
                 already = is_processed(mail_entry_id, log=log)
                 if already:
