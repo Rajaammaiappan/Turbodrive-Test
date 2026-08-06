@@ -646,7 +646,7 @@ def _find_recent_output_xlsx(stem, since_ts, timeout):
     return None
 
 
-def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=True):
+def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=True, background_mode=False):
     """
     Convert a PDF to Excel using the "Kofax PDF" tab inside Microsoft Excel.
 
@@ -689,18 +689,20 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
         except Exception:
             pass
 
-    try:
-        shell = win32com.client.Dispatch("WScript.Shell")
-    except Exception as e:
-        _log(f"  [ERROR] WScript.Shell unavailable: {e}", "error")
-        return None
+    shell = None
+    if not background_mode:
+        try:
+            shell = win32com.client.Dispatch("WScript.Shell")
+        except Exception as e:
+            _log(f"  [ERROR] WScript.Shell unavailable: {e}", "error")
+            return None
 
     # ── 1. Launch a fresh Excel instance via COM ────────────────────────────
     _log("  Step 1: Launching Excel…", "info")
     xl = None
     try:
         xl = win32com.client.DispatchEx("Excel.Application")
-        xl.Visible = True
+        xl.Visible = not background_mode
         xl.DisplayAlerts = False   # suppress "Save changes?" / overwrite prompts
         xl.Workbooks.Add()
         initial_count = xl.Workbooks.Count
@@ -708,59 +710,88 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
         _log(f"  [ERROR] Could not start Excel via COM: {e}", "error")
         return None
 
-    hwnd = _get_excel_hwnd(xl, KOFAX_OPEN_WAIT)
-    if not hwnd:
+    hwnd = _get_excel_hwnd(xl, KOFAX_OPEN_WAIT) if not background_mode else None
+    if not background_mode and not hwnd:
         _log("  [ERROR] Excel window handle not available.", "error")
         try:
             xl.Quit()
         except Exception:
             pass
         return None
-    _activate_window(hwnd, "Excel")
-    _log("  Excel ready.", "info")
-    time.sleep(0.6)
+    if not background_mode:
+        _activate_window(hwnd, "Excel")
+        _log("  Excel ready.", "info")
+        time.sleep(0.6)
+    else:
+        _log("  Excel started in background mode (not visible).", "info")
 
     # ── 2. Ribbon: Alt → Kofax PDF tab (y2) → Open PDF/XPS (y) ──────────────
     _log("  Step 2: Opening Kofax PDF → Open PDF/XPS on the ribbon…", "info")
-    try:
-        _activate_window(hwnd, "Excel")
-        shell.SendKeys("%")                     # Alt — shows ribbon KeyTips
-        time.sleep(0.5)
-        shell.SendKeys(KOFAX_TAB_KEYTIP)          # "y2" — selects the Kofax PDF tab
-        time.sleep(0.5)
-        shell.SendKeys(KOFAX_OPEN_PDF_KEYTIP)     # "y" — clicks Open PDF/XPS
-        time.sleep(0.8)
-    except Exception as e:
-        _log(f"  [ERROR] Ribbon navigation failed: {e}", "error")
+    if not background_mode:
         try:
-            xl.Quit()
-        except Exception:
-            pass
-        return None
+            _activate_window(hwnd, "Excel")
+            shell.SendKeys("%")                     # Alt — shows ribbon KeyTips
+            time.sleep(0.5)
+            shell.SendKeys(KOFAX_TAB_KEYTIP)          # "y2" — selects the Kofax PDF tab
+            time.sleep(0.5)
+            shell.SendKeys(KOFAX_OPEN_PDF_KEYTIP)     # "y" — clicks Open PDF/XPS
+            time.sleep(0.8)
+        except Exception as e:
+            _log(f"  [ERROR] Ribbon navigation failed: {e}", "error")
+            try:
+                xl.Quit()
+            except Exception:
+                pass
+            return None
+    else:
+        _log("  Background mode: skipping ribbon SendKeys navigation (best-effort).", "info")
 
     # ── 3. File-open dialog: type the PDF path → Enter ──────────────────────
     _log(f"  Step 3: Selecting PDF: {os.path.basename(norm_pdf)}", "info")
-    file_dlg = (_find_window("Open", KOFAX_OPEN_WAIT)
-                or _find_window("Choose", 5.0))
-    if file_dlg:
-        _activate_window(file_dlg[0], file_dlg[1])
-        time.sleep(0.3)
-    else:
-        _log("  [WARN] Open dialog not detected — typing path into the active window anyway.", "warn")
+    if not background_mode:
+        file_dlg = (_find_window("Open", KOFAX_OPEN_WAIT)
+                    or _find_window("Choose", 5.0))
+        if file_dlg:
+            _activate_window(file_dlg[0], file_dlg[1])
+            time.sleep(0.3)
+        else:
+            _log("  [WARN] Open dialog not detected — typing path into the active window anyway.", "warn")
 
-    try:
-        shell.SendKeys(_sk_escape(norm_pdf))
-        time.sleep(0.3)
-        shell.SendKeys("{ENTER}")
-        _log("  PDF path sent → Enter.", "info")
-        time.sleep(0.9)
-    except Exception as e:
-        _log(f"  [ERROR] Could not type the PDF path: {e}", "error")
         try:
-            xl.Quit()
-        except Exception:
-            pass
-        return None
+            shell.SendKeys(_sk_escape(norm_pdf))
+            time.sleep(0.3)
+            shell.SendKeys("{ENTER}")
+            _log("  PDF path sent → Enter.", "info")
+            time.sleep(0.9)
+        except Exception as e:
+            _log(f"  [ERROR] Could not type the PDF path: {e}", "error")
+            try:
+                xl.Quit()
+            except Exception:
+                pass
+            return None
+    else:
+        _log("  Background mode: attempting COM-only conversion invocation (best-effort).", "info")
+        try:
+            # Try known macro entrypoints for Kofax add-in (best-effort). These are not guaranteed.
+            macros = ["KofaxConvertAssistant", "Kofax_Convert", "KofaxConvertToExcel", "Kofax.PDF.Convert"]
+            called = False
+            for m in macros:
+                try:
+                    xl.Run(m, norm_pdf)
+                    _log(f"  Called xl.Run('{m}', pdf)", "info")
+                    called = True
+                    break
+                except Exception:
+                    pass
+            if not called:
+                try:
+                    xl.Workbooks.Open(norm_pdf)
+                    _log("  Opened PDF in Excel (fallback) — conversion may occur via add-in.", "info")
+                except Exception as e:
+                    _log(f"  [WARN] COM conversion fallback failed: {e}", "warn")
+        except Exception as e:
+            _log(f"  [WARN] Background conversion attempt failed: {e}", "warn")
 
     # ── 4. Kofax Convert Assistant: dismiss "already exists" if it shows, then Ctrl+5 → Enter ─
     # This is the same converter window throughout — search for it once,
@@ -770,32 +801,36 @@ def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=Tr
     # button that usually isn't there, costing several seconds on every
     # single PDF for nothing), then send Ctrl+5 → Enter directly on it.
     _log("  Step 4: Kofax converter window → Ctrl+5 → Enter…", "info")
-    conv_win = (_find_window("Kofax Convert Assistant", 8.0)
-                or _find_window("Convert Assistant", 4.0)
-                or _find_window("Kofax", 4.0))
-    if conv_win:
-        _activate_window(conv_win[0], conv_win[1])
-        _log(f"  Converter window: '{conv_win[1][:60]}'", "info")
-        if _click_button_by_text(conv_win[0], ["No"], timeout=1.2):
-            _log("  'Output file already exists' prompt detected — clicked No (overwrite).", "info")
-            time.sleep(0.6)
-    else:
-        _log("  [WARN] Converter window not detected — sending keys to the active window anyway.", "warn")
-        time.sleep(0.8)
+    if not background_mode:
+        conv_win = (_find_window("Kofax Convert Assistant", 8.0)
+                    or _find_window("Convert Assistant", 4.0)
+                    or _find_window("Kofax", 4.0))
+        if conv_win:
+            _activate_window(conv_win[0], conv_win[1])
+            _log(f"  Converter window: '{conv_win[1][:60]}'", "info")
+            if _click_button_by_text(conv_win[0], ["No"], timeout=1.2):
+                _log("  'Output file already exists' prompt detected — clicked No (overwrite).", "info")
+                time.sleep(0.6)
+        else:
+            _log("  [WARN] Converter window not detected — sending keys to the active window anyway.", "warn")
+            time.sleep(0.8)
 
-    try:
-        shell.SendKeys(KOFAX_CONVERT_KEYS)   # Ctrl+5 — start conversion
-        _log(f"  Sent {KOFAX_CONVERT_KEYS} to start the conversion.", "info")
-        time.sleep(0.9)
-        shell.SendKeys("{ENTER}")            # confirm
-        _log("  Enter sent to confirm.", "info")
-    except Exception as e:
-        _log(f"  [ERROR] Could not send the conversion keys: {e}", "error")
         try:
-            xl.Quit()
-        except Exception:
-            pass
-        return None
+            shell.SendKeys(KOFAX_CONVERT_KEYS)   # Ctrl+5 — start conversion
+            _log(f"  Sent {KOFAX_CONVERT_KEYS} to start the conversion.", "info")
+            time.sleep(0.9)
+            shell.SendKeys("{ENTER}")            # confirm
+            _log("  Enter sent to confirm.", "info")
+        except Exception as e:
+            _log(f"  [ERROR] Could not send the conversion keys: {e}", "error")
+            try:
+                xl.Quit()
+            except Exception:
+                pass
+            return None
+    else:
+        _log("  Background mode: conversion keys were not sent; waiting briefly for any automated conversion.", "info")
+        time.sleep(1.0)
 
     # ── 6. Locate the converted file ─────────────────────────────────────────
     # On this machine, Kofax converts + saves the .xlsx straight to its own
@@ -1635,8 +1670,10 @@ def phase2_convert(queue, log, keep_converted=True):
         po  = item["po"]
         log(f"  Converting: {os.path.basename(pdf)}  ({po})", "info")
         try:
+            # pass through background_mode if provided on the queue item
+            bg = item.get("background_mode", False)
             xlsx = convert_pdf_to_excel_kofax(
-                pdf, log=log, keep_converted=keep_converted, reuse=True)
+                pdf, log=log, keep_converted=keep_converted, reuse=True, background_mode=bg)
             item["xlsx"] = xlsx
             if xlsx:
                 log(f"  ✅ Excel: {os.path.basename(xlsx)}", "ok")
@@ -1733,7 +1770,7 @@ def phase3_extract(queue, log):
 # ── Background job runner ─────────────────────────────────────────────────────
 def _run_job(account, folder, target, skip_no_po, ext_filter,
              entry_id=None, store_id=None, keep_converted=True,
-             start_date=None, end_date=None):
+             start_date=None, end_date=None, background_mode=False):
 
     _job["running"]     = True
     _job["phase"]       = ""
@@ -1753,6 +1790,11 @@ def _run_job(account, folder, target, skip_no_po, ext_filter,
         queue = phase1_download(account, folder, target, skip_no_po, ext_filter,
                                 log, entry_id=entry_id, store_id=store_id,
                                 start_date=start_date, end_date=end_date)
+
+        # Attach the background_mode flag to every queued item so Phase 2 can honor it
+        if background_mode and queue:
+            for it in queue:
+                it['background_mode'] = True
 
         # ── Phase 2: Convert (Kofax — existing working code) ─────────────────
         _job["phase"] = "CONVERT"
@@ -1780,7 +1822,7 @@ def _run_job(account, folder, target, skip_no_po, ext_filter,
         _job["running"] = False
 
 
-def _run_kofax_test_job(pdf_path, keep_converted=True):
+def _run_kofax_test_job(pdf_path, keep_converted=True, background_mode=False):
     """
     Background thread for 'Test Kofax on one PDF' — converts a single PDF,
     extracts its fields from the resulting workbook, and reports the
@@ -1797,7 +1839,8 @@ def _run_kofax_test_job(pdf_path, keep_converted=True):
         log(f"Kofax test on: {pdf_path}", "info")
         log("Do NOT touch the mouse or keyboard until this finishes.", "warn")
         xlsx = convert_pdf_to_excel_kofax(pdf_path, log=log,
-                                                keep_converted=keep_converted, reuse=False)
+                            keep_converted=keep_converted, reuse=False,
+                            background_mode=background_mode)
         if not xlsx:
             log("Conversion failed — check KOFAX_TAB_KEYTIP / KOFAX_OPEN_PDF_KEYTIP near the top of this file.", "error")
             _job["summary"] = {"processed": 1, "files_saved": [], "errors": 1,
@@ -1882,6 +1925,7 @@ def api_start():
     keep_converted = bool(data.get("keep_converted", True))
     start_date = data.get("start_date", "")
     end_date = data.get("end_date", "")
+    background_mode = bool(data.get("background_mode", False))
 
     if not account or not folder:
         return jsonify({"ok": False, "error": "Account and folder are required."})
@@ -1894,12 +1938,13 @@ def api_start():
         except Exception:
             return jsonify({"ok": False, "error": "Invalid date format for start or end date."})
 
-    threading.Thread(target=_run_job,
-                     args=(account, folder, target, skip_no_po, ext_filter),
-                     kwargs={"entry_id": entry_id, "store_id": store_id,
-                             "keep_converted": keep_converted,
-                             "start_date": start_date, "end_date": end_date},
-                     daemon=True).start()
+        threading.Thread(target=_run_job,
+                 args=(account, folder, target, skip_no_po, ext_filter),
+                 kwargs={"entry_id": entry_id, "store_id": store_id,
+                     "keep_converted": keep_converted,
+                     "start_date": start_date, "end_date": end_date,
+                     "background_mode": background_mode},
+                 daemon=True).start()
     return jsonify({"ok": True})
 
 
@@ -1910,6 +1955,7 @@ def api_test_kofax():
         return jsonify({"ok": False, "error": "A job is already running."})
     data = request.get_json() or {}
     keep_converted = bool(data.get("keep_converted", True))
+    background_mode = bool(data.get("background_mode", False))
     try:
         import tkinter as tk
         from tkinter import filedialog
@@ -1922,7 +1968,7 @@ def api_test_kofax():
         return jsonify({"ok": False, "error": str(e)})
     if not pdf_path:
         return jsonify({"ok": False, "error": "No file selected."})
-    threading.Thread(target=_run_kofax_test_job, args=(pdf_path, keep_converted), daemon=True).start()
+    threading.Thread(target=_run_kofax_test_job, args=(pdf_path, keep_converted, background_mode), daemon=True).start()
     return jsonify({"ok": True, "path": pdf_path})
 
 
@@ -2165,8 +2211,10 @@ footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
     <div class="check-row">
       <label><input type="checkbox" id="chkSkipNoPo" checked>
         Skip emails without a PO number (4XXXXXXXXX) in subject</label>
-      <label><input type="checkbox" id="chkDateFilter">
-        Filter emails by received date range</label>
+            <label><input type="checkbox" id="chkDateFilter">
+                Filter emails by received date range</label>
+            <label><input type="checkbox" id="chkBackgroundMode">
+                Background mode (do not bring Excel/Kofax to foreground)</label>
       <label><input type="checkbox" id="chkSaveMsg" checked disabled>
         Save email as .msg (always on)</label>
       <label><input type="checkbox" id="chkKeepConverted" checked>
@@ -2403,18 +2451,20 @@ async function startJob() {
     if (ext_types.length === 0) ext_types = ['.pdf'];
   }
   const skipNoPo = document.getElementById('chkSkipNoPo').checked;
-  const useDateFilter = document.getElementById('chkDateFilter').checked;
-  const startDate = useDateFilter ? document.getElementById('startDate').value : '';
-  const endDate = useDateFilter ? document.getElementById('endDate').value : '';
+    const useDateFilter = document.getElementById('chkDateFilter').checked;
+    const startDate = useDateFilter ? document.getElementById('startDate').value : '';
+    const endDate = useDateFilter ? document.getElementById('endDate').value : '';
+    const backgroundMode = document.getElementById('chkBackgroundMode') && document.getElementById('chkBackgroundMode').checked;
   const keepConverted = document.getElementById('chkKeepConverted').checked;
 
   resetRunUI('Running…');
   try {
     const r = await fetch('/api/start', {
       method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({account, folder, target, ext_types, skip_no_po: skipNoPo,
+    body: JSON.stringify({account, folder, target, ext_types, skip_no_po: skipNoPo,
                             entry_id, store_id, keep_converted: keepConverted,
-                            start_date: startDate, end_date: endDate})
+                            start_date: startDate, end_date: endDate,
+                            background_mode: backgroundMode})
     });
     const d = await r.json();
     if (!d.ok) { alert('Error: ' + d.error); isRunning=false; checkReady(); return; }
@@ -2426,10 +2476,13 @@ async function testKofax() {
   if (isRunning) { alert('A job is already running.'); return; }
   resetRunUI('Testing Kofax conversion…');
   try {
-    const r = await fetch('/api/test_kofax', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({keep_converted: document.getElementById('chkKeepConverted').checked})
-    });
+        const r = await fetch('/api/test_kofax', {
+            method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({
+                keep_converted: document.getElementById('chkKeepConverted').checked,
+                background_mode: document.getElementById('chkBackgroundMode') && document.getElementById('chkBackgroundMode').checked
+            })
+        });
     const d = await r.json();
     if (!d.ok) { alert('Error: ' + d.error); isRunning=false; checkReady(); return; }
     pollInterval = setInterval(pollJob, 900);
