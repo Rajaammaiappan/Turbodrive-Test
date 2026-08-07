@@ -34,6 +34,7 @@ import contextlib
 import subprocess
 import time as _time
 from datetime import datetime
+from pathlib import Path
 
 import win32com.client
 from flask import Flask, request, jsonify, render_template_string, send_file
@@ -153,13 +154,11 @@ def identify_vendor_report(workbook_text):
     workbook.
     """
     norm = _norm_ws(workbook_text).lower()
-    # Prefer an entry where both vendor name and report title are present
+    # Require both vendor name and report title to be present in the workbook.
+    # This prevents false-positive matches when the vendor name is present but
+    # the report itself is not actually in the converted workbook.
     for entry in VENDOR_REPORTS:
         if _norm_ws(entry["vendor"]).lower() in norm and _norm_ws(entry["report"]).lower() in norm:
-            return entry
-    # Fall back to vendor name only
-    for entry in VENDOR_REPORTS:
-        if _norm_ws(entry["vendor"]).lower() in norm:
             return entry
     return None
 
@@ -1475,7 +1474,14 @@ def append_to_tracker_workbook(entry_id, po, vendor, report, file_name,
             next_row = ws.max_row + 1   # append below whatever is already there
 
             for col_idx, h in enumerate(headers, start=1):
-                ws.cell(row=next_row, column=col_idx, value=row_data.get(h, ""))
+                value = row_data.get(h, "")
+                cell = ws.cell(row=next_row, column=col_idx, value=value)
+                if value and h == "File Name":
+                    pdf_path = row_data.get("PDF Path", "")
+                    if pdf_path:
+                        pdf_uri = Path(pdf_path).resolve().as_uri()
+                        cell.hyperlink = pdf_uri
+                        cell.style = "Hyperlink"
 
             wb.save(TRACKER_XLSX)
         _log(f"  Tracker row added (row {next_row} of {os.path.basename(TRACKER_XLSX)}).", "info")
