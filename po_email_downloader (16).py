@@ -33,7 +33,7 @@ import webbrowser
 import contextlib
 import subprocess
 import time as _time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import win32com.client
@@ -45,7 +45,53 @@ from flask import Flask, request, jsonify, render_template_string, send_file
 # SECTION 1 -- VENDOR REPORT TEMPLATES (config only, no I/O)
 # =============================================================================
 
+# ─────────────────────────────────────────────────────────────────────────────
+#  Source of truth: VS_Automation_Vendor_details.xlsx
+#
+#  Per-field options understood by the extraction engine:
+#     "labels"    list of header texts to look for in the workbook
+#     "tabular"   True  -> value sits BELOW the label   (header row / data row)
+#                 False -> value sits to the RIGHT of the label (same row)
+#     "stop_at"   text markers that end a multi-line capture
+#     "multiline" capture can run across several lines
+#     "post"      post-processing rule applied to the raw value:
+#                   "digits"    keep digits only          (ESN12345 -> 12345)
+#                   "schedule"  keep Scheduled/Unscheduled only
+#                   "date"      normalise to YYYY-MM-DD where possible
+#
+#  Vendors are ordered most-specific first so that, e.g., a Parker MEGGITT
+#  document is not claimed by the plain "Parker" entry.
+# ─────────────────────────────────────────────────────────────────────────────
 VENDOR_REPORTS = [
+
+    # ── 1. Parker MEGGITT ────────────────────────────────────────────────────
+    # NOTE: the vendor cell in the spreadsheet contains non-breaking spaces
+    # ("Parker\xa0 \xa0MEGGITT"); _norm_ws collapses those, and the aliases
+    # below cover the common spellings seen on the reports themselves.
+    {"vendor": "Parker MEGGITT", "report": "Service Breakdown Report",
+     "aliases": ["Parker MEGGITT", "Parker Meggitt", "Meggitt"],
+     "fields": [
+        {"column": "PO",                  "labels": ["CUSTOMER P.O.", "CUSTOMER PO", "PO"], "tabular": True},
+        {"column": "P/N Shipped",         "labels": ["P/N Shipped"], "tabular": True},
+        {"column": "S/N REC",             "labels": ["S/N REC"], "tabular": True},
+        {"column": "TSN",                 "labels": ["TSN Hours", "TSN"], "stop_at": ["TSR", "TT"]},
+        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["CSR"]},
+        {"column": "TSI",                 "labels": ["TSI"]},
+        {"column": "CSI",                 "labels": ["CSI"]},
+        {"column": "TSO",                 "labels": ["TSO"]},
+        {"column": "CSO",                 "labels": ["CSO"]},
+        {"column": "Reason For Removal",  "labels": ["Reason For Removal", "Reason for Return"],
+         "multiline": True,
+         "stop_at": ["RECEIVING TEST FAILURE", "Incoming/Confirmation",
+                     "Received Visual Condition", "Warranty"]},
+        {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
+        {"column": "Removal Date",        "labels": ["Removal Date"], "post": "date"},
+     ]},
+
+    # ── 2. Parker ────────────────────────────────────────────────────────────
+    # Ref: Customer P.O. / P/N Shipped / S/N REC. are DOWN (tabular).
+    #      TSN,CSN,TSI,CSI,TSO,CSO sit to the RIGHT within the same cell block.
+    #      Reason For Removal is DOWN, ending at "RECEIVING TEST FAILURE".
     {"vendor": "Parker", "report": "CONDITION REPORT",
      "fields": [
         {"column": "PO",                  "labels": ["CUSTOMER P.O.", "CUSTOMER PO"], "tabular": True},
@@ -58,50 +104,91 @@ VENDOR_REPORTS = [
         {"column": "TSO",                 "labels": ["TSO"]},
         {"column": "CSO",                 "labels": ["CSO"]},
         {"column": "Reason For Removal",  "labels": ["REASON FOR RETURN", "Reason For Removal"],
-         "multiline": True, "stop_at": ["Shop Findings", "Incoming Condition", "Disposition"]},
-        {"column": "Date Removed",        "labels": ["Date Removed"]},
+         "tabular": True, "multiline": True,
+         "stop_at": ["RECEIVING TEST FAILURE", "RECEIVING TEST FAILURES",
+                     "Shop Findings", "Incoming Condition", "Disposition"]},
+        {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
+        {"column": "Removal Date",        "labels": ["Removal Date"], "post": "date"},
      ]},
-    {"vendor": "Parker Meggitt", "report": "CONDITION REPORT",
+
+    # ── 3. Agro Tech Eaton / EATON ───────────────────────────────────────────
+    # The spreadsheet lists "Agro Tech Eaton" and "EATON" as two rows with the
+    # same report and the same required details, so they are one entry here
+    # with aliases. Ref (EATON row): every value sits to the RIGHT of its
+    # label, so none of these are tabular. Scheduled Removal is a tick in the
+    # cell after the label.
+    {"vendor": "Agro Tech Eaton", "report": "INSPECTION & REPAIR REPORT",
+     "aliases": ["Agro Tech Eaton", "Agro-Tech Eaton", "EATON", "Eaton"],
      "fields": [
-        {"column": "PO",                  "labels": ["CUSTOMER P.O.", "CUSTOMER PO"], "tabular": True},
-        {"column": "P/N Shipped",         "labels": ["P/N Shipped"], "tabular": True},
-        {"column": "S/N REC",             "labels": ["S/N REC"], "tabular": True},
-        {"column": "TSN Hours",           "labels": ["TSN Hours"], "stop_at": ["TSR Hours"]},
-        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["CSR"]},
-        {"column": "Reason For Removal",  "labels": ["Reason For Removal"], "multiline": True,
-         "stop_at": ["Incoming/Confirmation", "Received Visual Condition", "Warranty"]},
-        {"column": "Aircraft Registration No.", "labels": ["Aircraft Registration No"],
-         "stop_at": ["TSR Hours"]},
-        {"column": "Date Removed",        "labels": ["Date Removed"], "stop_at": ["TSN Hours"]},
+        {"column": "Purchase Order #",    "labels": ["Purchase Order #", "Purchase Order",
+                                                     "Customer PO", "Customer P.O."]},
+        {"column": "Part Number",         "labels": ["Part Number", "P/N"]},
+        {"column": "Serial Number",       "labels": ["Serial Number", "S/N"]},
+        {"column": "TSN Hours",           "labels": ["TSN Hours", "TSN"], "stop_at": ["CSN"]},
+        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["Reason"]},
+        {"column": "Reason For Removal",  "labels": ["Reason For Removal", "Reason for Return"],
+         "multiline": True,
+         "stop_at": ["Aircraft Registration", "Repair Actions", "Disposition"]},
+        {"column": "Aircraft Registration No.",
+                                          "labels": ["Aircraft Registration No", "Aircraft Reg"]},
+        {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
+        {"column": "Scheduled Removal",   "labels": ["Scheduled Removal", "Scheduled"],
+         "post": "schedule"},
      ]},
-    {"vendor": "Eaton", "report": "INSPECTION & REPAIR REPORT",
+
+    # ── 4. UTC Aerospace Systems ─────────────────────────────────────────────
+    # Report title changed in the spreadsheet: SCRAP STRIP -> INSPECTION STRIP.
+    # Ref: Cust PO and Cust Part are to the RIGHT; Serial# and the
+    #      TSN/CSN/TSI/CSI/TSO/CSO block are DOWN; ESN keeps digits only;
+    #      Removal keeps only Scheduled/Unscheduled.
+    {"vendor": "UTC Aerospace Systems", "report": "INSPECTION STRIP REPORT",
+     "aliases": ["UTC Aerospace Systems", "UTC Aerospace"],
+     "report_aliases": ["INSPECTION STRIP REPORT", "INSPECTION  STRIP REPORT",
+                        "SCRAP STRIP REPORT"],
      "fields": [
-        {"column": "PO",                  "labels": ["Customer PO", "Customer P.O.", "Purchase Order"], "tabular": True},
-        {"column": "Part Number",         "labels": ["Part Number", "P/N"], "tabular": True},
-        {"column": "Serial Number",       "labels": ["Serial Number", "S/N"], "tabular": True},
-        {"column": "Hours",               "labels": ["Hours"]},
-        {"column": "Cycles",              "labels": ["Cycles"]},
-        {"column": "Findings",            "labels": ["Findings", "Inspection Findings"],
-         "multiline": True, "stop_at": ["Repair Actions", "Disposition"]},
-        {"column": "Date Removed",        "labels": ["Date Removed"]},
-     ]},
-    {"vendor": "UTC Aerospace Systems", "report": "SCRAP STRIP REPORT",
-     "fields": [
-        {"column": "Cust PO",             "labels": ["Cust PO"], "tabular": True},
-        {"column": "Cust Part No",        "labels": ["Cust Part No"], "tabular": True},
-        {"column": "In Serial No",        "labels": ["In Serial No"], "tabular": True},
-        {"column": "Hours",               "labels": ["Hours"]},
-        {"column": "Cycles",              "labels": ["Cycles"]},
-        {"column": "Reason For Removal",  "labels": ["Customer Reason for Return"], "multiline": True,
+        {"column": "Cust PO",             "labels": ["Cust PO"]},
+        {"column": "Cust Part No",        "labels": ["Cust Part No", "Cust Part"]},
+        {"column": "In Serial No",        "labels": ["In Serial# No", "In Serial No",
+                                                     "In Serial#", "Serial#"], "tabular": True},
+        {"column": "TSN",                 "labels": ["TSN"], "tabular": True, "stop_at": ["TSR", "TT"]},
+        {"column": "CSN",                 "labels": ["CSN"], "tabular": True, "stop_at": ["CSR"]},
+        {"column": "TSI",                 "labels": ["TSI"], "tabular": True},
+        {"column": "CSI",                 "labels": ["CSI"], "tabular": True},
+        {"column": "TSO",                 "labels": ["TSO"], "tabular": True},
+        {"column": "CSO",                 "labels": ["CSO"], "tabular": True},
+        {"column": "Reason For Removal",  "labels": ["Customer Reason for Return",
+                                                     "Reason For Removal"], "multiline": True,
          "stop_at": ["DOM:", "ESD (First Date)", "Administrative Notes"]},
-        {"column": "ESN",                 "labels": ["ESN"]},
-        {"column": "Date Removed",        "labels": ["Date Removed"]},
-        {"column": "Removal Date",        "labels": ["Removal Date"]},
+        {"column": "ESN",                 "labels": ["ESN"], "post": "digits"},
+        {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
+        {"column": "Removal Date",        "labels": ["Removal Date"], "post": "date"},
+        {"column": "Removal - Unscheduled/Scheduled",
+                                          "labels": ["Removal - Unschedules/Scheduled",
+                                                     "Removal - Unscheduled/Scheduled",
+                                                     "Removal"], "post": "schedule"},
      ]},
-    {"vendor": "Sumitomo Precision USA Repair Station", "report": "Receiving Teardown/Analysis Report",
+
+    # ── 5. UTAS SENSORS - USA ────────────────────────────────────────────────
+    {"vendor": "UTAS SENSORS - USA", "report": "SCRAP STRIP REPORT",
+     "aliases": ["UTAS SENSORS - USA", "UTAS SENSORS", "UTAS"],
+     "fields": [
+        {"column": "Cust PO",             "labels": ["Cust Po", "Cust PO", "Customer PO"]},
+        {"column": "Input Part",          "labels": ["Input Part"]},
+        {"column": "Input Serial",        "labels": ["Input Serial"]},
+        {"column": "Reason For Removal",  "labels": ["Reason for Return", "Reason For Removal"],
+         "multiline": True, "stop_at": ["TSN", "CSN", "ESN"]},
+        {"column": "TSN",                 "labels": ["TSN"]},
+        {"column": "CSN",                 "labels": ["CSN"]},
+        {"column": "ESN",                 "labels": ["ESN"], "post": "digits"},
+     ]},
+
+    # ── 6. Sumitomo Precision USA Repair Station ─────────────────────────────
+    {"vendor": "Sumitomo Precision USA Repair Station",
+     "report": "Receiving Teardown/Analysis Report",
+     "aliases": ["Sumitomo Precision USA Repair Station", "Sumitomo Precision USA"],
      "fields": [
         {"column": "Customer's RO",       "labels": ["Customer's RO", "Customers RO"], "tabular": True},
-        {"column": "S/N",                 "labels": ["Serial number"], "tabular": True},
+        {"column": "S/N",                 "labels": ["Serial number", "S/N"], "tabular": True},
         {"column": "Part Number",         "labels": ["Part Number"], "tabular": True},
         {"column": "TSN",                 "labels": ["TSN"]},
         {"column": "CSN",                 "labels": ["CSN"]},
@@ -109,11 +196,63 @@ VENDOR_REPORTS = [
         {"column": "CSI",                 "labels": ["CSI"]},
         {"column": "TSO",                 "labels": ["TSO"]},
         {"column": "CSO",                 "labels": ["CSO"]},
-        {"column": "Reason For Removal",  "labels": ["Shop Findings", "Receiving Inspection"],
+        {"column": "Reason For Removal",  "labels": ["Reason For Removal", "Shop Findings",
+                                                     "Receiving Inspection"],
          "multiline": True, "stop_at": ["LABOR", "Delivery Point", "100% Parts"]},
-        {"column": "Removal Date",        "labels": ["Removal Date"]},
-        {"column": "Date Removed",        "labels": ["Date Removed"]},
+        {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
+        {"column": "Removal Date",        "labels": ["Removal Date"], "post": "date"},
      ]},
+
+    # ── 7. Sumotimo Precision Products ───────────────────────────────────────
+    # Spelt "Sumotimo" in the spreadsheet — kept verbatim, with the likely
+    # alternative spelling as an alias.
+    {"vendor": "Sumotimo Precision Products", "report": "Shop Finding Report",
+     "aliases": ["Sumotimo Precision Products", "Sumitomo Precision Products"],
+     "fields": [
+        {"column": "PO",                  "labels": ["PO", "Purchase Order", "Customer PO"], "tabular": True},
+        {"column": "Part Number",         "labels": ["Part Number", "P/N"], "tabular": True},
+        {"column": "Serial Number",       "labels": ["Serial Number", "S/N"], "tabular": True},
+        {"column": "TSN",                 "labels": ["TSN"]},
+        {"column": "CSN",                 "labels": ["CSN"]},
+        {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
+        {"column": "Scheduled Removal",   "labels": ["Scheduled"], "post": "schedule"},
+        {"column": "Engine S/N",          "labels": ["Engine S/N", "Engine Serial Number", "ESN"],
+         "post": "digits"},
+        {"column": "Reason For Removal",  "labels": ["Reason for removal", "Reason for Return"],
+         "multiline": True, "stop_at": ["Disposition", "Findings"]},
+     ]},
+
+    # ── 8. Goodrich Aerospace PTE LTD.(SINGAPORE) ────────────────────────────
+    {"vendor": "Goodrich Aerospace PTE LTD.(SINGAPORE)", "report": "Teardown Report",
+     "aliases": ["Goodrich Aerospace PTE LTD.(SINGAPORE)", "Goodrich Aerospace PTE",
+                 "Goodrich Aerospace", "Goodrich"],
+     "fields": [
+        {"column": "Cust PO",             "labels": ["Cust Po", "Cust PO", "Customer PO"]},
+        {"column": "Input Part",          "labels": ["Input Part"]},
+        {"column": "Input Serial",        "labels": ["Input Serial"]},
+        {"column": "Failure Date",        "labels": ["Failure Date"], "post": "date"},
+        {"column": "Reason For Removal",  "labels": ["Reason for Return", "Reason For Removal"],
+         "multiline": True, "stop_at": ["TSN", "CSN", "Findings"]},
+        {"column": "TSN",                 "labels": ["TSN"]},
+        {"column": "CSN",                 "labels": ["CSN"]},
+        {"column": "Engine S/N",          "labels": ["Engine Serial Number", "Engine S/N", "ESN"],
+         "post": "digits"},
+     ]},
+
+    # ── 9. Honeywell ─────────────────────────────────────────────────────────
+    {"vendor": "Honeywell", "report": "Initial Findings Report",
+     "fields": [
+        {"column": "Customer PO",         "labels": ["Customer PO", "Customer P.O.", "PO"], "tabular": True},
+        {"column": "Part Number",         "labels": ["Part Number", "P/N"], "tabular": True},
+        {"column": "Serial Number",       "labels": ["Serial Number", "S/N"], "tabular": True},
+        {"column": "Reason For Removal",  "labels": ["Reason for removal", "Reason for Return"],
+         "multiline": True, "stop_at": ["Removal type", "Findings", "TSN"]},
+        {"column": "Removal Type",        "labels": ["Removal type", "Removal Type"],
+         "post": "schedule"},
+        {"column": "TSN",                 "labels": ["TSN"]},
+        {"column": "CSN",                 "labels": ["CSN"]},
+     ]},
+
     # ── Add future vendors here — no other file needs to change ──────────────
 ]
 
@@ -141,8 +280,28 @@ REPORT_NAMES = sorted({e["report"] for e in VENDOR_REPORTS})
 # =============================================================================
 
 def _norm_ws(text):
-    """Collapse whitespace so wrapped/multi-space cell text still matches."""
-    return re.sub(r'\s+', ' ', text or '').strip()
+    """
+    Collapse whitespace so wrapped/multi-space cell text still matches.
+    Non-breaking spaces (\\xa0) are converted first — the vendor spreadsheet
+    contains them in "Parker\\xa0 \\xa0MEGGITT", and Kofax-converted workbooks
+    often carry them over from the source PDF.
+    """
+    t = (text or '').replace('\xa0', ' ').replace('\u2007', ' ').replace('\u202f', ' ')
+    return re.sub(r'\s+', ' ', t).strip()
+
+
+def _vendor_names(entry):
+    """Primary vendor name plus any aliases declared on the entry."""
+    names = [entry["vendor"]]
+    names.extend(entry.get("aliases", []))
+    return names
+
+
+def _report_names(entry):
+    """Primary report title plus any alternative titles declared on the entry."""
+    names = [entry["report"]]
+    names.extend(entry.get("report_aliases", []))
+    return names
 
 
 # ── Vendor / report identification (Excel content only) ───────────────────
@@ -152,15 +311,68 @@ def identify_vendor_report(workbook_text):
     text that came from Excel cells (never from a PDF). Returns the entry
     dict, or None if no vendor/report match is found anywhere in the
     workbook.
+
+    Both a vendor name (or one of its aliases) AND a report title (or one of
+    its report_aliases) must appear, which stops a workbook being claimed by
+    a vendor whose name merely happens to be mentioned in it.
+
+    VENDOR_REPORTS is ordered most-specific-first, so "Parker MEGGITT" is
+    tested before plain "Parker".
     """
     norm = _norm_ws(workbook_text).lower()
-    # Require both vendor name and report title to be present in the workbook.
-    # This prevents false-positive matches when the vendor name is present but
-    # the report itself is not actually in the converted workbook.
     for entry in VENDOR_REPORTS:
-        if _norm_ws(entry["vendor"]).lower() in norm and _norm_ws(entry["report"]).lower() in norm:
+        vendor_hit = any(_norm_ws(n).lower() in norm for n in _vendor_names(entry))
+        if not vendor_hit:
+            continue
+        report_hit = any(_norm_ws(r).lower() in norm for r in _report_names(entry))
+        if report_hit:
             return entry
     return None
+
+
+# ── Post-processing rules declared per field via "post" ───────────────────
+_SCHEDULE_RE = re.compile(r'\b(un[\s-]?scheduled|scheduled)\b', re.IGNORECASE)
+
+
+def _apply_post(value, rule):
+    """
+    Clean a raw extracted value according to the field's "post" rule.
+
+      "digits"    keep digits only        ESN12345 -> 12345
+      "schedule"  keep the Scheduled / Unscheduled word only; a tick mark
+                  (checked box) with no word is reported as "Scheduled"
+      "date"      normalise common date spellings to YYYY-MM-DD; the original
+                  text is returned unchanged if it cannot be parsed
+    """
+    v = _norm_ws(value)
+    if not v or not rule:
+        return v
+
+    if rule == "digits":
+        digits = re.sub(r'\D', '', v)
+        return digits or v
+
+    if rule == "schedule":
+        m = _SCHEDULE_RE.search(v)
+        if m:
+            word = m.group(1).lower().replace(' ', '').replace('-', '')
+            return "Unscheduled" if word.startswith("un") else "Scheduled"
+        # A tick / cross in the cell after the label means the box was checked
+        if any(mark in v for mark in ("\u2713", "\u2714", "\u2611", "x", "X", "Y", "yes", "Yes")):
+            return "Scheduled"
+        return v
+
+    if rule == "date":
+        for fmt in ("%d/%m/%Y", "%m/%d/%Y", "%Y-%m-%d", "%d-%m-%Y",
+                    "%d %b %Y", "%d %B %Y", "%b %d, %Y", "%B %d, %Y",
+                    "%d/%m/%y", "%m/%d/%y"):
+            try:
+                return datetime.strptime(v[:20].strip(), fmt).strftime("%Y-%m-%d")
+            except Exception:
+                continue
+        return v
+
+    return v
 
 
 # ── Text-based fallback (operates on text flattened FROM the workbook) ────
@@ -272,6 +484,30 @@ def _is_label_cell(text, known_labels):
     return t in known_labels
 
 
+def _belongs_to_other_field(text, known_labels, current_label):
+    """
+    True when `text` is a cell that carries ANOTHER field's label — either the
+    bare label ("TSO") or the label with its value attached ("TSO: 0:00").
+
+    Kofax lays these reports out as "TSN: 37452.29 | TSI: | TSO: 0:00" across
+    one row. Without this check, an empty TSI would scan right and return
+    "TSO: 0:00", so a blank field silently reports the next field's value.
+    """
+    t = _norm_ws(text).lower().rstrip(" :#.")
+    if not t:
+        return False
+    cur = _norm_ws(current_label).lower().rstrip(" :#.")
+    for lab in known_labels:
+        if not lab or lab == cur:
+            continue
+        if t == lab:
+            return True
+        # "tso: 0:00" -> starts with "tso" followed by a separator
+        if t.startswith(lab) and t[len(lab):len(lab) + 1] in (":", "-", "=", " ", "."):
+            return True
+    return False
+
+
 def _grid_label_value(grids, label, known_labels=frozenset(), prefer_below=False):
     """
     Find `label` in any cell, across any worksheet, and return its value:
@@ -289,7 +525,12 @@ def _grid_label_value(grids, label, known_labels=frozenset(), prefer_below=False
         row = grid[r]
         for cc in range(c + 1, min(c + 4, len(row))):
             v = _norm_ws(row[cc])
-            if v and not _is_label_cell(v, known_labels):
+            if not v:
+                continue
+            # Reached the next field's cell -> this field is genuinely blank
+            if _belongs_to_other_field(v, known_labels, label):
+                return ""
+            if not _is_label_cell(v, known_labels):
                 return v[:300]
         return ""
 
@@ -297,7 +538,11 @@ def _grid_label_value(grids, label, known_labels=frozenset(), prefer_below=False
         for rr in range(r + 1, min(r + 3, len(grid))):
             if c < len(grid[rr]):
                 v = _norm_ws(grid[rr][c])
-                if v and not _is_label_cell(v, known_labels):
+                if not v:
+                    continue
+                if _belongs_to_other_field(v, known_labels, label):
+                    return ""
+                if not _is_label_cell(v, known_labels):
                     return v[:300]
         return ""
 
@@ -357,7 +602,8 @@ def extract_excel_fields(xlsx_path):
                 break
         if not val:
             val = extract_field_value(text, f, entry)   # flattened-text fallback
-        values[f["column"]] = val
+        # Apply the field's post-processing rule (digits / schedule / date)
+        values[f["column"]] = _apply_post(val, f.get("post"))
 
     return {"vendor": entry["vendor"], "report": entry["report"], "values": values}
 
@@ -1575,71 +1821,94 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
             return queue
 
         items_all = folder.Items
-        items     = items_all
+        try:
+            items_all.Sort("[ReceivedTime]", True)   # newest first, stable order
+        except Exception:
+            pass
 
-        # ── Build Outlook Restrict() filter from Step 3 selections ────────────
-        # This runs server-side inside Outlook so only matching items come back.
-        # The loop below never sees emails that don't match — much faster on
-        # large folders like the 867-email Rotables Services / Inbox.
-        filter_parts = []
-
-        # ── Date range filter ──────────────────────────────────────────────────
+        # ── Parse the requested window once, up front ─────────────────────────
+        from_dt = to_dt = None
         if start_date:
             try:
-                sd = datetime.strptime(start_date, "%Y-%m-%d").strftime("%m/%d/%Y 00:00 AM")
-                filter_parts.append(f"[ReceivedTime] >= '{sd}'")
+                from_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
             except Exception:
-                log(f"  [WARN] Invalid start date '{start_date}' — date filter ignored", "warn")
-
+                log(f"  [WARN] Invalid start date '{start_date}' — ignored", "warn")
         if end_date:
             try:
-                ed = datetime.strptime(end_date, "%Y-%m-%d").strftime("%m/%d/%Y 11:59 PM")
-                filter_parts.append(f"[ReceivedTime] <= '{ed}'")
+                to_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
             except Exception:
-                log(f"  [WARN] Invalid end date '{end_date}' — date filter ignored", "warn")
+                log(f"  [WARN] Invalid end date '{end_date}' — ignored", "warn")
+        if from_dt and to_dt and from_dt > to_dt:
+            log(f"  [WARN] Start date {start_date} is after end date {end_date} — "
+                f"swapping them", "warn")
+            from_dt, to_dt = to_dt, from_dt
 
-        # ── Read / Unread filter ───────────────────────────────────────────────
-        # [UnRead] = True  means the email is UNREAD
-        # [UnRead] = False means the email is READ
-        if include_unread and not include_read:
-            # Unread only
-            filter_parts.append("[UnRead] = True")
-        elif include_read and not include_unread:
-            # Read only
-            filter_parts.append("[UnRead] = False")
-        elif not include_read and not include_unread:
-            # Nothing selected — nothing to process
-            log("[PHASE 1] No read/unread option selected — nothing to process.", "warn")
+        if not include_read and not include_unread:
+            log("[PHASE 1] Neither Read nor Unread selected — nothing to process.", "warn")
             return queue
-        # else both checked → no UnRead filter needed (include everything)
 
-        # ── Apply Restrict() if any filter was built ───────────────────────────
-        if filter_parts:
-            restrict_str = " AND ".join(filter_parts)
-            log(f"[PHASE 1] Applying Outlook filter: {restrict_str}", "info")
+        # ── Build a DASL Restrict() filter ────────────────────────────────────
+        # DASL (@SQL=) is used instead of the older "[ReceivedTime] >= '...'"
+        # Jet syntax because Jet expects the *machine's* short-date format:
+        # on a UK-locale PC "08/01/2026" means 8 January, not 1 August, so the
+        # filter silently returns the wrong emails. DASL takes an unambiguous
+        # yyyy-mm-dd string on every locale.
+        #
+        # The end of the range uses "< next day 00:00" rather than
+        # "<= 23:59" so emails received in the final minute are still included.
+        dasl_parts = []
+        if from_dt:
+            dasl_parts.append(
+                "\"urn:schemas:httpmail:datereceived\" >= '%s 00:00'"
+                % from_dt.strftime("%Y-%m-%d"))
+        if to_dt:
+            next_day = to_dt + timedelta(days=1)
+            dasl_parts.append(
+                "\"urn:schemas:httpmail:datereceived\" < '%s 00:00'"
+                % next_day.strftime("%Y-%m-%d"))
+        if include_unread and not include_read:
+            dasl_parts.append("\"urn:schemas:httpmail:read\" = 0")   # unread only
+        elif include_read and not include_unread:
+            dasl_parts.append("\"urn:schemas:httpmail:read\" = 1")   # read only
+
+        # ── Apply the filter, materialising the result into a plain list ──────
+        # The list is built BEFORE any processing starts. A live Outlook
+        # Items collection re-evaluates itself as messages change: with an
+        # unread filter, marking a message read removes it from the collection
+        # mid-loop and every following message shifts down an index, so items
+        # get silently skipped. Copying to a Python list avoids that entirely.
+        source   = items_all
+        filtered = bool(dasl_parts)
+
+        if dasl_parts:
+            restrict_str = "@SQL=" + " AND ".join(dasl_parts)
+            log(f"[PHASE 1] Outlook filter: {restrict_str}", "info")
             try:
-                restricted = items_all.Restrict(restrict_str)
-                if restricted is not None:
-                    items = restricted
-                    total = items.Count
-                    log(f"[PHASE 1] {total} email(s) matched filter in "
-                        f"{account_name} / {folder_name}", "info")
-                else:
-                    total = items_all.Count
-                    log(f"[PHASE 1] Restrict() returned nothing — falling back to "
-                        f"full scan of {total} email(s)", "warn")
+                source = items_all.Restrict(restrict_str)
             except Exception as re_err:
-                total = items_all.Count
-                log(f"[PHASE 1] Restrict() failed ({re_err}) — falling back to "
-                    f"full scan of {total} email(s)", "warn")
-        else:
-            total = items.Count
-            log(f"[PHASE 1] {total} email(s) in {account_name} / {folder_name} "
-                f"(no filter — processing all)", "info")
+                log(f"[PHASE 1] Restrict() failed ({re_err}) — scanning all emails "
+                    f"and filtering in Python instead.", "warn")
+                source, filtered = items_all, False
 
-        for idx in range(1, total + 1):
+        mails = []
+        try:
+            m = source.GetFirst()
+            while m is not None:
+                mails.append(m)
+                m = source.GetNext()
+        except Exception as it_err:
+            log(f"[PHASE 1] Could not enumerate items ({it_err})", "error")
+            return queue
+
+        if filtered:
+            log(f"[PHASE 1] {len(mails)} email(s) matched the filter in "
+                f"{account_name} / {folder_name}", "info")
+        else:
+            log(f"[PHASE 1] {len(mails)} email(s) in {account_name} / {folder_name} "
+                f"({'no filter' if not dasl_parts else 'filtering in Python'})", "info")
+
+        for idx, mail in enumerate(mails, start=1):
             try:
-                mail = items[idx]
                 if mail.Class != 43:
                     continue
 
@@ -1651,34 +1920,29 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
                 except Exception:
                     received_str = ""
 
-                # ── Date filter ───────────────────────────────────────────────
-                # Already handled by Outlook Restrict() before the loop.
-                # Fallback check only if Restrict() failed (full-scan mode).
-                if (start_date or end_date) and items is items_all:
+                # ── Date filter (safety net) ──────────────────────────────────
+                # Normally already applied by Restrict() above. This runs when
+                # Restrict() failed, and is also a cheap correctness check that
+                # guarantees nothing outside the window is ever processed.
+                if from_dt or to_dt:
                     try:
                         recv_dt = mail.ReceivedTime.date()
-                        if start_date:
-                            from_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
-                            if recv_dt < from_dt:
-                                continue
-                        if end_date:
-                            to_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
-                            if recv_dt > to_dt:
-                                continue
                     except Exception:
+                        log(f"  [SKIP-NODATE] No received date: {subject[:45]}", "warn")
+                        continue
+                    if from_dt and recv_dt < from_dt:
+                        if not filtered:
+                            log(f"  [SKIP-DATE] {recv_dt} before {from_dt}: {subject[:45]}", "warn")
+                        continue
+                    if to_dt and recv_dt > to_dt:
+                        if not filtered:
+                            log(f"  [SKIP-DATE] {recv_dt} after {to_dt}: {subject[:45]}", "warn")
                         continue
 
-                already = is_processed(mail_entry_id, log=log)
-                if already:
-                    who  = already[0] or "unknown"
-                    when = already[1] or "?"
-                    log(f"  [SKIP-DUP] {who} on {when}: {subject[:45]}", "warn")
-                    continue
-
-                # ── Optional read/unread filter ─────────────────────────────
-                # Note: already handled by Outlook Restrict() above.
-                # This fallback only runs if Restrict() failed and we are in
-                # full-scan mode — avoids processing wrong emails in that case.
+                # ── Read / Unread filter (safety net) ─────────────────────────
+                # Normally already applied by Restrict(). Runs before the
+                # duplicate lookup so emails outside the selected read state
+                # are never reported as skipped duplicates.
                 if not (include_read and include_unread):
                     try:
                         is_unread = bool(mail.UnRead)
@@ -1687,8 +1951,15 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
                     if is_unread is not None:
                         if include_unread and not include_read and not is_unread:
                             continue
-                        elif include_read and not include_unread and is_unread:
+                        if include_read and not include_unread and is_unread:
                             continue
+
+                already = is_processed(mail_entry_id, log=log)
+                if already:
+                    who  = already[0] or "unknown"
+                    when = already[1] or "?"
+                    log(f"  [SKIP-DUP] {who} on {when}: {subject[:45]}", "warn")
+                    continue
 
                 po = extract_po_from_subject(subject)
                 if not po:
