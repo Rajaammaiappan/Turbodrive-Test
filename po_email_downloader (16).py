@@ -74,12 +74,12 @@ VENDOR_REPORTS = [
         {"column": "PO",                  "labels": ["CUSTOMER P.O.", "CUSTOMER PO", "PO"], "tabular": True},
         {"column": "P/N Shipped",         "labels": ["P/N Shipped"], "tabular": True},
         {"column": "S/N REC",             "labels": ["S/N REC"], "tabular": True},
-        {"column": "TSN",                 "labels": ["TSN Hours", "TSN"], "stop_at": ["TSR", "TT"]},
-        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["CSR"]},
-        {"column": "TSI",                 "labels": ["TSI"]},
-        {"column": "CSI",                 "labels": ["CSI"]},
-        {"column": "TSO",                 "labels": ["TSO"]},
-        {"column": "CSO",                 "labels": ["CSO"]},
+        {"column": "TSN",                 "labels": ["TSN Hours", "TSN"], "stop_at": ["TSR", "TT"], "expect": "number"},
+        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["CSR"], "expect": "number"},
+        {"column": "TSI",                 "labels": ["TSI"], "expect": "number"},
+        {"column": "CSI",                 "labels": ["CSI"], "expect": "number"},
+        {"column": "TSO",                 "labels": ["TSO"], "expect": "number"},
+        {"column": "CSO",                 "labels": ["CSO"], "expect": "number"},
         {"column": "Reason For Removal",  "labels": ["Reason For Removal", "Reason for Return"],
          "multiline": True,
          "stop_at": ["RECEIVING TEST FAILURE", "Incoming/Confirmation",
@@ -97,12 +97,12 @@ VENDOR_REPORTS = [
         {"column": "PO",                  "labels": ["CUSTOMER P.O.", "CUSTOMER PO"], "tabular": True},
         {"column": "P/N Shipped",         "labels": ["P/N Shipped"], "tabular": True},
         {"column": "S/N REC",             "labels": ["S/N REC"], "tabular": True},
-        {"column": "TSN",                 "labels": ["TSN"], "stop_at": ["TSR", "TT"]},
-        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["CSR"]},
-        {"column": "TSI",                 "labels": ["TSI"]},
-        {"column": "CSI",                 "labels": ["CSI"]},
-        {"column": "TSO",                 "labels": ["TSO"]},
-        {"column": "CSO",                 "labels": ["CSO"]},
+        {"column": "TSN",                 "labels": ["TSN"], "stop_at": ["TSR", "TT"], "expect": "number"},
+        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["CSR"], "expect": "number"},
+        {"column": "TSI",                 "labels": ["TSI"], "expect": "number"},
+        {"column": "CSI",                 "labels": ["CSI"], "expect": "number"},
+        {"column": "TSO",                 "labels": ["TSO"], "expect": "number"},
+        {"column": "CSO",                 "labels": ["CSO"], "expect": "number"},
         {"column": "Reason For Removal",  "labels": ["REASON FOR RETURN", "Reason For Removal"],
          "tabular": True, "multiline": True,
          "stop_at": ["RECEIVING TEST FAILURE", "RECEIVING TEST FAILURES",
@@ -125,7 +125,7 @@ VENDOR_REPORTS = [
         {"column": "Part Number",         "labels": ["Part Number", "P/N"]},
         {"column": "Serial Number",       "labels": ["Serial Number", "S/N"]},
         {"column": "TSN Hours",           "labels": ["TSN Hours", "TSN"], "stop_at": ["CSN"]},
-        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["Reason"]},
+        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["Reason"], "expect": "number"},
         {"column": "Reason For Removal",  "labels": ["Reason For Removal", "Reason for Return"],
          "multiline": True,
          "stop_at": ["Aircraft Registration", "Repair Actions", "Disposition"]},
@@ -165,17 +165,17 @@ VENDOR_REPORTS = [
         # and neighbour_labels below stops it grabbing "Output Serial".
         {"column": "Input Serial#",       "labels": ["Input Serial#", "Input Serial",
                                                      "In Serial# No", "In Serial No"]},
-        {"column": "TSN",                 "labels": ["TSN"], "tabular": True, "stop_at": ["TSR", "TT"]},
-        {"column": "CSN",                 "labels": ["CSN"], "tabular": True, "stop_at": ["CSR"]},
-        {"column": "TSI",                 "labels": ["TSI"], "tabular": True},
-        {"column": "CSI",                 "labels": ["CSI"], "tabular": True},
+        {"column": "TSN",                 "labels": ["TSN"], "tabular": True, "stop_at": ["TSR", "TT"], "expect": "number"},
+        {"column": "CSN",                 "labels": ["CSN"], "tabular": True, "stop_at": ["CSR"], "expect": "number"},
+        {"column": "TSI",                 "labels": ["TSI"], "tabular": True, "expect": "number"},
+        {"column": "CSI",                 "labels": ["CSI"], "tabular": True, "expect": "number"},
         # "ISO" is kept as an alias here because it turns up in the same grid
         # position TSO normally occupies on some Kofax conversions (T/I OCR
         # confusion). The position-based Measuring Point fallback below is
         # the primary defence against this kind of OCR drift; this alias is
         # just a fast-path for the one misread already observed.
-        {"column": "TSO",                 "labels": ["TSO", "ISO"], "tabular": True},
-        {"column": "CSO",                 "labels": ["CSO"], "tabular": True},
+        {"column": "TSO",                 "labels": ["TSO", "ISO"], "tabular": True, "expect": "number"},
+        {"column": "CSO",                 "labels": ["CSO"], "tabular": True, "expect": "number"},
         {"column": "Reason For Removal",  "labels": ["Customer Reason for Return",
                                                      "Reason For Removal", "Removal Code"],
          "multiline": True,
@@ -220,8 +220,8 @@ VENDOR_REPORTS = [
         {"column": "Input Serial",        "labels": ["Input Serial"]},
         {"column": "Reason For Removal",  "labels": ["Reason for Return", "Reason For Removal"],
          "multiline": True, "stop_at": ["TSN", "CSN", "ESN"]},
-        {"column": "TSN",                 "labels": ["TSN"]},
-        {"column": "CSN",                 "labels": ["CSN"]},
+        {"column": "TSN",                 "labels": ["TSN"], "expect": "number"},
+        {"column": "CSN",                 "labels": ["CSN"], "expect": "number"},
         {"column": "ESN",                 "labels": ["ESN"], "post": "digits"},
      ]},
 
@@ -233,12 +233,12 @@ VENDOR_REPORTS = [
         {"column": "Customer's RO",       "labels": ["Customer's RO", "Customers RO"], "tabular": True},
         {"column": "S/N",                 "labels": ["Serial number", "S/N"], "tabular": True},
         {"column": "Part Number",         "labels": ["Part Number"], "tabular": True},
-        {"column": "TSN",                 "labels": ["TSN"]},
-        {"column": "CSN",                 "labels": ["CSN"]},
-        {"column": "TSI",                 "labels": ["TSI"]},
-        {"column": "CSI",                 "labels": ["CSI"]},
-        {"column": "TSO",                 "labels": ["TSO"]},
-        {"column": "CSO",                 "labels": ["CSO"]},
+        {"column": "TSN",                 "labels": ["TSN"], "expect": "number"},
+        {"column": "CSN",                 "labels": ["CSN"], "expect": "number"},
+        {"column": "TSI",                 "labels": ["TSI"], "expect": "number"},
+        {"column": "CSI",                 "labels": ["CSI"], "expect": "number"},
+        {"column": "TSO",                 "labels": ["TSO"], "expect": "number"},
+        {"column": "CSO",                 "labels": ["CSO"], "expect": "number"},
         {"column": "Reason For Removal",  "labels": ["Reason For Removal", "Shop Findings",
                                                      "Receiving Inspection"],
          "multiline": True, "stop_at": ["LABOR", "Delivery Point", "100% Parts"]},
@@ -255,8 +255,8 @@ VENDOR_REPORTS = [
         {"column": "PO",                  "labels": ["PO", "Purchase Order", "Customer PO"], "tabular": True},
         {"column": "Part Number",         "labels": ["Part Number", "P/N"], "tabular": True},
         {"column": "Serial Number",       "labels": ["Serial Number", "S/N"], "tabular": True},
-        {"column": "TSN",                 "labels": ["TSN"]},
-        {"column": "CSN",                 "labels": ["CSN"]},
+        {"column": "TSN",                 "labels": ["TSN"], "expect": "number"},
+        {"column": "CSN",                 "labels": ["CSN"], "expect": "number"},
         {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
         {"column": "Scheduled Removal",   "labels": ["Scheduled"], "post": "schedule"},
         {"column": "Engine S/N",          "labels": ["Engine S/N", "Engine Serial Number", "ESN"],
@@ -276,8 +276,8 @@ VENDOR_REPORTS = [
         {"column": "Failure Date",        "labels": ["Failure Date"], "post": "date"},
         {"column": "Reason For Removal",  "labels": ["Reason for Return", "Reason For Removal"],
          "multiline": True, "stop_at": ["TSN", "CSN", "Findings"]},
-        {"column": "TSN",                 "labels": ["TSN"]},
-        {"column": "CSN",                 "labels": ["CSN"]},
+        {"column": "TSN",                 "labels": ["TSN"], "expect": "number"},
+        {"column": "CSN",                 "labels": ["CSN"], "expect": "number"},
         {"column": "Engine S/N",          "labels": ["Engine Serial Number", "Engine S/N", "ESN"],
          "post": "digits"},
      ]},
@@ -292,8 +292,8 @@ VENDOR_REPORTS = [
          "multiline": True, "stop_at": ["Removal type", "Findings", "TSN"]},
         {"column": "Removal Type",        "labels": ["Removal type", "Removal Type"],
          "post": "schedule"},
-        {"column": "TSN",                 "labels": ["TSN"]},
-        {"column": "CSN",                 "labels": ["CSN"]},
+        {"column": "TSN",                 "labels": ["TSN"], "expect": "number"},
+        {"column": "CSN",                 "labels": ["CSN"], "expect": "number"},
      ]},
 
     # ── Add future vendors here — no other file needs to change ──────────────
@@ -375,6 +375,65 @@ def identify_vendor_report(workbook_text):
 
 # ── Post-processing rules declared per field via "post" ───────────────────
 _SCHEDULE_RE = re.compile(r'\b(un[\s-]?scheduled|scheduled)\b', re.IGNORECASE)
+
+# A clean counter reading: digits, optionally with thousands separators and a
+# decimal part. "2648", "23530.08", "21278.0", "1,539" all qualify.
+_PURE_NUMBER_RE = re.compile(r'^\d{1,3}(?:,\d{3})*(?:\.\d+)?$|^\d+(?:\.\d+)?$')
+
+
+def _numeric_only(value):
+    """
+    Keep a value only if it really is a counter reading.
+
+    CSN/TSN/CSO/TSO are numeric by spec, but when the label is missing or
+    OCR-damaged the scan can drift onto a neighbouring cell and return a
+    serial number ("HAP19-040"), an ESN ("ESN 26259") or a sentence
+    ("ISSUE 1 AUG 21/18 SATISFIED."). Those are silently wrong, which is
+    worse than blank, so anything that is not a plain number is dropped.
+
+    A bare label prefix is stripped first, so "CSN 2648" still yields 2648.
+    """
+    v = _norm_ws(value)
+    if not v:
+        return ""
+
+    # "CSN: 2648" / "TSN 23530.08" -> drop the leading label word
+    v = re.sub(r'^(?:CSN|TSN|CSO|TSO|CSI|TSI|CSR|TSR)\b\s*[:\-]?\s*', '', v,
+               flags=re.IGNORECASE).strip()
+
+    # An ESN reading is never a cycle/hour count
+    if re.match(r'^ESN\b', v, re.IGNORECASE):
+        return ""
+
+    if _PURE_NUMBER_RE.match(v):
+        return v.replace(",", "")
+    return ""
+
+
+def _trim_at_embedded_label(value, known_labels):
+    """
+    Cut a value short at the first embedded heading.
+
+    Kofax sometimes merges a whole row into one cell, so "Input Part" returns
+    "BPU200MK2 Input Serial B1151 Qty 1.000" instead of just "BPU200MK2".
+    Scanning left to right, the value ends as soon as a known heading appears.
+    """
+    v = _norm_ws(value)
+    if not v or not known_labels:
+        return v
+
+    words = v.split(" ")
+    cut = len(words)
+    for i in range(1, len(words)):          # never cut at position 0
+        for span in (3, 2, 1):              # prefer the longest heading match
+            if i + span > len(words):
+                continue
+            probe = " ".join(words[i:i + span]).lower().rstrip(" :#.,")
+            if probe in known_labels:
+                cut = min(cut, i)
+        if cut != len(words):
+            break
+    return " ".join(words[:cut]).strip(" :-,")
 
 
 def _apply_post(value, rule):
@@ -832,8 +891,18 @@ def extract_excel_fields(xlsx_path, email_subject=""):
                 break
         if not val:
             val = extract_field_value(text, f, entry)   # flattened-text fallback
+        # A merged cell can carry the rest of the row with it — cut it back
+        # to just this field's value before anything else looks at it.
+        val = _trim_at_embedded_label(val, known_labels)
+
         # Apply the field's post-processing rule (digits / schedule / date / po10)
         val = _apply_post(val, f.get("post"))
+
+        # Counter readings must be plain numbers. Dropping a wrong value is
+        # safer than carrying it into the Maximo comparison, where it would
+        # read as a genuine disagreement.
+        if f.get("expect") == "number":
+            val = _numeric_only(val)
 
         # Declared fallback: pull the PO from the email subject when the
         # report itself does not show one (UTC Aerospace spec).
@@ -918,6 +987,12 @@ MAXIMO_MATCH_RULES = [
      "optional": True},
 ]
 
+# Sheet names inside the comparison workbook, in tab order.
+#   1. Report vs Maximo         — did the report agree with Maximo?
+#   2. Extracted Report Details — what was read out, and how good is the report?
+COMPARISON_SHEET        = "Report vs Maximo"
+EXTRACTED_DETAILS_SHEET = "Extracted Report Details"
+
 # Numeric tolerance for "number" comparisons (0 = must be identical).
 MAXIMO_NUMBER_TOLERANCE = 0.0
 
@@ -937,6 +1012,153 @@ MAXIMO_BLANK_BLOCKS_MATCH = False
 # traced back to the report it came from. Set False for a tracker that is
 # purely the Maximo columns and nothing else.
 MAXIMO_TRACKER_AUDIT_COLUMNS = True
+
+
+# =============================================================================
+#  REPORT QUALITY SCORING  (rubric from the Scoring workbook)
+# =============================================================================
+#
+# Each criterion is scored 0-3 against the extracted report, then weighted:
+#
+#   0  Unacceptable   1  Insufficient   2  Needs Improving   3  Adequate
+#
+# Only the two criteria visible in the supplied rubric screenshot are encoded
+# below. Add the rest as further dicts — nothing else needs to change.
+# -----------------------------------------------------------------------------
+
+# Criterion 2 checks how much of the "basic details" list the report carries.
+# Each entry lists the candidate column names across vendors; the first one
+# present with a value counts as found.
+SCORING_BASIC_DETAILS = [
+    ("LRU SN",                 ["Input Serial#", "S/N REC", "Serial Number", "S/N", "Input Serial"]),
+    ("LRU PN",                 ["Input Part", "P/N Shipped", "Part Number", "Cust Part"]),
+    ("ESN",                    ["ESN", "Engine S/N"]),
+    ("TSN",                    ["TSN", "TSN Hours"]),
+    ("CSN",                    ["CSN"]),
+    ("Date of Removal",        ["Failure Date", "Date Removed", "Removal Date"]),
+    ("RO or PO Number",        ["Cust PO", "PO", "Customer PO", "Purchase Order #", "Customer's RO"]),
+    ("Scheduled/Unscheduled",  ["Removal - Unscheduled/Scheduled", "Scheduled Removal",
+                                "Removal Type"]),
+]
+
+# Columns that hold the Reason For Removal text, in order of preference.
+SCORING_RFR_COLUMNS = ["Reason For Removal", "Reason For Return"]
+
+SCORING_LEVEL_NAMES = {0: "Unacceptable", 1: "Insufficient",
+                       2: "Needs Improving", 3: "Adequate"}
+
+SCORING_CRITERIA = [
+    {"id": "RFR",    "weight": 5,
+     "name": "Quality of Reason for Removal (RFR) - is it clear and understandable"},
+    {"id": "BASICS", "weight": 10,
+     "name": "Basic details (LRU/LRP Removal Details)"},
+]
+
+
+def _first_present(values, candidates):
+    """First non-empty value among the candidate column names."""
+    for col in candidates:
+        v = _norm_ws((values or {}).get(col, ""))
+        if v:
+            return v
+    return ""
+
+
+def _score_rfr(values, maximo_row):
+    """
+    Criterion 1 — Quality of Reason for Removal.
+
+      0  the report has no RFR at all
+      1  a single-word RFR ("faulty") with no detail
+      2  a detailed RFR that does not correlate to the originator PO
+      3  a detailed RFR that does correlate to the originator PO
+
+    Correlation is judged against REASON_FOR_REMOVAL on the matched Maximo
+    row, which is what the PO carries on MMS. With no Maximo row to compare
+    against, correlation cannot be confirmed, so a detailed RFR caps at 2.
+    """
+    rfr = _first_present(values, SCORING_RFR_COLUMNS)
+    if not rfr:
+        return 0, "no RFR in the report"
+
+    words = _mx_words(rfr)
+    if len(words) <= 1:
+        return 1, f"single-word RFR ({rfr})"
+
+    mx_rfr = _norm_ws((maximo_row or {}).get("REASON_FOR_REMOVAL", ""))
+    if not mx_rfr:
+        return 2, "detailed RFR, but no Maximo row to correlate against"
+
+    status, _ = _mx_compare("words", mx_rfr, rfr)
+    if status == "match":
+        return 3, f"detailed RFR correlates to the PO ({mx_rfr})"
+    return 2, f"detailed RFR but does not correlate to the PO ({mx_rfr})"
+
+
+def _score_basic_details(values):
+    """
+    Criterion 2 — how much of the basic-details list the report carries.
+
+      0  only SN and PN are present
+      1  exactly one item beyond the LRU SN/PN details
+      2  some but not all of the list
+      3  the complete list
+
+    The rubric names bands 0, 1 and 3 precisely but describes band 2 only as
+    "less than 50% from list", leaving 50-99% undefined. Band 2 is therefore
+    implemented as "more than one item beyond LRU, but not the full list",
+    which keeps the scale monotonic and matches bands 0, 1 and 3 exactly.
+    """
+    found, missing = [], []
+    for name, candidates in SCORING_BASIC_DETAILS:
+        (found if _first_present(values, candidates) else missing).append(name)
+
+    total = len(SCORING_BASIC_DETAILS)
+    detail = f"{len(found)}/{total} present"
+    if missing:
+        detail += " — missing: " + ", ".join(missing)
+
+    if len(found) == total:
+        return 3, detail
+
+    beyond_lru = [f for f in found if f not in ("LRU SN", "LRU PN")]
+    if not beyond_lru:
+        return 0, detail
+    if len(beyond_lru) == 1:
+        return 1, detail
+    return 2, detail
+
+
+def score_report(values, maximo_row=None):
+    """
+    Score one extracted report against the rubric.
+
+    Returns:
+      {"criteria": [{id, name, weight, level, level_name, note}, ...],
+       "weighted_percent": 0-100,
+       "total_weight": sum of the weights actually applied}
+
+    weighted_percent is the achieved share of the applied weighting, so it
+    stays meaningful while only part of the full rubric is encoded.
+    """
+    results, achieved, total_weight = [], 0.0, 0.0
+
+    for crit in SCORING_CRITERIA:
+        if crit["id"] == "RFR":
+            level, note = _score_rfr(values, maximo_row)
+        elif crit["id"] == "BASICS":
+            level, note = _score_basic_details(values)
+        else:
+            continue
+        w = float(crit["weight"])
+        achieved     += (level / 3.0) * w
+        total_weight += w
+        results.append({"id": crit["id"], "name": crit["name"], "weight": crit["weight"],
+                        "level": level, "level_name": SCORING_LEVEL_NAMES[level],
+                        "note": note})
+
+    pct = round((achieved / total_weight) * 100, 1) if total_weight else 0.0
+    return {"criteria": results, "weighted_percent": pct, "total_weight": total_weight}
 
 
 def _mx_text(value):
@@ -961,6 +1183,17 @@ def _mx_number(value):
 
 
 _MX_STOPWORDS = {"the", "and", "of", "for", "to", "a", "an", "on", "in", "at", "by"}
+
+
+# Characters an OCR pass routinely swaps in alphanumeric part numbers.
+# Folding is only ever used as a fallback after a strict comparison fails.
+_OCR_FOLD = str.maketrans({"o": "0", "i": "1", "l": "1", "s": "5",
+                           "b": "8", "z": "2", "g": "6", "q": "0"})
+
+
+def _mx_ocr_fold(text):
+    """Collapse OCR-confusable characters so 'G5020FPUO2' == 'G5020FPU02'."""
+    return (text or "").translate(_OCR_FOLD)
 
 
 def _mx_words(value):
@@ -999,7 +1232,16 @@ def _mx_compare(mode, maximo_value, report_value):
     a, b = _mx_text(mx_raw), _mx_text(rp_raw)
     if not a or not b:
         return "blank", "nothing to compare"
-    return ("match", "") if a == b else ("differ", f"{mx_raw} vs {rp_raw}")
+    if a == b:
+        return "match", ""
+    # Second chance: fold the character pairs OCR routinely confuses in part
+    # numbers, so "G5020FPUO2" is recognised as "G5020FPU02". The note records
+    # that the match needed folding, so it stays visible in the comparison
+    # sheet rather than being silently accepted.
+    fa, fb = _mx_ocr_fold(a), _mx_ocr_fold(b)
+    if fa == fb:
+        return "match", f"OCR-normalised ({mx_raw} / {rp_raw})"
+    return "differ", f"{mx_raw} vs {rp_raw}"
 
 
 def load_maximo_dump(path, log=None):
@@ -1211,17 +1453,26 @@ def append_to_maximo_comparison(context, result, log=None):
             os.makedirs(os.path.dirname(MAXIMO_COMPARISON_XLSX), exist_ok=True)
             if os.path.exists(MAXIMO_COMPARISON_XLSX):
                 wb = openpyxl.load_workbook(MAXIMO_COMPARISON_XLSX)
-                ws = wb.active
-                existing = [c.value for c in ws[1]]
-                for h in headers:
-                    if h not in existing:
-                        existing.append(h)
-                        ws.cell(row=1, column=len(existing), value=h)
-                headers = existing
+                ws = wb[COMPARISON_SHEET] if COMPARISON_SHEET in wb.sheetnames \
+                    else wb.create_sheet(COMPARISON_SHEET, 0)
+                existing = [c.value for c in ws[1]] if ws.max_row >= 1 else []
+                existing = [h for h in existing if h]
+                if not existing:
+                    ws.append(headers)
+                    for cell in ws[1]:
+                        cell.font = Font(bold=True)
+                        cell.fill = GREY
+                    ws.freeze_panes = "B2"
+                else:
+                    for h in headers:
+                        if h not in existing:
+                            existing.append(h)
+                            ws.cell(row=1, column=len(existing), value=h)
+                    headers = existing
             else:
                 wb = openpyxl.Workbook()
                 ws = wb.active
-                ws.title = "Report vs Maximo"
+                ws.title = COMPARISON_SHEET
                 ws.append(headers)
                 for cell in ws[1]:
                     cell.font = Font(bold=True)
@@ -1250,6 +1501,114 @@ def append_to_maximo_comparison(context, result, log=None):
         return True
     except Exception as e:
         _log(f"  [WARN] Could not write the comparison workbook: {e}", "warn")
+        return False
+
+
+def append_to_extracted_details_sheet(context, values, score, log=None):
+    """
+    Append one row to the "Extracted Report Details" sheet, which lives in the
+    SAME workbook as "Report vs Maximo" (the comparison file), immediately
+    after it.
+
+    Where the comparison sheet answers "does the report agree with Maximo?",
+    this sheet answers "what did we read out of the report, and how good is
+    the report?" — every extracted field, plus the rubric score.
+
+    Columns: identification, then every field this vendor extracts, then one
+    column per scoring criterion, then the overall weighted percentage. The
+    header grows automatically the first time a new vendor or criterion is
+    seen, so older rows are never disturbed.
+    """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+
+    def _log(m, l="info"):
+        if log:
+            log(m, l)
+
+    lead = [
+        ("PO Number",       context.get("po", "")),
+        ("Vendor Name",     context.get("vendor", "")),
+        ("Report Name",     context.get("report", "")),
+        ("Source File",     context.get("file_name", "")),
+        ("Email Subject",   context.get("subject", "")),
+        ("Email Received",  context.get("received", "")),
+        ("Maximo Match",    context.get("maximo_status_label", "")),
+    ]
+
+    body = [(col, val) for col, val in (values or {}).items()]
+
+    crit_cells = []
+    for c in score["criteria"]:
+        crit_cells.append((f"Score: {c['name']}", f"{c['level']} — {c['level_name']}"))
+        crit_cells.append((f"Score note: {c['id']}", c["note"]))
+
+    tail = [
+        ("Weighted Score %", score["weighted_percent"]),
+        ("Weighting Applied", score["total_weight"]),
+        ("PDF Path",        context.get("pdf_path", "")),
+        ("Extracted By",    CURRENT_USER),
+        ("Extracted At",    datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+    ]
+
+    pairs   = lead + body + crit_cells + tail
+    headers = [k for k, _ in pairs]
+    row_map = dict(pairs)
+
+    GREY  = PatternFill("solid", fgColor="E7E6E6")
+    GREEN = PatternFill("solid", fgColor="C6EFCE")
+    AMBER = PatternFill("solid", fgColor="FFEB9C")
+    RED   = PatternFill("solid", fgColor="FFC7CE")
+
+    try:
+        with _file_lock(MAXIMO_COMPARISON_LOCK):
+            os.makedirs(os.path.dirname(MAXIMO_COMPARISON_XLSX), exist_ok=True)
+            if os.path.exists(MAXIMO_COMPARISON_XLSX):
+                wb = openpyxl.load_workbook(MAXIMO_COMPARISON_XLSX)
+            else:
+                wb = openpyxl.Workbook()
+                wb.active.title = "Report vs Maximo"
+
+            if EXTRACTED_DETAILS_SHEET in wb.sheetnames:
+                ws = wb[EXTRACTED_DETAILS_SHEET]
+                existing = [c.value for c in ws[1]]
+                for h in headers:
+                    if h not in existing:
+                        existing.append(h)
+                        ws.cell(row=1, column=len(existing), value=h)
+                headers = existing
+            else:
+                # Placed directly after "Report vs Maximo"
+                ws = wb.create_sheet(EXTRACTED_DETAILS_SHEET)
+                ws.append(headers)
+                for cell in ws[1]:
+                    cell.font = Font(bold=True)
+                    cell.fill = GREY
+                ws.freeze_panes = "B2"
+
+            ws.append([row_map.get(h, "") for h in headers])
+            r = ws.max_row
+
+            # Shade each criterion by band, and the overall percentage
+            for idx, h in enumerate(headers, start=1):
+                val = str(row_map.get(h, ""))
+                if h.startswith("Score: ") and val[:1].isdigit():
+                    lvl = int(val[0])
+                    ws.cell(row=r, column=idx).fill = (
+                        GREEN if lvl == 3 else AMBER if lvl == 2 else RED)
+                elif h == "Weighted Score %" and val:
+                    try:
+                        pct = float(val)
+                        ws.cell(row=r, column=idx).fill = (
+                            GREEN if pct >= 80 else AMBER if pct >= 50 else RED)
+                        ws.cell(row=r, column=idx).font = Font(bold=True)
+                    except ValueError:
+                        pass
+
+            wb.save(MAXIMO_COMPARISON_XLSX)
+        return True
+    except Exception as e:
+        _log(f"  [WARN] Could not write the Extracted Report Details sheet: {e}", "warn")
         return False
 
 
@@ -2926,9 +3285,27 @@ def phase4_maximo_match(maximo_path, log):
                 "ok" if c["status"] == "match" else
                 ("warn" if c["status"] == "blank" or c["optional"] else "error"))
 
-        # ── Comparison workbook: written for EVERY report ────────────────────
+        # ── Comparison workbook: both sheets, for EVERY report ───────────────
+        # Sheet 1 "Report vs Maximo"        — did the report agree with Maximo?
+        # Sheet 2 "Extracted Report Details" — what did we read, and how good
+        #                                      is the report against the rubric?
         if append_to_maximo_comparison(context, result, log=log):
             counts["compared"] += 1
+
+        score = score_report(values, result.get("row"))
+        ext["score"] = score
+        append_to_extracted_details_sheet(
+            dict(context, maximo_status_label={
+                "matched": "MATCHED", "mismatch": "NOT MATCHED",
+                "no_po_rows": "PO NOT IN MAXIMO", "no_maximo": "NO MAXIMO FILE",
+            }.get(status, status)),
+            values, score, log=log)
+
+        log(f"     Report score: {score['weighted_percent']}% of the "
+            f"{score['total_weight']:g}% weighting applied — "
+            + "; ".join(f"{c['id']} {c['level']}/3 ({c['level_name']})"
+                        for c in score["criteria"]),
+            "ok" if score["weighted_percent"] >= 80 else "warn")
 
         if status == "no_po_rows":
             counts["no_po_rows"] += 1
@@ -2964,8 +3341,10 @@ def phase4_maximo_match(maximo_path, log):
         f"{counts['mismatch']} not matched, "
         f"{counts['no_po_rows']} PO not found in Maximo.", "ok")
     log(f"[PHASE 4] {counts['compared']} row(s) written to "
-        f"{os.path.basename(MAXIMO_COMPARISON_XLSX)} "
-        f"(shows matched and not-matched side by side).", "ok")
+        f"{os.path.basename(MAXIMO_COMPARISON_XLSX)} — sheet "
+        f"'{COMPARISON_SHEET}' shows matched and not-matched side by side, "
+        f"sheet '{EXTRACTED_DETAILS_SHEET}' holds every extracted field "
+        f"plus the rubric score.", "ok")
     return counts
 
 
