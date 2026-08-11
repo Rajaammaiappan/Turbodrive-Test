@@ -432,13 +432,18 @@ def _label_start(text, label):
     return m.end() if m else None
 
 
-def _positional_fallback(text, label):
+def _positional_fallback(text, label, known_labels=frozenset()):
     """
     Handles values printed as a header row of column names followed by a
     separate data row of values — common once a vendor's PDF grid has been
     converted to Excel and re-flattened to text. Finds the line containing
     `label` alongside other column headers, then reads the same column
     position from the next non-blank line.
+
+    `known_labels` guards against the *vertical* variant of the Measuring
+    Point grid, where each header sits on its own line and the line after a
+    header is simply the NEXT header, not a value. Without the guard, CSN
+    returns "TSN", TSN returns "CSO", and so on down the block.
     """
     lines = text.split('\n')
     for i, line in enumerate(lines):
@@ -455,7 +460,11 @@ def _positional_fallback(text, label):
                 continue
             data_cols = re.split(r'\s{2,}', data_line)
             if idx < len(data_cols):
-                return data_cols[idx].strip()
+                candidate = data_cols[idx].strip()
+                # A header stacked under another header is not a value.
+                if _norm_ws(candidate).lower().rstrip(" :#.") in known_labels:
+                    return ""
+                return candidate
             break
     return ""
 
@@ -468,8 +477,14 @@ def extract_field_value(text, field, entry):
     multiline = field.get("multiline", False)
 
     if field.get("tabular"):
+        # Everything the engine should recognise as a heading, so the
+        # positional fallback cannot mistake a stacked header for a value.
+        known = {_norm_ws(l).lower().rstrip(" :#.")
+                 for f in entry["fields"] for l in f["labels"]}
+        known |= {_norm_ws(l).lower().rstrip(" :#.")
+                  for l in entry.get("neighbour_labels", [])}
         for label in field["labels"]:
-            val = _positional_fallback(text, label)
+            val = _positional_fallback(text, label, known_labels=known)
             if val:
                 return val[:120]
 
@@ -688,6 +703,90 @@ def _measuring_point_values(grids):
     return out
 
 
+def _mp_is_header_token(text):
+    """
+    True when a cell looks like a Measuring Point column header rather than a
+    value: short, contains no digit, and is not a section title ending in ':'.
+    Used to measure how tall the stacked header block is.
+    """
+    t = _norm_ws(text)
+    if not t or len(t) > 20:
+        return False
+    if t.endswith(":"):
+        return False
+    return not any(ch.isdigit() for ch in t)
+
+
+def _measuring_point_values_vertical(grids):
+    """
+    Position-based reader for the VERTICAL Measuring Point layout, where the
+    grid is rotated: each column header sits on its own row down a single
+    column, and the values follow immediately underneath in the same column:
+
+        Serial #        <- header block starts
+        CSN
+        TSN
+        ...
+        TSCMP           <- header block ends (8 rows)
+        BX560625        <- value block starts, same order
+        1273
+        10248.88
+        ...
+
+    Headers are read by POSITION off the "Serial #" anchor using the fixed
+    _MP_COLUMN_ORDER, exactly like the horizontal reader, so OCR damage to
+    the header text itself ("TSO" -> "ISO") does not matter.
+
+    Returns {"CSN": .., "TSN": .., "CSO": .., "TSO": ..} for the columns that
+    held a usable numeric value, or {} if no vertical grid was found.
+    """
+    n_cols = len(_MP_COLUMN_ORDER)
+
+    for grid in grids:
+        for r, row in enumerate(grid):
+            for c, cell in enumerate(row):
+                if not _norm_header_cell(cell).startswith("serial"):
+                    continue
+
+                # Vertical only: the next row in this column must also be a
+                # header token, otherwise this is the horizontal layout and
+                # the other reader handles it.
+                if r + 1 >= len(grid) or c >= len(grid[r + 1]):
+                    continue
+                if not _mp_is_header_token(grid[r + 1][c]):
+                    continue
+
+                # Measure the stacked header block, capped at the known
+                # number of columns so a non-numeric first value (e.g.
+                # "UNKNOWN") cannot extend it.
+                last = r
+                for rr in range(r + 1, min(r + n_cols, len(grid))):
+                    if c < len(grid[rr]) and _mp_is_header_token(grid[rr][c]):
+                        last = rr
+                    else:
+                        break
+                if last - r + 1 < 3:          # too short to be the grid
+                    continue
+
+                value_start = last + 1
+                out = {}
+                for i, name in enumerate(_MP_COLUMN_ORDER):
+                    field = _MP_FIELD_MAP.get(name)
+                    if not field:
+                        continue
+                    vr = value_start + i
+                    if vr >= len(grid) or c >= len(grid[vr]):
+                        continue
+                    v = _norm_ws(grid[vr][c])
+                    # CSN/TSN/CSO/TSO are numeric by spec — this rejects
+                    # "UNKNOWN" and OCR debris like "irt010WN".
+                    if v and any(ch.isdigit() for ch in v):
+                        out[field] = v[:120]
+                if out:
+                    return out
+    return {}
+
+
 def extract_excel_fields(xlsx_path, email_subject=""):
     """
     Detect the vendor/report template from a Kofax-converted Excel workbook
@@ -748,9 +847,13 @@ def extract_excel_fields(xlsx_path, email_subject=""):
     # UTC Aerospace: the Measuring Point grid's own header cells are often
     # OCR-garbled past recognition ("CSN" -> "CSNI", "TSO" -> "ISO", etc.),
     # so any CSN/TSN/CSO/TSO that came back blank from label matching gets
-    # one more try, read positionally off the "Serial #" anchor.
+    # one more try, read positionally off the "Serial #" anchor — first as a
+    # normal horizontal grid, then as the rotated vertical variant where the
+    # headers are stacked down one column with the values beneath them.
     if entry["vendor"] == "UTC Aerospace Systems":
         mp_vals = _measuring_point_values(grids)
+        if not mp_vals:
+            mp_vals = _measuring_point_values_vertical(grids)
         for col, val in mp_vals.items():
             if not values.get(col):
                 values[col] = val
@@ -817,6 +920,18 @@ MAXIMO_MATCH_RULES = [
 
 # Numeric tolerance for "number" comparisons (0 = must be identical).
 MAXIMO_NUMBER_TOLERANCE = 0.0
+
+# What to do when a checked value is BLANK on one side (usually because the
+# report simply does not print that field — "Removal Code" is empty on most
+# UTC samples, for example).
+#
+#   False  a blank cannot contradict Maximo, so it does not block the match;
+#          only a genuine DIFFER blocks it. Blanks are still recorded in the
+#          comparison workbook so you can see exactly which ones were skipped.
+#   True   every checked column must be present AND equal, so any blank
+#          blocks the match. Stricter, but on reports that routinely omit a
+#          field it will reject nearly everything.
+MAXIMO_BLANK_BLOCKS_MATCH = False
 
 # Append provenance columns after the Maximo columns so each tracker row can be
 # traced back to the report it came from. Set False for a tracker that is
@@ -996,8 +1111,16 @@ def match_report_against_maximo(po, report_values, maximo):
                            "status": status, "note": note,
                            "optional": bool(rule.get("optional"))})
 
-        # A row is accepted only when every non-optional rule matched.
-        blocking = [c for c in checks if c["status"] != "match" and not c["optional"]]
+        # A row is accepted when no non-optional rule actively contradicts it.
+        # Blanks count as blocking only when MAXIMO_BLANK_BLOCKS_MATCH is on.
+        def _blocks(c):
+            if c["optional"]:
+                return False
+            if c["status"] == "differ":
+                return True
+            return c["status"] == "blank" and MAXIMO_BLANK_BLOCKS_MATCH
+
+        blocking = [c for c in checks if _blocks(c)]
         result = {"status": "matched" if not blocking else "mismatch",
                   "row": row, "checks": checks,
                   "matched": n_match, "differed": n_diff, "blank": n_blank}
@@ -1012,6 +1135,122 @@ def match_report_against_maximo(po, report_values, maximo):
             break
 
     return best
+
+
+def append_to_maximo_comparison(context, result, log=None):
+    """
+    Append one row to the comparison workbook — written for EVERY extracted
+    report, whether it matched or not, so the run can be audited end to end.
+
+    Layout is side-by-side: for each rule in MAXIMO_MATCH_RULES there are
+    three columns — the value found in the report, the value found in Maximo,
+    and the verdict for that column. Cells are colour-coded (green MATCH,
+    red DIFFER, amber BLANK) so a mismatch is obvious at a glance.
+
+    This is deliberately separate from the matched-rows tracker: the tracker
+    holds clean Maximo data ready to use, this holds the evidence.
+    """
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill
+
+    def _log(m, l="info"):
+        if log:
+            log(m, l)
+
+    status_label = {
+        "matched":    "MATCHED",
+        "mismatch":   "NOT MATCHED",
+        "no_po_rows": "PO NOT IN MAXIMO",
+        "no_maximo":  "NO MAXIMO FILE",
+    }.get(result.get("status", ""), result.get("status", ""))
+
+    lead = [
+        ("Match Status",        status_label),
+        ("PO Number",           context.get("po", "")),
+        ("Vendor Name",         context.get("vendor", "")),
+        ("Report Name",         context.get("report", "")),
+        ("Source File",         context.get("file_name", "")),
+        ("Email Subject",       context.get("subject", "")),
+        ("Email Received",      context.get("received", "")),
+    ]
+
+    checks = {c["maximo"]: c for c in result.get("checks", [])}
+    body = []
+    for rule in MAXIMO_MATCH_RULES:
+        col = rule["maximo"]
+        c   = checks.get(col)
+        body.append((f"{col} — Report", c["report_value"] if c else ""))
+        body.append((f"{col} — Maximo", c["maximo_value"] if c else ""))
+        body.append((f"{col} — Result",
+                     {"match": "MATCH", "differ": "DIFFER", "blank": "BLANK"}
+                     .get(c["status"], "") if c else "NOT CHECKED"))
+
+    tail = [
+        ("Rules Matched",  result.get("matched", 0)),
+        ("Rules Differed", result.get("differed", 0)),
+        ("Rules Blank",    result.get("blank", 0)),
+        ("Notes",          "; ".join(f"{c['maximo']}: {c['note']}"
+                                     for c in result.get("checks", [])
+                                     if c["status"] != "match" and c["note"])),
+        ("PDF Path",       context.get("pdf_path", "")),
+        ("Checked By",     CURRENT_USER),
+        ("Checked At",     datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+    ]
+
+    pairs   = lead + body + tail
+    headers = [k for k, _ in pairs]
+    row_map = dict(pairs)
+
+    GREEN = PatternFill("solid", fgColor="C6EFCE")
+    RED   = PatternFill("solid", fgColor="FFC7CE")
+    AMBER = PatternFill("solid", fgColor="FFEB9C")
+    GREY  = PatternFill("solid", fgColor="E7E6E6")
+
+    try:
+        with _file_lock(MAXIMO_COMPARISON_LOCK):
+            os.makedirs(os.path.dirname(MAXIMO_COMPARISON_XLSX), exist_ok=True)
+            if os.path.exists(MAXIMO_COMPARISON_XLSX):
+                wb = openpyxl.load_workbook(MAXIMO_COMPARISON_XLSX)
+                ws = wb.active
+                existing = [c.value for c in ws[1]]
+                for h in headers:
+                    if h not in existing:
+                        existing.append(h)
+                        ws.cell(row=1, column=len(existing), value=h)
+                headers = existing
+            else:
+                wb = openpyxl.Workbook()
+                ws = wb.active
+                ws.title = "Report vs Maximo"
+                ws.append(headers)
+                for cell in ws[1]:
+                    cell.font = Font(bold=True)
+                    cell.fill = GREY
+                ws.freeze_panes = "B2"
+
+            ws.append([row_map.get(h, "") for h in headers])
+            r = ws.max_row
+
+            # Colour the overall verdict and every per-column result cell
+            for idx, h in enumerate(headers, start=1):
+                val = str(row_map.get(h, ""))
+                if h == "Match Status":
+                    ws.cell(row=r, column=idx).fill = \
+                        GREEN if val == "MATCHED" else RED
+                    ws.cell(row=r, column=idx).font = Font(bold=True)
+                elif h.endswith("— Result"):
+                    if val == "MATCH":
+                        ws.cell(row=r, column=idx).fill = GREEN
+                    elif val == "DIFFER":
+                        ws.cell(row=r, column=idx).fill = RED
+                    elif val == "BLANK":
+                        ws.cell(row=r, column=idx).fill = AMBER
+
+            wb.save(MAXIMO_COMPARISON_XLSX)
+        return True
+    except Exception as e:
+        _log(f"  [WARN] Could not write the comparison workbook: {e}", "warn")
+        return False
 
 
 def append_to_maximo_tracker(maximo_row, maximo_headers, context, log=None):
@@ -1814,6 +2053,12 @@ TRACKER_LOCK_FILE = os.path.join(SHARED_TRACKER_DIR, "tracker_xlsx.lock")
 # Its columns are the Maximo dump's columns (see SECTION 2B).
 MAXIMO_TRACKER_XLSX = os.path.join(SHARED_TRACKER_DIR, "Maximo_Matched_Tracker.xlsx")
 MAXIMO_TRACKER_LOCK = os.path.join(SHARED_TRACKER_DIR, "maximo_tracker.lock")
+
+# Evidence workbook: one row per report — matched AND not matched — with the
+# report value, the Maximo value and the verdict side by side for every
+# checked column. Always written, even when nothing matches.
+MAXIMO_COMPARISON_XLSX = os.path.join(SHARED_TRACKER_DIR, "Maximo_Comparison.xlsx")
+MAXIMO_COMPARISON_LOCK = os.path.join(SHARED_TRACKER_DIR, "maximo_comparison.lock")
 
 CURRENT_USER = os.environ.get("USERNAME", os.environ.get("USER", "unknown"))
 
@@ -2623,14 +2868,17 @@ def phase4_maximo_match(maximo_path, log):
     For every report extracted in Phase 3:
       1. Filter the Maximo dump by the report's PO number
       2. Compare the MAXIMO_MATCH_RULES columns against the extracted values
-      3. On a full match, append the Maximo row to the final tracker
+      3. Write a row to the COMPARISON workbook — always, matched or not, so
+         both outcomes are visible side by side
+      4. On a full match, also append the Maximo row to the matched tracker
 
     Reads the extractions Phase 3 streamed into _job["extractions"] and writes
     the verdict back onto each one so the UI cards can show it.
 
-    Returns {"matched", "mismatch", "no_po_rows", "checked"}.
+    Returns {"matched", "mismatch", "no_po_rows", "checked", "compared"}.
     """
-    counts = {"matched": 0, "mismatch": 0, "no_po_rows": 0, "checked": 0}
+    counts = {"matched": 0, "mismatch": 0, "no_po_rows": 0,
+              "checked": 0, "compared": 0}
     extractions = _job.get("extractions", [])
 
     if not maximo_path:
@@ -2654,18 +2902,21 @@ def phase4_maximo_match(maximo_path, log):
         values = ext.get("values", {}) or {}
         counts["checked"] += 1
 
-        result = match_report_against_maximo(po, values, maximo)
-        status = result["status"]
+        result  = match_report_against_maximo(po, values, maximo)
+        status  = result["status"]
+        context = {"po": po,
+                   "vendor":    ext.get("vendor", ""),
+                   "report":    ext.get("report", ""),
+                   "file_name": ext.get("file", ""),
+                   "pdf_path":  ext.get("pdf_path", ""),
+                   "subject":   ext.get("subject", ""),
+                   "received":  ext.get("received", "")}
 
-        if status == "no_po_rows":
-            counts["no_po_rows"] += 1
-            log(f"  ⚠️  PO {po}: not present in the Maximo dump", "warn")
-            ext["maximo_status"] = "no_po_rows"
-            ext["maximo_checks"] = []
-            continue
+        ext["maximo_status"] = status
+        ext["maximo_checks"] = result.get("checks", [])
 
-        # Show every rule so a mismatch is self-explanatory in the log
-        for c in result["checks"]:
+        # Log every rule so a mismatch explains itself
+        for c in result.get("checks", []):
             icon = {"match": "✓", "differ": "✗", "blank": "–"}[c["status"]]
             opt  = " (optional)" if c["optional"] else ""
             detail = f" — {c['note']}" if c["note"] else ""
@@ -2675,26 +2926,28 @@ def phase4_maximo_match(maximo_path, log):
                 "ok" if c["status"] == "match" else
                 ("warn" if c["status"] == "blank" or c["optional"] else "error"))
 
-        ext["maximo_status"] = status
-        ext["maximo_checks"] = result["checks"]
+        # ── Comparison workbook: written for EVERY report ────────────────────
+        if append_to_maximo_comparison(context, result, log=log):
+            counts["compared"] += 1
+
+        if status == "no_po_rows":
+            counts["no_po_rows"] += 1
+            log(f"  ⚠️  PO {po}: not present in the Maximo dump — "
+                f"recorded in the comparison sheet", "warn")
+            continue
 
         if status != "matched":
             counts["mismatch"] += 1
             log(f"  ✗ PO {po}: {result['matched']} matched, "
                 f"{result['differed']} differed, {result['blank']} blank "
-                f"— not added to the tracker", "warn")
+                f"— not added to the tracker, see the comparison sheet", "warn")
             continue
 
-        matched_rules = "; ".join(
-            f"{c['maximo']}={c['maximo_value']}"
-            for c in result["checks"] if c["status"] == "match")
+        matched_rules = "; ".join(f"{c['maximo']}={c['maximo_value']}"
+                                  for c in result["checks"] if c["status"] == "match")
         ok = append_to_maximo_tracker(
             result["row"], maximo["headers"],
-            {"po": po, "vendor": ext.get("vendor", ""), "report": ext.get("report", ""),
-             "file_name": ext.get("file", ""), "pdf_path": ext.get("pdf_path", ""),
-             "subject": ext.get("subject", ""), "received": ext.get("received", ""),
-             "matched_rules": matched_rules},
-            log=log)
+            dict(context, matched_rules=matched_rules), log=log)
 
         if ok:
             counts["matched"] += 1
@@ -2707,10 +2960,14 @@ def phase4_maximo_match(maximo_path, log):
         else:
             counts["mismatch"] += 1
 
-    log(f"[PHASE 4 DONE] {counts['matched']} matched and written, "
-        f"{counts['mismatch']} mismatched, "
+    log(f"[PHASE 4 DONE] {counts['matched']} matched and written to the tracker, "
+        f"{counts['mismatch']} not matched, "
         f"{counts['no_po_rows']} PO not found in Maximo.", "ok")
+    log(f"[PHASE 4] {counts['compared']} row(s) written to "
+        f"{os.path.basename(MAXIMO_COMPARISON_XLSX)} "
+        f"(shows matched and not-matched side by side).", "ok")
     return counts
+
 
 
 def _run_job(account, folder, target, skip_no_po, ext_filter,
@@ -2754,7 +3011,8 @@ def _run_job(account, folder, target, skip_no_po, ext_filter,
         counts = phase3_extract(queue, log)
 
         # ── Phase 4: Cross-check against the Maximo dump ──────────────────────
-        mx_counts = {"matched": 0, "mismatch": 0, "no_po_rows": 0, "checked": 0}
+        mx_counts = {"matched": 0, "mismatch": 0, "no_po_rows": 0,
+                     "checked": 0, "compared": 0}
         if maximo_path:
             _job["phase"] = "MAXIMO"
             log("═══ PHASE 4 — Cross-checking against Maximo ═══", "info")
@@ -2772,7 +3030,9 @@ def _run_job(account, folder, target, skip_no_po, ext_filter,
             "maximo_matched":    mx_counts["matched"],
             "maximo_mismatch":   mx_counts["mismatch"],
             "maximo_no_po":      mx_counts["no_po_rows"],
+            "maximo_compared":   mx_counts.get("compared", 0),
             "maximo_tracker":    MAXIMO_TRACKER_XLSX if maximo_path else "",
+            "maximo_comparison": MAXIMO_COMPARISON_XLSX if maximo_path else "",
         }
 
     except Exception as e:
@@ -3226,8 +3486,10 @@ footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
     <p style="font-size:12px;color:var(--muted);margin-bottom:10px;">
       Optional. After the reports are extracted, each one is looked up in this file by
       PO number and its values are compared against the Maximo columns. Rows where
-      everything matches are written to the final tracker
-      <code>Maximo_Matched_Tracker.xlsx</code>, using the Maximo columns.
+      everything matches are written to <code>Maximo_Matched_Tracker.xlsx</code>
+      using the Maximo columns, and <b>every</b> report — matched or not — is
+      written to <code>Maximo_Comparison.xlsx</code> with the report value, the
+      Maximo value and the verdict side by side.
       Leave blank to skip the cross-check.
     </p>
     <div class="path-row">
@@ -3708,8 +3970,11 @@ function showSummary(s) {
   if (s.maximo_tracker) {
     note.innerHTML = `🗂️ <b>${s.maximo_matched||0}</b> verified row(s) written to `
                    + `<code>${esc(s.maximo_tracker)}</code>`
+                   + `<br>📊 <b>${s.maximo_compared||0}</b> row(s) — matched <i>and</i> not matched — written to `
+                   + `<code>${esc(s.maximo_comparison||'')}</code>, with the report value, `
+                   + `the Maximo value and the verdict side by side.`
                    + ((s.maximo_no_po||0) ? `<br>⚠️ ${s.maximo_no_po} PO number(s) were not found in the Maximo dump.` : '')
-                   + ((s.maximo_mismatch||0) ? `<br>⚠️ ${s.maximo_mismatch} report(s) did not match on every checked column — see the log above.` : '');
+                   + ((s.maximo_mismatch||0) ? `<br>⚠️ ${s.maximo_mismatch} report(s) did not match on every checked column — see the comparison file.` : '');
     note.style.display = 'block';
   } else {
     note.style.display = 'none';
