@@ -169,7 +169,12 @@ VENDOR_REPORTS = [
         {"column": "CSN",                 "labels": ["CSN"], "tabular": True, "stop_at": ["CSR"]},
         {"column": "TSI",                 "labels": ["TSI"], "tabular": True},
         {"column": "CSI",                 "labels": ["CSI"], "tabular": True},
-        {"column": "TSO",                 "labels": ["TSO"], "tabular": True},
+        # "ISO" is kept as an alias here because it turns up in the same grid
+        # position TSO normally occupies on some Kofax conversions (T/I OCR
+        # confusion). The position-based Measuring Point fallback below is
+        # the primary defence against this kind of OCR drift; this alias is
+        # just a fast-path for the one misread already observed.
+        {"column": "TSO",                 "labels": ["TSO", "ISO"], "tabular": True},
         {"column": "CSO",                 "labels": ["CSO"], "tabular": True},
         {"column": "Reason For Removal",  "labels": ["Customer Reason for Return",
                                                      "Reason For Removal", "Removal Code"],
@@ -182,10 +187,16 @@ VENDOR_REPORTS = [
         {"column": "Failure Date",        "labels": ["Failure Date", "Date Removed",
                                                      "Removal Date"], "post": "date"},
         # NOTE: the bare label "Removal" is deliberately NOT listed — it would
-        # prefix-match "Removal Code" and return the wrong cell.
+        # prefix-match "Removal Code" and return the wrong cell. "Removal -"
+        # (WITH the trailing hyphen) is safe to list because "Removal Code"
+        # never has a hyphen right after "Removal", and it is needed for
+        # reports where the cell literally reads "Removal -" with the
+        # Scheduled/Unscheduled word in a separate cell to the right (seen
+        # under the Recertification/Comments block on some samples).
         {"column": "Removal - Unscheduled/Scheduled",
                                           "labels": ["Removal - Unschedules/Scheduled",
                                                      "Removal - Unscheduled/Scheduled",
+                                                     "Removal -",
                                                      "Removal Type"], "post": "schedule"},
      ],
      # Labels that appear on this vendor's reports but are not extracted.
@@ -610,6 +621,73 @@ def _grid_label_value(grids, label, known_labels=frozenset(), prefer_below=False
     return ""
 
 
+# ── UTC Aerospace "Measuring Point" grid: position-based fallback ─────────
+# Every UTC Aerospace sample seen puts the grid's own column headers in this
+# stable order: Serial#, CSN, TSN, CSO, CSR, TSO, TSR, TSCMP. Kofax's PDF ->
+# Excel conversion regularly mangles the header CELLS themselves ("CSN" ->
+# "CSNI", "TSN" -> "n-±1", "TSO" -> "ISO", etc.) which breaks plain label
+# matching. "Serial #" / "Serial#" is the one header that reads cleanly in
+# every sample, so it is used as the anchor: once found, the remaining
+# columns are read by POSITION rather than by matching their own (possibly
+# garbled) header text. When the grid has more than one data row, the row
+# labelled "INF" is preferred, matching how these reports are read manually.
+_MP_COLUMN_ORDER = ["Serial#", "CSN", "TSN", "CSO", "CSR", "TSO", "TSR", "TSCMP"]
+_MP_FIELD_MAP = {"CSN": "CSN", "TSN": "TSN", "CSO": "CSO", "TSO": "TSO"}
+
+
+def _norm_header_cell(text):
+    return _norm_ws(text).lower().rstrip(" :#.")
+
+
+def _find_measuring_point_header(grids):
+    """Locate the Measuring Point grid via its one reliably-OCR'd column:
+    the cell that starts with 'serial' (Serial #, Serial#, Serial No…)."""
+    for grid in grids:
+        for r, row in enumerate(grid):
+            for c, cell in enumerate(row):
+                if _norm_header_cell(cell).startswith("serial"):
+                    return grid, r, c
+    return None, None, None
+
+
+def _measuring_point_values(grids):
+    """
+    Position-based fallback for the UTC Aerospace Measuring Point grid.
+    Returns {"CSN": .., "TSN": .., "CSO": .., "TSO": ..} for whichever
+    columns were actually found (missing/blank columns are simply absent
+    from the result), or {} if no Measuring Point grid was located.
+    """
+    grid, hdr_r, hdr_c = _find_measuring_point_header(grids)
+    if grid is None:
+        return {}
+
+    # Column positions relative to the "Serial #" cell, following the fixed
+    # order confirmed across samples.
+    col_positions = {name: hdr_c + i for i, name in enumerate(_MP_COLUMN_ORDER)}
+
+    # Candidate data rows below the header (skip fully-blank rows).
+    candidates = [(rr, grid[rr]) for rr in range(hdr_r + 1, min(hdr_r + 5, len(grid)))
+                  if any(_norm_ws(v) for v in grid[rr])]
+    if not candidates:
+        return {}
+
+    # Prefer the row explicitly labelled "INF"; else take the first data row.
+    chosen = next((row for _, row in candidates
+                   if any(_norm_header_cell(v) == "inf" for v in row)), None)
+    if chosen is None:
+        chosen = candidates[0][1]
+
+    out = {}
+    for col_name, field_key in _MP_FIELD_MAP.items():
+        idx = col_positions.get(col_name)
+        if idx is None or idx >= len(chosen):
+            continue
+        v = _norm_ws(chosen[idx])
+        if v and _norm_header_cell(v) not in ("inf", "our", "unknown"):
+            out[field_key] = v[:120]
+    return out
+
+
 def extract_excel_fields(xlsx_path, email_subject=""):
     """
     Detect the vendor/report template from a Kofax-converted Excel workbook
@@ -666,6 +744,16 @@ def extract_excel_fields(xlsx_path, email_subject=""):
                 val = m.group(1)
 
         values[f["column"]] = val
+
+    # UTC Aerospace: the Measuring Point grid's own header cells are often
+    # OCR-garbled past recognition ("CSN" -> "CSNI", "TSO" -> "ISO", etc.),
+    # so any CSN/TSN/CSO/TSO that came back blank from label matching gets
+    # one more try, read positionally off the "Serial #" anchor.
+    if entry["vendor"] == "UTC Aerospace Systems":
+        mp_vals = _measuring_point_values(grids)
+        for col, val in mp_vals.items():
+            if not values.get(col):
+                values[col] = val
 
     return {"vendor": entry["vendor"], "report": entry["report"], "values": values}
 
