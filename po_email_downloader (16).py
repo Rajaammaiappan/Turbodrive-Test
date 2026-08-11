@@ -137,19 +137,34 @@ VENDOR_REPORTS = [
      ]},
 
     # ── 4. UTC Aerospace Systems ─────────────────────────────────────────────
-    # Report title changed in the spreadsheet: SCRAP STRIP -> INSPECTION STRIP.
-    # Ref: Cust PO and Cust Part are to the RIGHT; Serial# and the
-    #      TSN/CSN/TSI/CSI/TSO/CSO block are DOWN; ESN keeps digits only;
-    #      Removal keeps only Scheduled/Unscheduled.
+    # Spec: UTC_Aerospace_Systems.docx
+    #   Cust PO      RIGHT, 10 digits starting with 4. If the report does not
+    #                carry it, fall back to the PO in the email subject; if
+    #                that is also missing, leave blank.
+    #   Cust Part    RIGHT
+    #   Input Part   RIGHT
+    #   Input Serial# DOWN (number & text)
+    #   TSN CSN TSI CSI TSO CSO   DOWN in the Measuring Point grid, but they
+    #                also appear inline in the same cell on some reports —
+    #                the engine tries the cell itself, then below, then right.
+    #   ESN / ENGINE SERIAL NUMBER   "ESN12345" -> keep 12345
+    #   Failure Date / Date Removed / Removal Date  are the SAME value, so
+    #                they are one column with all three spellings as labels.
+    #   Removal - Unscheduled/Scheduled   keep only that word.
     {"vendor": "UTC Aerospace Systems", "report": "INSPECTION STRIP REPORT",
      "aliases": ["UTC Aerospace Systems", "UTC Aerospace"],
      "report_aliases": ["INSPECTION STRIP REPORT", "INSPECTION  STRIP REPORT",
                         "SCRAP STRIP REPORT"],
      "fields": [
-        {"column": "Cust PO",             "labels": ["Cust PO"]},
-        {"column": "Cust Part No",        "labels": ["Cust Part No", "Cust Part"]},
-        {"column": "In Serial No",        "labels": ["In Serial# No", "In Serial No",
-                                                     "In Serial#", "Serial#"], "tabular": True},
+        {"column": "Cust PO",             "labels": ["Cust PO", "Customer PO"],
+         "post": "po10", "fallback": "po_from_subject"},
+        {"column": "Cust Part",           "labels": ["Cust Part", "Cust Part No"]},
+        {"column": "Input Part",          "labels": ["Input Part"]},
+        # Reads to the RIGHT on the header block ("Input Serial  PAJ20-094")
+        # and DOWN in the Measuring Point grid; the engine tries right first
+        # and neighbour_labels below stops it grabbing "Output Serial".
+        {"column": "Input Serial#",       "labels": ["Input Serial#", "Input Serial",
+                                                     "In Serial# No", "In Serial No"]},
         {"column": "TSN",                 "labels": ["TSN"], "tabular": True, "stop_at": ["TSR", "TT"]},
         {"column": "CSN",                 "labels": ["CSN"], "tabular": True, "stop_at": ["CSR"]},
         {"column": "TSI",                 "labels": ["TSI"], "tabular": True},
@@ -157,15 +172,32 @@ VENDOR_REPORTS = [
         {"column": "TSO",                 "labels": ["TSO"], "tabular": True},
         {"column": "CSO",                 "labels": ["CSO"], "tabular": True},
         {"column": "Reason For Removal",  "labels": ["Customer Reason for Return",
-                                                     "Reason For Removal"], "multiline": True,
-         "stop_at": ["DOM:", "ESD (First Date)", "Administrative Notes"]},
-        {"column": "ESN",                 "labels": ["ESN"], "post": "digits"},
-        {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
-        {"column": "Removal Date",        "labels": ["Removal Date"], "post": "date"},
+                                                     "Reason For Removal", "Removal Code"],
+         "multiline": True,
+         "stop_at": ["DOM:", "ESD (First Date)", "Administrative Notes", "Aircraft"]},
+        {"column": "ESN",                 "labels": ["ENGINE SERIAL NUMBER", "Engine Serial Number",
+                                                     "ESN"], "post": "digits"},
+        {"column": "Tail No",             "labels": ["Tail No", "Tail Number",
+                                                     "Aircraft Tail Number"]},
+        {"column": "Failure Date",        "labels": ["Failure Date", "Date Removed",
+                                                     "Removal Date"], "post": "date"},
+        # NOTE: the bare label "Removal" is deliberately NOT listed — it would
+        # prefix-match "Removal Code" and return the wrong cell.
         {"column": "Removal - Unscheduled/Scheduled",
                                           "labels": ["Removal - Unschedules/Scheduled",
                                                      "Removal - Unscheduled/Scheduled",
-                                                     "Removal"], "post": "schedule"},
+                                                     "Removal Type"], "post": "schedule"},
+     ],
+     # Labels that appear on this vendor's reports but are not extracted.
+     # They are registered so a blank field never returns a neighbouring
+     # heading ("Cust Part" -> "Cust Serial") as if it were a value.
+     "neighbour_labels": [
+        "Customer", "Operator PO", "Output Part", "Output Serial", "Qty",
+        "Workscope", "Cust Serial", "Status/Work", "Description",
+        "Removal Code", "Aircraft", "Engine Type", "Incoming NSN",
+        "Outgoing NSN", "Date Rec'd", "Quote Date", "Accept Date",
+        "Ship Date", "DOM", "Last Order Date", "Sales Order", "Work Order",
+        "Notification", "Measuring Point", "Serial #", "TSR", "CSR", "TSCMP",
      ]},
 
     # ── 5. UTAS SENSORS - USA ────────────────────────────────────────────────
@@ -362,10 +394,18 @@ def _apply_post(value, rule):
             return "Scheduled"
         return v
 
+    if rule == "po10":
+        # A Rolls-Royce PO is 10 digits beginning with 4 (4000…, 4600…).
+        m = re.search(r'\b(4\d{9})\b', v.replace(",", "").replace(" ", ""))
+        if m:
+            return m.group(1)
+        m = re.search(r'\b(4\d{9})\b', v)
+        return m.group(1) if m else ""
+
     if rule == "date":
-        for fmt in ("%d/%m/%Y", "%m/%d/%Y", "%Y-%m-%d", "%d-%m-%Y",
+        for fmt in ("%d.%m.%Y", "%d/%m/%Y", "%m/%d/%Y", "%Y-%m-%d", "%d-%m-%Y",
                     "%d %b %Y", "%d %B %Y", "%b %d, %Y", "%B %d, %Y",
-                    "%d/%m/%y", "%m/%d/%y"):
+                    "%d.%m.%y", "%d/%m/%y", "%m/%d/%y"):
             try:
                 return datetime.strptime(v[:20].strip(), fmt).strftime("%Y-%m-%d")
             except Exception:
@@ -426,6 +466,9 @@ def extract_field_value(text, field, entry):
     for other in entry["fields"]:
         if other is not field:
             stop_terms += other["labels"]
+    # Headings that are not extracted but must still end a capture, otherwise a
+    # blank field swallows the rest of the row ("Cust Part" -> "Cust Serial …").
+    stop_terms += entry.get("neighbour_labels", [])
 
     for label in field["labels"]:
         start = _label_start(text, label)
@@ -567,11 +610,15 @@ def _grid_label_value(grids, label, known_labels=frozenset(), prefer_below=False
     return ""
 
 
-def extract_excel_fields(xlsx_path):
+def extract_excel_fields(xlsx_path, email_subject=""):
     """
     Detect the vendor/report template from a Kofax-converted Excel workbook
     and pull out its field values — cell-by-cell first (CASE A/B/C/D/E),
     then the flattened-text fallback (CASE F) as backup.
+
+    `email_subject` is optional. Fields declaring
+    {"fallback": "po_from_subject"} use it when the report itself does not
+    carry a PO number — the UTC Aerospace spec requires exactly this.
 
     Returns {"vendor":.., "report":.., "values": {column: value}}, or None
     if no known vendor/report template matched anywhere in the workbook.
@@ -590,8 +637,14 @@ def extract_excel_fields(xlsx_path):
     if not entry:
         return None
 
+    # Every label the engine should recognise as "this cell is a heading":
+    # the extracted fields' own labels plus any neighbour_labels the vendor
+    # declares. Without the neighbours, a blank field scanning right or down
+    # can return the next heading as though it were a value.
     known_labels = {_norm_ws(l).lower().rstrip(" :#.")
                     for fld in entry["fields"] for l in fld["labels"]}
+    known_labels |= {_norm_ws(l).lower().rstrip(" :#.")
+                     for l in entry.get("neighbour_labels", [])}
     values = {}
     for f in entry["fields"]:
         val = ""
@@ -602,8 +655,17 @@ def extract_excel_fields(xlsx_path):
                 break
         if not val:
             val = extract_field_value(text, f, entry)   # flattened-text fallback
-        # Apply the field's post-processing rule (digits / schedule / date)
-        values[f["column"]] = _apply_post(val, f.get("post"))
+        # Apply the field's post-processing rule (digits / schedule / date / po10)
+        val = _apply_post(val, f.get("post"))
+
+        # Declared fallback: pull the PO from the email subject when the
+        # report itself does not show one (UTC Aerospace spec).
+        if not val and f.get("fallback") == "po_from_subject" and email_subject:
+            m = re.search(r'\b(4\d{9})\b', email_subject)
+            if m:
+                val = m.group(1)
+
+        values[f["column"]] = val
 
     return {"vendor": entry["vendor"], "report": entry["report"], "values": values}
 
@@ -626,6 +688,310 @@ def calculate_vendor_score(vendor, values):
         return max(0, min(score, 100))
     except Exception:
         return 0
+
+
+# =============================================================================
+# SECTION 2B -- MAXIMO CROSS-CHECK (validate report data against system data)
+# =============================================================================
+#
+# After a report is extracted, its values are cross-checked against the Maximo
+# dump workbook the user browses to in the UI:
+#
+#   1. Filter the Maximo sheet by PO number  (MAXIMO_PO_COLUMN)
+#   2. Compare each rule in MAXIMO_MATCH_RULES between the Maximo row and the
+#      extracted report values
+#   3. If every non-optional rule matches, that Maximo row is written to the
+#      final tracker — the tracker's columns ARE the Maximo columns
+#
+# To change what gets compared, edit MAXIMO_MATCH_RULES only. Nothing else in
+# this file needs to change.
+# -----------------------------------------------------------------------------
+
+# Column in the Maximo dump holding the PO number used to filter rows.
+MAXIMO_PO_COLUMN = "RR_PO_NUMBER"
+
+# Which Maximo column is checked against which extracted report column.
+#   mode "exact"   normalised text equality (case/space/punctuation-insensitive)
+#   mode "number"  numeric equality         ("12,433" == "12433" == "12433.0")
+#   mode "words"   every significant word of the Maximo value must appear in
+#                  the report value — for free text like REASON_FOR_REMOVAL
+#   optional True  a blank or differing value does not fail the row
+MAXIMO_MATCH_RULES = [
+    {"maximo": "CORE_OEM_PART_NUMBER", "report": "Input Part",         "mode": "exact"},
+    {"maximo": "CORE_SERIAL_NUMBER",   "report": "Input Serial#",      "mode": "exact"},
+    {"maximo": "CORE_TSN",             "report": "TSN",                "mode": "number"},
+    {"maximo": "CORE_CSN",             "report": "CSN",                "mode": "number"},
+    {"maximo": "ENGINE_SERIAL_NUMBER", "report": "ESN",                "mode": "number"},
+    {"maximo": "REASON_FOR_REMOVAL",   "report": "Reason For Removal", "mode": "words"},
+    {"maximo": "AIRCRAFT_TAIL_NUMBER", "report": "Tail No",            "mode": "exact",
+     "optional": True},
+]
+
+# Numeric tolerance for "number" comparisons (0 = must be identical).
+MAXIMO_NUMBER_TOLERANCE = 0.0
+
+# Append provenance columns after the Maximo columns so each tracker row can be
+# traced back to the report it came from. Set False for a tracker that is
+# purely the Maximo columns and nothing else.
+MAXIMO_TRACKER_AUDIT_COLUMNS = True
+
+
+def _mx_text(value):
+    """Normalise a cell for text comparison: casefold, drop spaces/punctuation."""
+    return re.sub(r'[^a-z0-9]', '', _norm_ws(value).lower())
+
+
+def _mx_number(value):
+    """
+    Parse a cell as a number, tolerating thousands separators and stray text.
+    "12,433" -> 12433.0    "1539" -> 1539.0    "ESN11433" -> 11433.0
+    Returns None when the cell holds no number.
+    """
+    v = _norm_ws(value).replace(",", "")
+    m = re.search(r'-?\d+(?:\.\d+)?', v)
+    if not m:
+        return None
+    try:
+        return float(m.group(0))
+    except Exception:
+        return None
+
+
+_MX_STOPWORDS = {"the", "and", "of", "for", "to", "a", "an", "on", "in", "at", "by"}
+
+
+def _mx_words(value):
+    """Significant words of a free-text cell, for the 'words' comparison mode."""
+    return [w for w in re.findall(r'[a-z0-9]+', _norm_ws(value).lower())
+            if w not in _MX_STOPWORDS]
+
+
+def _mx_compare(mode, maximo_value, report_value):
+    """
+    Compare one Maximo cell against one extracted report value.
+    Returns (status, note) with status "match", "differ" or "blank".
+    """
+    mx_raw = _norm_ws(maximo_value)
+    rp_raw = _norm_ws(report_value)
+
+    if not mx_raw or not rp_raw:
+        return "blank", ("report value empty" if mx_raw else "maximo value empty")
+
+    if mode == "number":
+        a, b = _mx_number(mx_raw), _mx_number(rp_raw)
+        if a is None or b is None:
+            return "blank", "not numeric"
+        return ("match", "") if abs(a - b) <= MAXIMO_NUMBER_TOLERANCE \
+            else ("differ", f"{a:g} vs {b:g}")
+
+    if mode == "words":
+        mx_words = _mx_words(mx_raw)
+        rp_text  = " ".join(_mx_words(rp_raw))
+        if not mx_words:
+            return "blank", "no words to compare"
+        missing = [w for w in mx_words if w not in rp_text]
+        return ("match", "") if not missing \
+            else ("differ", "missing in report: " + ", ".join(missing))
+
+    a, b = _mx_text(mx_raw), _mx_text(rp_raw)
+    if not a or not b:
+        return "blank", "nothing to compare"
+    return ("match", "") if a == b else ("differ", f"{mx_raw} vs {rp_raw}")
+
+
+def load_maximo_dump(path, log=None):
+    """
+    Read the Maximo dump workbook into memory once per run.
+
+    Returns {"headers": [...], "by_po": {po_digits: [rowdict, ...]}, "rows": n}
+    or None if the file cannot be read. Rows are indexed by the digits of
+    MAXIMO_PO_COLUMN so "4600317870" and "4600317870.0" still find each other.
+    """
+    import openpyxl
+
+    def _log(m, l="info"):
+        if log:
+            log(m, l)
+
+    if not path or not os.path.exists(path):
+        _log(f"  [WARN] Maximo file not found: {path}", "warn")
+        return None
+
+    try:
+        wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
+    except Exception as e:
+        _log(f"  [ERROR] Cannot open Maximo file: {e}", "error")
+        return None
+
+    try:
+        ws = wb.worksheets[0]
+        rows_iter = ws.iter_rows(values_only=True)
+
+        headers = []
+        for raw in rows_iter:                      # first non-empty row = header
+            cells = ["" if c is None else str(c).strip() for c in raw]
+            if any(cells):
+                headers = cells
+                break
+        if not headers:
+            _log("  [ERROR] Maximo file has no header row.", "error")
+            return None
+
+        if MAXIMO_PO_COLUMN not in headers:
+            _log(f"  [ERROR] Maximo file has no '{MAXIMO_PO_COLUMN}' column. "
+                 f"Found: {', '.join(h for h in headers if h)[:200]}", "error")
+            return None
+        po_idx = headers.index(MAXIMO_PO_COLUMN)
+
+        by_po, total = {}, 0
+        for raw in rows_iter:
+            cells = ["" if c is None else str(c).strip() for c in raw]
+            if not any(cells):
+                continue
+            total += 1
+            po_key = re.sub(r'\D', '', cells[po_idx]) if po_idx < len(cells) else ""
+            if not po_key:
+                continue
+            row = {h: (cells[i] if i < len(cells) else "")
+                   for i, h in enumerate(headers) if h}
+            by_po.setdefault(po_key, []).append(row)
+    finally:
+        try:
+            wb.close()
+        except Exception:
+            pass
+
+    _log(f"  Maximo dump loaded: {total} row(s), "
+         f"{len(by_po)} distinct PO number(s).", "ok")
+    return {"headers": [h for h in headers if h], "by_po": by_po, "rows": total}
+
+
+def match_report_against_maximo(po, report_values, maximo):
+    """
+    Filter the Maximo dump by `po`, then score every candidate row against the
+    extracted report values using MAXIMO_MATCH_RULES.
+
+    Returns:
+      {"status": "matched" | "mismatch" | "no_po_rows" | "no_maximo",
+       "row": winning Maximo row dict or None,
+       "checks": [ {maximo, report, mode, maximo_value, report_value,
+                    status, note, optional}, ... ],
+       "matched": n, "differed": n, "blank": n}
+    """
+    if not maximo:
+        return {"status": "no_maximo", "row": None, "checks": [],
+                "matched": 0, "differed": 0, "blank": 0}
+
+    po_key = re.sub(r'\D', '', str(po or ""))
+    candidates = maximo["by_po"].get(po_key, [])
+    if not candidates:
+        return {"status": "no_po_rows", "row": None, "checks": [],
+                "matched": 0, "differed": 0, "blank": 0}
+
+    best = None
+    for row in candidates:
+        checks = []
+        n_match = n_diff = n_blank = 0
+        for rule in MAXIMO_MATCH_RULES:
+            mx_val = row.get(rule["maximo"], "")
+            rp_val = (report_values or {}).get(rule["report"], "")
+            status, note = _mx_compare(rule.get("mode", "exact"), mx_val, rp_val)
+            if status == "match":
+                n_match += 1
+            elif status == "differ":
+                n_diff += 1
+            else:
+                n_blank += 1
+            checks.append({"maximo": rule["maximo"], "report": rule["report"],
+                           "mode": rule.get("mode", "exact"),
+                           "maximo_value": mx_val, "report_value": rp_val,
+                           "status": status, "note": note,
+                           "optional": bool(rule.get("optional"))})
+
+        # A row is accepted only when every non-optional rule matched.
+        blocking = [c for c in checks if c["status"] != "match" and not c["optional"]]
+        result = {"status": "matched" if not blocking else "mismatch",
+                  "row": row, "checks": checks,
+                  "matched": n_match, "differed": n_diff, "blank": n_blank}
+
+        # Keep the strongest candidate: an accepted row wins outright,
+        # otherwise the one satisfying the most rules.
+        if best is None or \
+           (result["status"] == "matched" and best["status"] != "matched") or \
+           (result["status"] == best["status"] and result["matched"] > best["matched"]):
+            best = result
+        if best["status"] == "matched":
+            break
+
+    return best
+
+
+def append_to_maximo_tracker(maximo_row, maximo_headers, context, log=None):
+    """
+    Append one verified Maximo row to the final tracker workbook.
+
+    The tracker's columns are the Maximo columns, in Maximo order. When
+    MAXIMO_TRACKER_AUDIT_COLUMNS is on, a provenance block is appended after
+    them so each row can be traced back to its report.
+
+    Rows are only ever appended — nothing is reordered or overwritten — and
+    the write is guarded by its own lock file so two users running at the same
+    time cannot corrupt the workbook.
+    """
+    import openpyxl
+
+    def _log(m, l="info"):
+        if log:
+            log(m, l)
+
+    audit = [
+        ("Matched PO",     context.get("po", "")),
+        ("Vendor Name",    context.get("vendor", "")),
+        ("Report Name",    context.get("report", "")),
+        ("Source File",    context.get("file_name", "")),
+        ("PDF Path",       context.get("pdf_path", "")),
+        ("Email Subject",  context.get("subject", "")),
+        ("Email Received", context.get("received", "")),
+        ("Matched Rules",  context.get("matched_rules", "")),
+        ("Matched By",     CURRENT_USER),
+        ("Matched At",     datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
+    ]
+
+    headers = list(maximo_headers)
+    row_data = dict(maximo_row)
+    if MAXIMO_TRACKER_AUDIT_COLUMNS:
+        headers += [k for k, _ in audit]
+        row_data.update(dict(audit))
+
+    try:
+        with _file_lock(MAXIMO_TRACKER_LOCK):
+            os.makedirs(os.path.dirname(MAXIMO_TRACKER_XLSX), exist_ok=True)
+            if os.path.exists(MAXIMO_TRACKER_XLSX):
+                wb = openpyxl.load_workbook(MAXIMO_TRACKER_XLSX)
+                ws = wb.active
+                existing = [c.value for c in ws[1]]
+                # Grow the header if the Maximo dump gained columns later on
+                for h in headers:
+                    if h not in existing:
+                        existing.append(h)
+                        ws.cell(row=1, column=len(existing), value=h)
+                headers = existing
+            else:
+                wb = openpyxl.Workbook()
+                ws = wb.active
+                ws.title = "Maximo Matched Tracker"
+                ws.append(headers)
+                for c in ws[1]:
+                    c.font = openpyxl.styles.Font(bold=True)
+                ws.freeze_panes = "A2"
+
+            ws.append([row_data.get(h, "") for h in headers])
+            wb.save(MAXIMO_TRACKER_XLSX)
+        return True
+    except Exception as e:
+        _log(f"  [WARN] Could not write Maximo tracker: {e}", "warn")
+        return False
+
 
 # =============================================================================
 # SECTION 3 -- KOFAX POWER PDF AUTOMATION (PDF -> Excel only)
@@ -1355,6 +1721,11 @@ LOCK_FILE     = os.path.join(SHARED_TRACKER_DIR, "db.lock")
 # shared tracker folder above.
 TRACKER_XLSX      = os.path.join(SHARED_TRACKER_DIR, "Extracted_Report_Tracker.xlsx")
 TRACKER_LOCK_FILE = os.path.join(SHARED_TRACKER_DIR, "tracker_xlsx.lock")
+
+# Final tracker built only from Maximo rows whose data matched the report.
+# Its columns are the Maximo dump's columns (see SECTION 2B).
+MAXIMO_TRACKER_XLSX = os.path.join(SHARED_TRACKER_DIR, "Maximo_Matched_Tracker.xlsx")
+MAXIMO_TRACKER_LOCK = os.path.join(SHARED_TRACKER_DIR, "maximo_tracker.lock")
 
 CURRENT_USER = os.environ.get("USERNAME", os.environ.get("USER", "unknown"))
 
@@ -2108,7 +2479,7 @@ def phase3_extract(queue, log):
 
         log(f"  Searching: {os.path.basename(xlsx)}", "info")
         try:
-            res = extract_excel_fields(xlsx)
+            res = extract_excel_fields(xlsx, email_subject=subject)
         except Exception as e:
             log(f"  [ERROR] extract_excel_fields: {e}", "error")
             continue
@@ -2158,10 +2529,106 @@ def phase3_extract(queue, log):
 
 
 # ── Background job runner ─────────────────────────────────────────────────────
+# ── Phase 4: Cross-check extracted reports against the Maximo dump ──────────
+def phase4_maximo_match(maximo_path, log):
+    """
+    For every report extracted in Phase 3:
+      1. Filter the Maximo dump by the report's PO number
+      2. Compare the MAXIMO_MATCH_RULES columns against the extracted values
+      3. On a full match, append the Maximo row to the final tracker
+
+    Reads the extractions Phase 3 streamed into _job["extractions"] and writes
+    the verdict back onto each one so the UI cards can show it.
+
+    Returns {"matched", "mismatch", "no_po_rows", "checked"}.
+    """
+    counts = {"matched": 0, "mismatch": 0, "no_po_rows": 0, "checked": 0}
+    extractions = _job.get("extractions", [])
+
+    if not maximo_path:
+        log("[PHASE 4] No Maximo file selected — cross-check skipped.", "warn")
+        return counts
+    if not extractions:
+        log("[PHASE 4] Nothing was extracted — cross-check skipped.", "warn")
+        return counts
+
+    log(f"[PHASE 4] Loading Maximo dump: {os.path.basename(maximo_path)}", "info")
+    maximo = load_maximo_dump(maximo_path, log=log)
+    if not maximo:
+        log("[PHASE 4] Maximo dump could not be read — cross-check skipped.", "error")
+        return counts
+
+    rule_summary = ", ".join(f"{r['maximo']}~{r['report']}" for r in MAXIMO_MATCH_RULES)
+    log(f"[PHASE 4] Checking {len(extractions)} report(s) on: {rule_summary}", "info")
+
+    for ext in extractions:
+        po     = ext.get("po", "")
+        values = ext.get("values", {}) or {}
+        counts["checked"] += 1
+
+        result = match_report_against_maximo(po, values, maximo)
+        status = result["status"]
+
+        if status == "no_po_rows":
+            counts["no_po_rows"] += 1
+            log(f"  ⚠️  PO {po}: not present in the Maximo dump", "warn")
+            ext["maximo_status"] = "no_po_rows"
+            ext["maximo_checks"] = []
+            continue
+
+        # Show every rule so a mismatch is self-explanatory in the log
+        for c in result["checks"]:
+            icon = {"match": "✓", "differ": "✗", "blank": "–"}[c["status"]]
+            opt  = " (optional)" if c["optional"] else ""
+            detail = f" — {c['note']}" if c["note"] else ""
+            log(f"     {icon} {c['maximo']} vs {c['report']}{opt}: "
+                f"{c['maximo_value'] or '(blank)'} / "
+                f"{c['report_value'] or '(blank)'}{detail}",
+                "ok" if c["status"] == "match" else
+                ("warn" if c["status"] == "blank" or c["optional"] else "error"))
+
+        ext["maximo_status"] = status
+        ext["maximo_checks"] = result["checks"]
+
+        if status != "matched":
+            counts["mismatch"] += 1
+            log(f"  ✗ PO {po}: {result['matched']} matched, "
+                f"{result['differed']} differed, {result['blank']} blank "
+                f"— not added to the tracker", "warn")
+            continue
+
+        matched_rules = "; ".join(
+            f"{c['maximo']}={c['maximo_value']}"
+            for c in result["checks"] if c["status"] == "match")
+        ok = append_to_maximo_tracker(
+            result["row"], maximo["headers"],
+            {"po": po, "vendor": ext.get("vendor", ""), "report": ext.get("report", ""),
+             "file_name": ext.get("file", ""), "pdf_path": ext.get("pdf_path", ""),
+             "subject": ext.get("subject", ""), "received": ext.get("received", ""),
+             "matched_rules": matched_rules},
+            log=log)
+
+        if ok:
+            counts["matched"] += 1
+            ext["maximo_row"] = result["row"]
+            log(f"  ✅ PO {po}: all rules matched — Maximo row added to "
+                f"{os.path.basename(MAXIMO_TRACKER_XLSX)}", "ok")
+            log_activity("MAXIMO-MATCHED", ext.get("entry_id", ""), po,
+                         ext.get("subject", ""), "", ext.get("file", ""),
+                         MAXIMO_TRACKER_XLSX)
+        else:
+            counts["mismatch"] += 1
+
+    log(f"[PHASE 4 DONE] {counts['matched']} matched and written, "
+        f"{counts['mismatch']} mismatched, "
+        f"{counts['no_po_rows']} PO not found in Maximo.", "ok")
+    return counts
+
+
 def _run_job(account, folder, target, skip_no_po, ext_filter,
              entry_id=None, store_id=None, keep_converted=True,
              start_date=None, end_date=None, background_mode=False,
-             include_read=True, include_unread=True):
+             include_read=True, include_unread=True, maximo_path=None):
 
     _job["running"]     = True
     _job["phase"]       = ""
@@ -2198,6 +2665,15 @@ def _run_job(account, folder, target, skip_no_po, ext_filter,
         log("═══ PHASE 3 — Extracting data from Excel files ═══", "info")
         counts = phase3_extract(queue, log)
 
+        # ── Phase 4: Cross-check against the Maximo dump ──────────────────────
+        mx_counts = {"matched": 0, "mismatch": 0, "no_po_rows": 0, "checked": 0}
+        if maximo_path:
+            _job["phase"] = "MAXIMO"
+            log("═══ PHASE 4 — Cross-checking against Maximo ═══", "info")
+            mx_counts = phase4_maximo_match(maximo_path, log)
+        else:
+            log("Phase 4 skipped — no Maximo file was selected.", "info")
+
         _job["summary"] = {
             "processed":         sum(1 for i in queue),
             "files_saved":       [i["pdf"] for i in queue] +
@@ -2205,6 +2681,10 @@ def _run_job(account, folder, target, skip_no_po, ext_filter,
             "errors":            sum(1 for i in queue if not i.get("xlsx")),
             "tracker_rows":      counts["matched"],
             "tracker_unmatched": counts["unmatched"],
+            "maximo_matched":    mx_counts["matched"],
+            "maximo_mismatch":   mx_counts["mismatch"],
+            "maximo_no_po":      mx_counts["no_po_rows"],
+            "maximo_tracker":    MAXIMO_TRACKER_XLSX if maximo_path else "",
         }
 
     except Exception as e:
@@ -2301,6 +2781,57 @@ def api_browse():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@app.route("/api/browse_file", methods=["POST"])
+def api_browse_file():
+    """
+    Open a Windows file-picker and return the selected file's full path.
+
+    Used for the Maximo dump. A browser <input type="file"> only exposes the
+    file name, never the path, so the picker is opened server-side — the
+    server and the browser are the same machine here.
+    """
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+        root = tk.Tk(); root.withdraw(); root.attributes("-topmost", True)
+        path = filedialog.askopenfilename(
+            title="Select Maximo dump file",
+            filetypes=[("Excel workbooks", "*.xlsx *.xlsm *.xls"), ("All files", "*.*")])
+        root.destroy()
+        return jsonify({"ok": True, "path": path or ""})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)})
+
+
+@app.route("/api/maximo_preview", methods=["POST"])
+def api_maximo_preview():
+    """
+    Validate a Maximo dump before the run: confirm it opens, that the PO
+    column exists, and report how many rows and PO numbers it holds. Also
+    returns which of the configured match columns are actually present.
+    """
+    data = request.get_json() or {}
+    path = (data.get("path") or "").strip()
+    if not path:
+        return jsonify({"ok": False, "error": "No path given."})
+    if not os.path.exists(path):
+        return jsonify({"ok": False, "error": "File not found."})
+
+    info = load_maximo_dump(path)
+    if not info:
+        return jsonify({"ok": False,
+                        "error": f"Could not read the file, or it has no "
+                                 f"'{MAXIMO_PO_COLUMN}' column."})
+
+    wanted  = [r["maximo"] for r in MAXIMO_MATCH_RULES]
+    present = [c for c in wanted if c in info["headers"]]
+    missing = [c for c in wanted if c not in info["headers"]]
+    return jsonify({"ok": True, "rows": info["rows"],
+                    "pos": len(info["by_po"]),
+                    "po_column": MAXIMO_PO_COLUMN,
+                    "present": present, "missing": missing})
+
+
 @app.route("/api/start", methods=["POST"])
 def api_start():
     """The single 'Process Emails' click — runs the entire pipeline."""
@@ -2321,11 +2852,15 @@ def api_start():
     include_read = bool(data.get("include_read", True))
     include_unread = bool(data.get("include_unread", True))
     background_mode = bool(data.get("background_mode", False))
+    maximo_path = (data.get("maximo_path") or "").strip()
 
     if not account or not folder:
         return jsonify({"ok": False, "error": "Account and folder are required."})
     if not target or not os.path.isdir(target):
         return jsonify({"ok": False, "error": "Target folder does not exist or is empty."})
+    if maximo_path and not os.path.exists(maximo_path):
+        return jsonify({"ok": False,
+                        "error": f"Maximo file not found:\n{maximo_path}"})
     if start_date and end_date:
         try:
             datetime.strptime(start_date, "%Y-%m-%d")
@@ -2339,7 +2874,8 @@ def api_start():
                  "keep_converted": keep_converted,
                  "start_date": start_date, "end_date": end_date,
                  "background_mode": background_mode,
-                 "include_read": include_read, "include_unread": include_unread},
+                 "include_read": include_read, "include_unread": include_unread,
+                 "maximo_path": maximo_path or None},
              daemon=True).start()
     return jsonify({"ok": True})
 
@@ -2596,13 +3132,34 @@ footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
     </div>
   </div>
 
-  <!-- ── STEP 3: Options + single-click Run ── -->
+  <!-- ── STEP 3: Maximo dump (cross-check source) ── -->
   <div class="card">
-    <div class="card-title">⚙️ Step 3 — Process Emails (single click)</div>
+    <div class="card-title">🗂️ Step 3 — Maximo Dump (cross-check)</div>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:10px;">
+      Optional. After the reports are extracted, each one is looked up in this file by
+      PO number and its values are compared against the Maximo columns. Rows where
+      everything matches are written to the final tracker
+      <code>Maximo_Matched_Tracker.xlsx</code>, using the Maximo columns.
+      Leave blank to skip the cross-check.
+    </p>
+    <div class="path-row">
+      <input type="text" id="maximoPath" placeholder="e.g. \\portfolioeng_nlr\EFS\Maximo_Dump.xlsx"
+             oninput="clearMaximoInfo()">
+      <button class="btn-browse" onclick="browseMaximo()">📄 Browse…</button>
+      <button class="btn-browse" onclick="checkMaximo()">✔️ Validate</button>
+    </div>
+    <div id="maximoInfo" style="display:none;margin-top:10px;padding:8px 12px;
+         border-radius:7px;font-size:12px;"></div>
+  </div>
+
+  <!-- ── STEP 4: Options + single-click Run ── -->
+  <div class="card">
+    <div class="card-title">⚙️ Step 4 — Process Emails (single click)</div>
     <p style="font-size:12px;color:var(--muted);margin-bottom:10px;">
       Downloads emails and attachments, creates PO folders, saves the email as .msg,
       converts every PDF attachment to Excel with Kofax, detects the vendor, extracts
-      the fields, and displays the results below — automatically, in one run.
+      the fields, cross-checks them against the Maximo dump, and displays the results
+      below — automatically, in one run.
     </p>
     <div style="margin-bottom:10px;">
       <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;">
@@ -2676,7 +3233,12 @@ footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
       <div class="sum-card"><div class="sum-val" id="sFiles">—</div><div class="sum-lbl">Files saved</div></div>
       <div class="sum-card"><div class="sum-val" id="sTrackerRows">—</div><div class="sum-lbl">Reports extracted</div></div>
       <div class="sum-card"><div class="sum-val" id="sErrors">—</div><div class="sum-lbl">Errors</div></div>
+      <div class="sum-card"><div class="sum-val" id="sMaximoOk" style="color:#166534;">—</div><div class="sum-lbl">Maximo matched</div></div>
+      <div class="sum-card"><div class="sum-val" id="sMaximoNo" style="color:#b45309;">—</div><div class="sum-lbl">Maximo not matched</div></div>
     </div>
+    <div id="maximoTrackerNote" style="display:none;margin-top:10px;padding:8px 12px;
+         background:#dcfce7;border:1.5px solid #86efac;border-radius:7px;
+         font-size:12px;color:#166534;"></div>
   </div>
 
   <!-- ── Shared Tracker status banner ── -->
@@ -2780,9 +3342,10 @@ footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
 <script>
 let allFolders = [], pollInterval = null, logOffset = 0, extOffset = 0, isRunning = false;
 const PHASE_CFG = {
-  DOWNLOAD:{cls:'dl',label:'📥  Phase 1 of 3 — Downloading emails & saving PDFs…'},
-  CONVERT: {cls:'cv',label:'⚙️   Phase 2 of 3 — Converting PDFs to Excel via Kofax…'},
-  EXTRACT: {cls:'ex',label:'🔍  Phase 3 of 3 — Extracting data from Excel files…'},
+  DOWNLOAD:{cls:'dl',label:'📥  Phase 1 of 4 — Downloading emails & saving PDFs…'},
+  CONVERT: {cls:'cv',label:'⚙️   Phase 2 of 4 — Converting PDFs to Excel via Kofax…'},
+  EXTRACT: {cls:'ex',label:'🔍  Phase 3 of 4 — Extracting data from Excel files…'},
+  MAXIMO:  {cls:'ex',label:'🗂️  Phase 4 of 4 — Cross-checking against the Maximo dump…'},
 };
 let extractionsData = [], extSort = {col: 'at', dir: -1};
 
@@ -2837,6 +3400,58 @@ async function browseFolder() {
   } catch(e) { alert('Browse failed: ' + e.message); }
 }
 
+// ── Maximo dump: browse, validate, and show what was found ──────────────────
+function clearMaximoInfo() {
+  document.getElementById('maximoInfo').style.display = 'none';
+}
+
+function showMaximoInfo(html, kind) {
+  const box = document.getElementById('maximoInfo');
+  const style = {
+    ok:   'background:#dcfce7;border:1.5px solid #86efac;color:#166534;',
+    warn: 'background:#fef9c3;border:1.5px solid #fde047;color:#854d0e;',
+    err:  'background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;'
+  }[kind] || '';
+  box.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:7px;font-size:12px;' + style;
+  box.innerHTML = html;
+  box.style.display = 'block';
+}
+
+async function browseMaximo() {
+  try {
+    const r = await fetch('/api/browse_file', {method:'POST'});
+    const d = await r.json();
+    if (d.ok && d.path) {
+      document.getElementById('maximoPath').value = d.path;
+      checkMaximo();
+    }
+  } catch(e) { alert('Browse failed: ' + e.message); }
+}
+
+async function checkMaximo() {
+  const path = document.getElementById('maximoPath').value.trim();
+  if (!path) { showMaximoInfo('Choose a Maximo file first.', 'warn'); return; }
+  showMaximoInfo('Reading file…', 'warn');
+  try {
+    const r = await fetch('/api/maximo_preview', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({path})
+    });
+    const d = await r.json();
+    if (!d.ok) { showMaximoInfo('✗ ' + esc(d.error || 'Could not read the file.'), 'err'); return; }
+    let html = `✔️ <b>${d.rows}</b> row(s), <b>${d.pos}</b> distinct PO number(s) `
+             + `keyed on <code>${esc(d.po_column)}</code>.`;
+    if (d.present.length)
+      html += `<br>Comparing: ${d.present.map(c => '<code>'+esc(c)+'</code>').join(', ')}`;
+    if (d.missing.length)
+      html += `<br>⚠️ Not in this file (those checks will be skipped): `
+            + d.missing.map(c => '<code>'+esc(c)+'</code>').join(', ');
+    showMaximoInfo(html, d.missing.length ? 'warn' : 'ok');
+  } catch(e) {
+    showMaximoInfo('✗ ' + esc(e.message), 'err');
+  }
+}
+
 function checkReady() {
   const account = document.getElementById('selAccount').value;
   const folderRaw = document.getElementById('selFolder').value;
@@ -2871,6 +3486,7 @@ async function startJob() {
     const includeRead = document.getElementById('chkIncludeRead') ? document.getElementById('chkIncludeRead').checked : true;
     const includeUnread = document.getElementById('chkIncludeUnread') ? document.getElementById('chkIncludeUnread').checked : true;
   const keepConverted = document.getElementById('chkKeepConverted').checked;
+  const maximoPath = (document.getElementById('maximoPath') || {}).value ? document.getElementById('maximoPath').value.trim() : '';
 
   resetRunUI('Running…');
   try {
@@ -2880,7 +3496,8 @@ async function startJob() {
                                                         entry_id, store_id, keep_converted: keepConverted,
                                                         start_date: startDate, end_date: endDate,
                                                         background_mode: backgroundMode,
-                                                        include_read: includeRead, include_unread: includeUnread
+                                                        include_read: includeRead, include_unread: includeUnread,
+                                                        maximo_path: maximoPath
                                                     })
         });
     const d = await r.json();
@@ -2996,6 +3613,19 @@ function showSummary(s) {
   document.getElementById('sFiles').textContent = s.files_saved ? s.files_saved.length : 0;
   document.getElementById('sTrackerRows').textContent = s.tracker_rows||0;
   document.getElementById('sErrors').textContent = s.errors||0;
+  document.getElementById('sMaximoOk').textContent = s.maximo_matched||0;
+  document.getElementById('sMaximoNo').textContent =
+      (s.maximo_mismatch||0) + (s.maximo_no_po||0);
+  const note = document.getElementById('maximoTrackerNote');
+  if (s.maximo_tracker) {
+    note.innerHTML = `🗂️ <b>${s.maximo_matched||0}</b> verified row(s) written to `
+                   + `<code>${esc(s.maximo_tracker)}</code>`
+                   + ((s.maximo_no_po||0) ? `<br>⚠️ ${s.maximo_no_po} PO number(s) were not found in the Maximo dump.` : '')
+                   + ((s.maximo_mismatch||0) ? `<br>⚠️ ${s.maximo_mismatch} report(s) did not match on every checked column — see the log above.` : '');
+    note.style.display = 'block';
+  } else {
+    note.style.display = 'none';
+  }
 }
 
 // ── Tabs ──
