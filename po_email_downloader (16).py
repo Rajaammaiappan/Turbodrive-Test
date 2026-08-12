@@ -86,6 +86,30 @@ VENDOR_REPORTS = [
                      "Received Visual Condition", "Warranty"]},
         {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
         {"column": "Removal Date",        "labels": ["Removal Date"], "post": "date"},
+        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
+        # These are free text, so they are captured multiline and stopped at
+        # whichever following heading appears first.
+        {"column": "Actions Taken",       "labels": [
+            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
+            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
+            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
+            "Work Carried Out", "Repair Performed"],
+         "multiline": True,
+         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
+                     "Conclusion", "Disposition", "Root Cause"]},
+        {"column": "Findings",            "labels": [
+            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
+            "Primary Finding", "Secondary Finding", "Condition Found",
+            "Observations", "Defects Found", "Damage Found"],
+         "multiline": True,
+         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
+                     "Recommendation", "Scrap Notes"]},
+        {"column": "Fault Outcome",       "labels": [
+            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
+            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
+            "Scrap Notes", "Outcome"],
+         "multiline": True,
+         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
      ]},
 
     # ── 2. Parker ────────────────────────────────────────────────────────────
@@ -109,6 +133,30 @@ VENDOR_REPORTS = [
                      "Shop Findings", "Incoming Condition", "Disposition"]},
         {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
         {"column": "Removal Date",        "labels": ["Removal Date"], "post": "date"},
+        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
+        # These are free text, so they are captured multiline and stopped at
+        # whichever following heading appears first.
+        {"column": "Actions Taken",       "labels": [
+            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
+            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
+            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
+            "Work Carried Out", "Repair Performed"],
+         "multiline": True,
+         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
+                     "Conclusion", "Disposition", "Root Cause"]},
+        {"column": "Findings",            "labels": [
+            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
+            "Primary Finding", "Secondary Finding", "Condition Found",
+            "Observations", "Defects Found", "Damage Found"],
+         "multiline": True,
+         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
+                     "Recommendation", "Scrap Notes"]},
+        {"column": "Fault Outcome",       "labels": [
+            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
+            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
+            "Scrap Notes", "Outcome"],
+         "multiline": True,
+         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
      ]},
 
     # ── 3. Agro Tech Eaton / EATON ───────────────────────────────────────────
@@ -134,6 +182,30 @@ VENDOR_REPORTS = [
         {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
         {"column": "Scheduled Removal",   "labels": ["Scheduled Removal", "Scheduled"],
          "post": "schedule"},
+        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
+        # These are free text, so they are captured multiline and stopped at
+        # whichever following heading appears first.
+        {"column": "Actions Taken",       "labels": [
+            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
+            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
+            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
+            "Work Carried Out", "Repair Performed"],
+         "multiline": True,
+         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
+                     "Conclusion", "Disposition", "Root Cause"]},
+        {"column": "Findings",            "labels": [
+            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
+            "Primary Finding", "Secondary Finding", "Condition Found",
+            "Observations", "Defects Found", "Damage Found"],
+         "multiline": True,
+         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
+                     "Recommendation", "Scrap Notes"]},
+        {"column": "Fault Outcome",       "labels": [
+            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
+            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
+            "Scrap Notes", "Outcome"],
+         "multiline": True,
+         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
      ]},
 
     # ── 4. UTC Aerospace Systems ─────────────────────────────────────────────
@@ -198,6 +270,30 @@ VENDOR_REPORTS = [
                                                      "Removal - Unscheduled/Scheduled",
                                                      "Removal -",
                                                      "Removal Type"], "post": "schedule"},
+        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
+        # These are free text, so they are captured multiline and stopped at
+        # whichever following heading appears first.
+        {"column": "Actions Taken",       "labels": [
+            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
+            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
+            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
+            "Work Carried Out", "Repair Performed"],
+         "multiline": True,
+         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
+                     "Conclusion", "Disposition", "Root Cause"]},
+        {"column": "Findings",            "labels": [
+            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
+            "Primary Finding", "Secondary Finding", "Condition Found",
+            "Observations", "Defects Found", "Damage Found"],
+         "multiline": True,
+         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
+                     "Recommendation", "Scrap Notes"]},
+        {"column": "Fault Outcome",       "labels": [
+            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
+            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
+            "Scrap Notes", "Outcome"],
+         "multiline": True,
+         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
      ],
      # Labels that appear on this vendor's reports but are not extracted.
      # They are registered so a blank field never returns a neighbouring
@@ -223,6 +319,30 @@ VENDOR_REPORTS = [
         {"column": "TSN",                 "labels": ["TSN"], "expect": "number"},
         {"column": "CSN",                 "labels": ["CSN"], "expect": "number"},
         {"column": "ESN",                 "labels": ["ESN"], "post": "digits"},
+        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
+        # These are free text, so they are captured multiline and stopped at
+        # whichever following heading appears first.
+        {"column": "Actions Taken",       "labels": [
+            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
+            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
+            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
+            "Work Carried Out", "Repair Performed"],
+         "multiline": True,
+         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
+                     "Conclusion", "Disposition", "Root Cause"]},
+        {"column": "Findings",            "labels": [
+            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
+            "Primary Finding", "Secondary Finding", "Condition Found",
+            "Observations", "Defects Found", "Damage Found"],
+         "multiline": True,
+         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
+                     "Recommendation", "Scrap Notes"]},
+        {"column": "Fault Outcome",       "labels": [
+            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
+            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
+            "Scrap Notes", "Outcome"],
+         "multiline": True,
+         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
      ]},
 
     # ── 6. Sumitomo Precision USA Repair Station ─────────────────────────────
@@ -244,6 +364,30 @@ VENDOR_REPORTS = [
          "multiline": True, "stop_at": ["LABOR", "Delivery Point", "100% Parts"]},
         {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
         {"column": "Removal Date",        "labels": ["Removal Date"], "post": "date"},
+        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
+        # These are free text, so they are captured multiline and stopped at
+        # whichever following heading appears first.
+        {"column": "Actions Taken",       "labels": [
+            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
+            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
+            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
+            "Work Carried Out", "Repair Performed"],
+         "multiline": True,
+         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
+                     "Conclusion", "Disposition", "Root Cause"]},
+        {"column": "Findings",            "labels": [
+            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
+            "Primary Finding", "Secondary Finding", "Condition Found",
+            "Observations", "Defects Found", "Damage Found"],
+         "multiline": True,
+         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
+                     "Recommendation", "Scrap Notes"]},
+        {"column": "Fault Outcome",       "labels": [
+            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
+            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
+            "Scrap Notes", "Outcome"],
+         "multiline": True,
+         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
      ]},
 
     # ── 7. Sumotimo Precision Products ───────────────────────────────────────
@@ -263,6 +407,30 @@ VENDOR_REPORTS = [
          "post": "digits"},
         {"column": "Reason For Removal",  "labels": ["Reason for removal", "Reason for Return"],
          "multiline": True, "stop_at": ["Disposition", "Findings"]},
+        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
+        # These are free text, so they are captured multiline and stopped at
+        # whichever following heading appears first.
+        {"column": "Actions Taken",       "labels": [
+            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
+            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
+            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
+            "Work Carried Out", "Repair Performed"],
+         "multiline": True,
+         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
+                     "Conclusion", "Disposition", "Root Cause"]},
+        {"column": "Findings",            "labels": [
+            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
+            "Primary Finding", "Secondary Finding", "Condition Found",
+            "Observations", "Defects Found", "Damage Found"],
+         "multiline": True,
+         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
+                     "Recommendation", "Scrap Notes"]},
+        {"column": "Fault Outcome",       "labels": [
+            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
+            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
+            "Scrap Notes", "Outcome"],
+         "multiline": True,
+         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
      ]},
 
     # ── 8. Goodrich Aerospace PTE LTD.(SINGAPORE) ────────────────────────────
@@ -280,6 +448,30 @@ VENDOR_REPORTS = [
         {"column": "CSN",                 "labels": ["CSN"], "expect": "number"},
         {"column": "Engine S/N",          "labels": ["Engine Serial Number", "Engine S/N", "ESN"],
          "post": "digits"},
+        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
+        # These are free text, so they are captured multiline and stopped at
+        # whichever following heading appears first.
+        {"column": "Actions Taken",       "labels": [
+            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
+            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
+            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
+            "Work Carried Out", "Repair Performed"],
+         "multiline": True,
+         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
+                     "Conclusion", "Disposition", "Root Cause"]},
+        {"column": "Findings",            "labels": [
+            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
+            "Primary Finding", "Secondary Finding", "Condition Found",
+            "Observations", "Defects Found", "Damage Found"],
+         "multiline": True,
+         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
+                     "Recommendation", "Scrap Notes"]},
+        {"column": "Fault Outcome",       "labels": [
+            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
+            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
+            "Scrap Notes", "Outcome"],
+         "multiline": True,
+         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
      ]},
 
     # ── 9. Honeywell ─────────────────────────────────────────────────────────
@@ -294,6 +486,30 @@ VENDOR_REPORTS = [
          "post": "schedule"},
         {"column": "TSN",                 "labels": ["TSN"], "expect": "number"},
         {"column": "CSN",                 "labels": ["CSN"], "expect": "number"},
+        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
+        # These are free text, so they are captured multiline and stopped at
+        # whichever following heading appears first.
+        {"column": "Actions Taken",       "labels": [
+            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
+            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
+            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
+            "Work Carried Out", "Repair Performed"],
+         "multiline": True,
+         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
+                     "Conclusion", "Disposition", "Root Cause"]},
+        {"column": "Findings",            "labels": [
+            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
+            "Primary Finding", "Secondary Finding", "Condition Found",
+            "Observations", "Defects Found", "Damage Found"],
+         "multiline": True,
+         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
+                     "Recommendation", "Scrap Notes"]},
+        {"column": "Fault Outcome",       "labels": [
+            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
+            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
+            "Scrap Notes", "Outcome"],
+         "multiline": True,
+         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
      ]},
 
     # ── Add future vendors here — no other file needs to change ──────────────
@@ -927,7 +1143,10 @@ def extract_excel_fields(xlsx_path, email_subject=""):
             if not values.get(col):
                 values[col] = val
 
-    return {"vendor": entry["vendor"], "report": entry["report"], "values": values}
+    # `report_text` is the whole workbook flattened to text. The reverse check
+    # searches it for Maximo values, so it must travel with the result.
+    return {"vendor": entry["vendor"], "report": entry["report"],
+            "values": values, "report_text": text}
 
 
 def calculate_vendor_score(vendor, values):
@@ -1117,11 +1336,87 @@ SCORING_LEVEL_NAMES = {0: "Unacceptable", 1: "Insufficient",
                        2: "Needs Improving", 3: "Adequate"}
 
 SCORING_CRITERIA = [
-    {"id": "RFR",    "weight": 5,
+    {"id": "RFR",         "weight": 5,
      "name": "Quality of Reason for Removal (RFR) - is it clear and understandable"},
-    {"id": "BASICS", "weight": 10,
+    {"id": "BASICS",      "weight": 10,
      "name": "Basic details (LRU/LRP Removal Details)"},
+    {"id": "ACTIONS",     "weight": 20,
+     "name": "Is the description of the actions taken by the Vendor clear and intelligible?"},
+    {"id": "FINDINGS",    "weight": 20,
+     "name": "Are the findings, primary or secondary, clear?"},
+    {"id": "OUTCOME",     "weight": 20,
+     "name": "Is there a clear outcome against the RFR - Fault confirmed or Fault not Found?"},
+    {"id": "CORRECTNESS", "weight": 25,
+     "name": "Were the declared findings correct against the RFR"},
 ]
+
+# A narrative counts as "detailed" rather than a single-word entry once it
+# carries at least this many significant words.
+SCORING_DETAIL_WORDS = 4
+
+# Level awarded by criterion 6 when the text cannot settle whether the vendor's
+# conclusion was correct. Those rows are flagged "needs review" so a person can
+# confirm them. Set to 0 to score conservatively until reviewed, or 3 to give
+# the vendor the benefit of the doubt.
+SCORING_UNDETERMINED_LEVEL = 0
+
+# Wording that declares no fault was found. Used by criteria 5 and 6.
+_FNF_PATTERNS = [
+    r'\bno\s+fault\s+found\b', r'\bNFF\b', r'\bFNF\b',
+    r'\bno\s+defect\s+found\b', r'\bNDF\b',
+    r'\bno\s+fault\s+detected\b', r'\bfault\s+not\s+found\b',
+    r'\bserviceable\s+as\s+received\b', r'\bwithin\s+limits\b',
+    r'\btest(?:ed)?\s+(?:ok|satisfactory)\b',
+]
+
+# Wording that declares a fault was confirmed.
+_FAULT_CONFIRMED_PATTERNS = [
+    r'\bfault\s+confirmed\b', r'\bconfirmed\b', r'\bdefect\s+confirmed\b',
+    r'\bfailed\b', r'\bfailure\b', r'\bdefective\b', r'\bunserviceable\b',
+    r'\bout\s+of\s+limits?\b', r'\bworn\b', r'\bdamaged?\b',
+    r'\bcracked?\b', r'\bleak(?:ing|age)?\b', r'\bseized\b', r'\bjammed\b',
+    r'\bcontaminat(?:ed|ion)\b', r'\bcorroded\b', r'\bcorrosion\b',
+]
+
+# Wording that names a root cause, which criterion 5 needs for its top band.
+_ROOT_CAUSE_PATTERNS = [
+    r'\broot\s+cause\b', r'\bcaused\s+by\b', r'\bdue\s+to\b',
+    r'\bprimary\s+cause\b', r'\bresult(?:ed|ing)?\s+from\b',
+    r'\battributed\s+to\b', r'\bas\s+a\s+result\s+of\b',
+]
+
+# Concrete symptoms in an RFR. Criterion 6 flags the contradiction the rubric
+# describes: a specific symptom reported, yet the vendor declared No Fault Found.
+_SYMPTOM_PATTERNS = [
+    r'\bjam(?:med|ming)?\b', r'\bstuck\b', r'\bseiz(?:ed|ure)\b',
+    r'\bslow\s+to\s+(?:move|respond|operate)\b', r'\bsluggish\b',
+    r'\bleak(?:ing|age)?\b', r'\bcrack(?:ed|ing)?\b', r'\bbroken\b',
+    r'\bnoise|noisy\b', r'\bvibration\b', r'\boverheat(?:ing|ed)?\b',
+    r'\bfail(?:ed|ure|s)?\b', r'\binoperative\b', r'\berratic\b',
+    r'\bdrift(?:ing)?\b', r'\bout\s+of\s+(?:limits?|tolerance)\b',
+    r'\bhigh\s+reading\b', r'\blow\s+reading\b', r'\bno\s+output\b',
+]
+
+
+def _matches_any(text, patterns):
+    """True when `text` matches any of the given regex patterns."""
+    t = _norm_ws(text)
+    return any(re.search(p, t, re.IGNORECASE) for p in patterns) if t else False
+
+
+def _correlates_to_rfr(text, rfr):
+    """
+    True when `text` shares meaningful vocabulary with the RFR.
+
+    The rubric repeatedly asks whether a section "correlates to the RFR". That
+    is judged here by keyword overlap: at least one significant word from the
+    RFR reappearing in the section. It is an approximation of an engineering
+    judgement, not a substitute for one.
+    """
+    rfr_words = set(_mx_words(rfr)) - {"removal", "removed", "reason", "return"}
+    if not rfr_words or not _norm_ws(text):
+        return False
+    return bool(rfr_words & set(_mx_words(text)))
 
 
 def _first_present(values, candidates):
@@ -1164,7 +1459,44 @@ def _score_rfr(values, maximo_row):
     return 2, f"detailed RFR but does not correlate to the PO ({mx_rfr})"
 
 
-def _score_basic_details(values):
+# Guard against the two checklists drifting apart: every "detail" declared by
+# the reverse check must exist in the criterion-2 checklist, or a confirmed item
+# would be silently reported as missing.
+def _validate_scoring_config():
+    checklist = {n for n, _ in SCORING_BASIC_DETAILS}
+    declared  = {x.get("detail") for x in
+                 (REVERSE_CHECK_FIELDS + REVERSE_EXTRA_DETAILS) if x.get("detail")}
+    unknown = declared - checklist
+    if unknown:
+        raise ValueError(
+            "Reverse-check 'detail' names not in SCORING_BASIC_DETAILS: "
+            + ", ".join(sorted(unknown)))
+
+
+def _basic_details_from_reverse(reverse_results):
+    """
+    Which criterion-2 items the reverse check confirmed present in the report.
+    Returns (found, missing) as lists of checklist names, or (None, None) when
+    there is no reverse-check data to work from.
+    """
+    if not reverse_results:
+        return None, None
+    by_detail = {}
+    for r in reverse_results:
+        d = r.get("detail")
+        if d:
+            by_detail[d] = by_detail.get(d, False) or bool(r["found"])
+    if not by_detail:
+        return None, None
+    checklist = [n for n, _ in SCORING_BASIC_DETAILS]
+    found   = [n for n in checklist if by_detail.get(n)]
+    missing = [n for n in checklist if n in by_detail and not by_detail.get(n)]
+    # Items the reverse check knows nothing about stay unconfirmed
+    missing += [n for n in checklist if n not in by_detail]
+    return found, missing
+
+
+def _score_basic_details(values, reverse_results=None):
     """
     Criterion 2 — how much of the basic-details list the report carries.
 
@@ -1173,17 +1505,31 @@ def _score_basic_details(values):
       2  some but not all of the list
       3  the complete list
 
+    Two ways of deciding whether an item is "present":
+
+      * Reverse check (preferred) — take the value Maximo holds and look for it
+        anywhere in the report text. This is used whenever a matched Maximo row
+        is available, because it does not depend on the tool locating a label,
+        which is exactly what fails on badly converted reports.
+
+      * Forward extraction (fallback) — whether the field was successfully
+        extracted. Used when there is no Maximo row for this PO.
+
     The rubric names bands 0, 1 and 3 precisely but describes band 2 only as
     "less than 50% from list", leaving 50-99% undefined. Band 2 is therefore
     implemented as "more than one item beyond LRU, but not the full list",
     which keeps the scale monotonic and matches bands 0, 1 and 3 exactly.
     """
-    found, missing = [], []
-    for name, candidates in SCORING_BASIC_DETAILS:
-        (found if _first_present(values, candidates) else missing).append(name)
+    found, missing = _basic_details_from_reverse(reverse_results)
+    source = "confirmed against Maximo"
+    if found is None:
+        found, missing = [], []
+        for name, candidates in SCORING_BASIC_DETAILS:
+            (found if _first_present(values, candidates) else missing).append(name)
+        source = "read from the report"
 
     total = len(SCORING_BASIC_DETAILS)
-    detail = f"{len(found)}/{total} present"
+    detail = f"{len(found)}/{total} present ({source})"
     if missing:
         detail += " — missing: " + ", ".join(missing)
 
@@ -1198,7 +1544,138 @@ def _score_basic_details(values):
     return 2, detail
 
 
-def score_report(values, maximo_row=None):
+def _score_actions(values):
+    """
+    Criterion 3 (20%) — is the description of the vendor's actions clear?
+
+      0  no description of the actions taken to assess the LRU
+      1  a single-word description ("test", "strip")
+      2  some description, but not clearly correlated to the RFR
+      3  a detailed description that correlates to the RFR
+    """
+    actions = _norm_ws((values or {}).get("Actions Taken", ""))
+    if not actions:
+        return 0, "no actions-taken description found in the report"
+
+    words = _mx_words(actions)
+    if len(words) < 2:
+        return 1, f"single-word description ({actions})"
+
+    rfr = _first_present(values, SCORING_RFR_COLUMNS)
+    detailed = len(words) >= SCORING_DETAIL_WORDS
+    if detailed and _correlates_to_rfr(actions, rfr):
+        return 3, f"detailed description ({len(words)} words) correlating to the RFR"
+    if detailed:
+        return 2, f"detailed description ({len(words)} words) but no wording shared with the RFR"
+    return 2, f"brief description ({len(words)} words)"
+
+
+def _score_findings(values):
+    """
+    Criterion 4 (20%) — are the findings, primary or secondary, clear?
+
+      0  no findings at all
+      1  findings present
+      2  findings present but no relevance to the RFR
+      3  findings present with clear relevance to the RFR
+
+    Note: the rubric's bands 1 and 2 both read "findings present", with band 2
+    adding "but no relevance to RFR". Band 1 is therefore treated as a bare
+    mention with no substance, and band 2 as a substantive finding that does
+    not correlate. See the note in the user guide.
+    """
+    findings = _norm_ws((values or {}).get("Findings", ""))
+    if not findings:
+        return 0, "no findings recorded"
+
+    words = _mx_words(findings)
+    if len(words) < 2:
+        return 1, f"findings present but minimal ({findings})"
+
+    rfr = _first_present(values, SCORING_RFR_COLUMNS)
+    if _correlates_to_rfr(findings, rfr):
+        return 3, f"findings present ({len(words)} words) with wording relevant to the RFR"
+    return 2, f"findings present ({len(words)} words) but no wording shared with the RFR"
+
+
+def _score_outcome(values):
+    """
+    Criterion 5 (20%) — is there a clear outcome against the RFR?
+
+      0  no fault categorisation at all
+      1  fault categorised but not correlated to the RFR
+      2  fault categorised and correlated to the RFR
+      3  fault categorised, primary root cause identified, correlated to the RFR
+    """
+    outcome = _norm_ws((values or {}).get("Fault Outcome", ""))
+    findings = _norm_ws((values or {}).get("Findings", ""))
+    combined = f"{outcome} {findings}".strip()
+
+    categorised = (_matches_any(combined, _FNF_PATTERNS)
+                   or _matches_any(combined, _FAULT_CONFIRMED_PATTERNS))
+    if not categorised:
+        return 0, "no fault categorisation (neither fault confirmed nor no-fault-found)"
+
+    rfr = _first_present(values, SCORING_RFR_COLUMNS)
+    correlated = _correlates_to_rfr(combined, rfr)
+    has_root   = _matches_any(combined, _ROOT_CAUSE_PATTERNS)
+
+    if correlated and has_root:
+        return 3, "fault categorised, root cause stated and correlated to the RFR"
+    if correlated:
+        return 2, "fault categorised and correlated to the RFR, but no root cause stated"
+    return 1, "fault categorised but no wording shared with the RFR"
+
+
+def _score_correctness(values):
+    """
+    Criterion 6 (25%) — were the declared findings correct against the RFR?
+
+    The rubric offers only two bands, 0 (No) and 3 (Yes); bands 1 and 2 are
+    struck out. Its worked example is a contradiction: the RFR reports a
+    concrete symptom ("jammed", "slow to move") yet the vendor declared No
+    Fault Found.
+
+    That contradiction is detectable, and so is the straightforward agreeing
+    case. Anything else is a judgement about whether the vendor reached the
+    right engineering conclusion, which cannot be settled from the text alone
+    — those return needs_review so a person decides rather than the tool
+    guessing.
+
+    Returns (level, note, needs_review).
+    """
+    rfr = _first_present(values, SCORING_RFR_COLUMNS)
+    outcome = _norm_ws((values or {}).get("Fault Outcome", ""))
+    findings = _norm_ws((values or {}).get("Findings", ""))
+    combined = f"{outcome} {findings}".strip()
+
+    if not rfr:
+        return 0, "no RFR to judge the declared findings against", False
+    if not combined:
+        return 0, "no findings or outcome declared", False
+
+    rfr_symptom = _matches_any(rfr, _SYMPTOM_PATTERNS)
+    declared_fnf = _matches_any(combined, _FNF_PATTERNS)
+    declared_fault = _matches_any(combined, _FAULT_CONFIRMED_PATTERNS)
+
+    # The contradiction the rubric describes
+    if rfr_symptom and declared_fnf and not declared_fault:
+        return 0, ("RFR reports a specific symptom but the vendor declared "
+                   "no fault found - the rubric's worked example"), False
+
+    # Fault confirmed and the wording lines up with the RFR
+    if declared_fault and _correlates_to_rfr(combined, rfr):
+        return 3, "fault confirmed and consistent with the reported symptom", False
+
+    # A no-fault-found against an RFR with no concrete symptom is plausible
+    if declared_fnf and not rfr_symptom:
+        return 3, "no fault found, and the RFR reports no specific symptom to contradict it", False
+
+    return SCORING_UNDETERMINED_LEVEL, (
+        "cannot be judged from the report text - needs review by an engineer"), True
+
+
+def score_report(values, maximo_row=None, reverse_results=None):
     """
     Score one extracted report against the rubric.
 
@@ -1211,23 +1688,231 @@ def score_report(values, maximo_row=None):
     stays meaningful while only part of the full rubric is encoded.
     """
     results, achieved, total_weight = [], 0.0, 0.0
+    review_needed = []
 
     for crit in SCORING_CRITERIA:
+        needs_review = False
         if crit["id"] == "RFR":
             level, note = _score_rfr(values, maximo_row)
         elif crit["id"] == "BASICS":
-            level, note = _score_basic_details(values)
+            level, note = _score_basic_details(values, reverse_results)
+        elif crit["id"] == "ACTIONS":
+            level, note = _score_actions(values)
+        elif crit["id"] == "FINDINGS":
+            level, note = _score_findings(values)
+        elif crit["id"] == "OUTCOME":
+            level, note = _score_outcome(values)
+        elif crit["id"] == "CORRECTNESS":
+            level, note, needs_review = _score_correctness(values)
         else:
             continue
+
         w = float(crit["weight"])
         achieved     += (level / 3.0) * w
         total_weight += w
+        if needs_review:
+            review_needed.append(crit["id"])
         results.append({"id": crit["id"], "name": crit["name"], "weight": crit["weight"],
                         "level": level, "level_name": SCORING_LEVEL_NAMES[level],
-                        "note": note})
+                        "note": note, "needs_review": needs_review})
 
     pct = round((achieved / total_weight) * 100, 1) if total_weight else 0.0
-    return {"criteria": results, "weighted_percent": pct, "total_weight": total_weight}
+    return {"criteria": results, "weighted_percent": pct, "total_weight": total_weight,
+            "needs_review": review_needed}
+
+
+# =============================================================================
+#  REVERSE CHECK  (Maximo as the source of truth, report as the haystack)
+# =============================================================================
+#
+# The forward check reads a value out of the report by finding its label, then
+# compares it with Maximo. That fails whenever Kofax scrambles the layout badly
+# enough that the label cannot be located — the value is usually still there in
+# the text, just no longer next to anything recognisable.
+#
+# The reverse check turns it round. It takes the PO number, pulls that row from
+# the Maximo dump, and then searches the WHOLE report text for each Maximo
+# value. Nothing has to be located; the value only has to appear somewhere.
+#
+# This is what drives rubric criterion 2, because "does the report contain the
+# LRU serial number" is answerable this way even on a report the forward pass
+# could not read a single label from.
+# -----------------------------------------------------------------------------
+
+# Similarity a free-text value must reach to count as present (0.80 = 80%).
+MAXIMO_REVERSE_THRESHOLD = 0.80
+
+# Which Maximo columns to look for in the report, and how to look.
+#
+#   "token"   an identifier — part number, serial, PO. Matched against each
+#             token in the report: exact after normalisation, then OCR-folded,
+#             then fuzzy at the threshold. Fuzzy is skipped for values under
+#             `min_fuzzy_len` characters, because at 80% similarity a 5-digit
+#             number matches any other differing by one digit.
+#   "number"  a counter reading. Compared numerically against every number in
+#             the report, so 12,433 / 12433 / 12433.0 are all the same value.
+#   "words"   free text. Counts what fraction of the Maximo value's significant
+#             words appear in the report and passes at the threshold.
+#   "either"  passes if the report contains any one of the listed alternatives
+#             (used for scheduled / unscheduled).
+#
+# "detail" ties the row to the criterion-2 checklist in the scoring rubric.
+REVERSE_CHECK_FIELDS = [
+    {"maximo": "CORE_SERIAL_NUMBER",   "detail": "LRU SN",             "mode": "token"},
+    {"maximo": "CORE_OEM_PART_NUMBER", "detail": "LRU PN",             "mode": "token"},
+    {"maximo": "ENGINE_SERIAL_NUMBER", "detail": "ESN",                "mode": "number"},
+    {"maximo": "CORE_TSN",             "detail": "TSN",                "mode": "number"},
+    {"maximo": "CORE_CSN",             "detail": "CSN",                "mode": "number"},
+    {"maximo": "RR_PO_NUMBER",         "detail": "RO or PO Number",    "mode": "token"},
+    {"maximo": "REASON_FOR_REMOVAL",   "detail": None,                 "mode": "words"},
+    {"maximo": "AIRCRAFT_TAIL_NUMBER", "detail": None,                 "mode": "token"},
+]
+
+# Criterion 2 also asks for the date of removal and whether the removal was
+# scheduled. Those have no single fixed Maximo column across dumps, so they are
+# looked for in the report directly.
+REVERSE_EXTRA_DETAILS = [
+    {"detail": "Date of Removal",       "mode": "date_present"},
+    # This name must match its entry in SCORING_BASIC_DETAILS exactly, or
+    # criterion 2 will report a confirmed item as missing.
+    {"detail": "Scheduled/Unscheduled", "mode": "either",
+     "alternatives": ["scheduled", "unscheduled", "un-scheduled"]},
+]
+
+# Fuzzy matching is only safe above this length (see "token" above).
+REVERSE_MIN_FUZZY_LEN = 7
+
+# Dates in almost any common written form, for the date-of-removal check.
+_ANY_DATE_RE = re.compile(
+    r'\b\d{1,4}[./-]\d{1,2}[./-]\d{1,4}\b'
+    r'|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{2,4}\b',
+    re.IGNORECASE)
+
+
+def _fuzzy_ratio(a, b):
+    """Similarity of two normalised strings, 0.0 to 1.0."""
+    import difflib
+    return difflib.SequenceMatcher(None, a, b).ratio()
+
+
+def _report_tokens(report_text):
+    """Every distinct word-like token in the report, normalised for comparison."""
+    return {_mx_text(t) for t in re.findall(r'[A-Za-z0-9][A-Za-z0-9\-/._]*', report_text or '')
+            if _mx_text(t)}
+
+
+def _report_numbers(report_text):
+    """Every number in the report as a float, for numeric comparison."""
+    out = set()
+    for raw in re.findall(r'-?\d[\d,]*(?:\.\d+)?', report_text or ''):
+        try:
+            out.add(float(raw.replace(",", "")))
+        except ValueError:
+            pass
+    return out
+
+
+def _find_token_in_report(value, tokens):
+    """
+    Look for an identifier among the report's tokens.
+    Returns (found, score, how) — how records which rule matched, so the
+    output shows whether a match was exact or needed allowances.
+    """
+    v = _mx_text(value)
+    if not v:
+        return False, 0.0, "no value in Maximo"
+    if v in tokens:
+        return True, 1.0, "exact"
+    folded = _mx_ocr_fold(v)
+    if folded in {_mx_ocr_fold(t) for t in tokens}:
+        return True, 1.0, "exact after OCR folding"
+    if len(v) < REVERSE_MIN_FUZZY_LEN:
+        return False, 0.0, f"not found (too short to fuzzy-match safely)"
+    best, best_tok = 0.0, ""
+    for t in tokens:
+        if abs(len(t) - len(v)) > 3:
+            continue
+        r = _fuzzy_ratio(v, t)
+        if r > best:
+            best, best_tok = r, t
+    if best >= MAXIMO_REVERSE_THRESHOLD:
+        return True, best, f"{best:.0%} similar to '{best_tok}'"
+    return False, best, "not found"
+
+
+def reverse_check_report(report_text, maximo_row):
+    """
+    Search the report text for every value on the Maximo row.
+
+    Returns a list of dicts:
+      {"maximo", "detail", "mode", "value", "found", "score", "how"}
+
+    `found` is what criterion 2 counts, and the whole list is written to the
+    output so it is visible which Maximo values were confirmed present in the
+    report and which were not.
+    """
+    text = report_text or ""
+    results = []
+    if not maximo_row:
+        return results
+
+    tokens = _report_tokens(text)
+    numbers = _report_numbers(text)
+    words_in_report = set(_mx_words(text))
+
+    for spec in REVERSE_CHECK_FIELDS:
+        value = _norm_ws(maximo_row.get(spec["maximo"], ""))
+        mode = spec["mode"]
+        found, score, how = False, 0.0, ""
+
+        if not value:
+            how = "no value in Maximo"
+
+        elif mode == "token":
+            found, score, how = _find_token_in_report(value, tokens)
+
+        elif mode == "number":
+            n = _mx_number(value)
+            if n is None:
+                how = "Maximo value is not numeric"
+            elif any(abs(n - r) <= MAXIMO_NUMBER_TOLERANCE for r in numbers):
+                found, score, how = True, 1.0, "exact"
+            else:
+                how = "not found"
+
+        elif mode == "words":
+            want = _mx_words(value)
+            if not want:
+                how = "no words to look for"
+            else:
+                hits = [w for w in want if w in words_in_report]
+                score = len(hits) / len(want)
+                found = score >= MAXIMO_REVERSE_THRESHOLD
+                missing = [w for w in want if w not in words_in_report]
+                how = (f"{score:.0%} of words present"
+                       + (f"; missing: {', '.join(missing)}" if missing else ""))
+
+        results.append({"maximo": spec["maximo"], "detail": spec.get("detail"),
+                        "mode": mode, "value": value,
+                        "found": found, "score": round(score, 3), "how": how})
+
+    # Details with no fixed Maximo column — looked for in the report directly
+    for spec in REVERSE_EXTRA_DETAILS:
+        if spec["mode"] == "date_present":
+            m = _ANY_DATE_RE.search(text)
+            results.append({"maximo": "", "detail": spec["detail"], "mode": spec["mode"],
+                            "value": "(any date)", "found": bool(m),
+                            "score": 1.0 if m else 0.0,
+                            "how": f"found '{m.group(0)}'" if m else "no date in the report"})
+        elif spec["mode"] == "either":
+            hit = next((a for a in spec["alternatives"]
+                        if a.replace("-", "") in _mx_text(text)), None)
+            results.append({"maximo": "", "detail": spec["detail"], "mode": spec["mode"],
+                            "value": " / ".join(spec["alternatives"]),
+                            "found": bool(hit), "score": 1.0 if hit else 0.0,
+                            "how": f"found '{hit}'" if hit else "neither word in the report"})
+
+    return results
 
 
 def _mx_text(value):
@@ -1573,7 +2258,8 @@ def append_to_maximo_comparison(context, result, log=None):
         return False
 
 
-def append_to_extracted_details_sheet(context, values, score, log=None):
+def append_to_extracted_details_sheet(context, values, score, log=None,
+                                       reverse_results=None):
     """
     Append one row to the "Extracted Report Details" sheet, which lives in the
     SAME workbook as "Report vs Maximo" (the comparison file), immediately
@@ -1607,6 +2293,16 @@ def append_to_extracted_details_sheet(context, values, score, log=None):
 
     body = [(col, val) for col, val in (values or {}).items()]
 
+    # Reverse-check columns: for each Maximo value, was it found in the report?
+    # Two columns per value — the value Maximo holds, and the verdict with the
+    # rule that decided it — so a FOUND on a fuzzy match is never mistaken for
+    # an exact one.
+    rev_cells = []
+    for r in (reverse_results or []):
+        key = r["maximo"] or r["detail"] or "?"
+        rev_cells.append((f"In report: {key}", "FOUND" if r["found"] else "NOT FOUND"))
+        rev_cells.append((f"In report note: {key}", r["how"]))
+
     crit_cells = []
     for c in score["criteria"]:
         crit_cells.append((f"Score: {c['name']}", f"{c['level']} — {c['level_name']}"))
@@ -1615,12 +2311,14 @@ def append_to_extracted_details_sheet(context, values, score, log=None):
     tail = [
         ("Weighted Score %", score["weighted_percent"]),
         ("Weighting Applied", score["total_weight"]),
+        ("Needs Engineer Review",
+         ", ".join(score.get("needs_review", [])) or "No"),
         ("PDF Path",        context.get("pdf_path", "")),
         ("Extracted By",    CURRENT_USER),
         ("Extracted At",    datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
     ]
 
-    pairs   = lead + body + crit_cells + tail
+    pairs   = lead + body + rev_cells + crit_cells + tail
     headers = [k for k, _ in pairs]
     row_map = dict(pairs)
 
@@ -1665,6 +2363,11 @@ def append_to_extracted_details_sheet(context, values, score, log=None):
                     lvl = int(val[0])
                     ws.cell(row=r, column=idx).fill = (
                         GREEN if lvl == 3 else AMBER if lvl == 2 else RED)
+                elif h.startswith("In report: "):
+                    if val == "FOUND":
+                        ws.cell(row=r, column=idx).fill = GREEN
+                    elif val == "NOT FOUND":
+                        ws.cell(row=r, column=idx).fill = RED
                 elif h == "Weighted Score %" and val:
                     try:
                         pct = float(val)
@@ -3311,6 +4014,7 @@ def phase3_extract(queue, log):
             "subject":  subject,
             "received": received,
             "values":   res["values"],
+            "report_text": res.get("report_text", ""),
             "score":    calculate_vendor_score(res["vendor"], res["values"]),
             "at":       datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         })
@@ -3396,14 +4100,31 @@ def phase4_maximo_match(maximo_path, log):
         if append_to_maximo_comparison(context, result, log=log):
             counts["compared"] += 1
 
-        score = score_report(values, result.get("row"))
+        # ── Reverse check: search the report for every Maximo value ──────────
+        # Independent of whether the forward comparison matched — it answers a
+        # different question ("is this value anywhere in the report?") and is
+        # what criterion 2 is scored on.
+        reverse = reverse_check_report(ext.get("report_text", ""), result.get("row"))
+        ext["reverse"] = reverse
+        if reverse:
+            hits = sum(1 for r in reverse if r["found"])
+            log(f"     Reverse check: {hits}/{len(reverse)} Maximo value(s) "
+                f"found in the report text", "ok" if hits else "warn")
+            for r in reverse:
+                if not r["value"] or r["value"] == "(any date)":
+                    continue
+                log(f"        {'✓' if r['found'] else '✗'} "
+                    f"{r['maximo'] or r['detail']}: '{r['value'][:40]}' — {r['how']}",
+                    "ok" if r["found"] else "warn")
+
+        score = score_report(values, result.get("row"), reverse_results=reverse)
         ext["score"] = score
         append_to_extracted_details_sheet(
             dict(context, maximo_status_label={
                 "matched": "MATCHED", "mismatch": "NOT MATCHED",
                 "no_po_rows": "PO NOT IN MAXIMO", "no_maximo": "NO MAXIMO FILE",
             }.get(status, status)),
-            values, score, log=log)
+            values, score, log=log, reverse_results=reverse)
 
         log(f"     Report score: {score['weighted_percent']}% of the "
             f"{score['total_weight']:g}% weighting applied — "
@@ -4749,6 +5470,9 @@ def open_browser():
 
 
 if __name__ == "__main__":
+    # Fail loudly at startup if the scoring checklists have drifted apart,
+    # rather than silently reporting a confirmed item as missing.
+    _validate_scoring_config()
     init_db()
     print(f"Starting PO Email Downloader on http://127.0.0.1:{PORT}")
     threading.Thread(target=open_browser, daemon=True).start()
