@@ -987,6 +987,75 @@ MAXIMO_MATCH_RULES = [
      "optional": True},
 ]
 
+# ── Vendor sender domains ────────────────────────────────────────────────────
+# Which email domain each vendor's reports arrive from. Used by the optional
+# Step 3 vendor filter: tick a vendor and only mail whose sender address ends
+# with one of its domains is processed.
+#
+# Matching is on the DOMAIN, suffix-style and case-insensitive, so
+# "@gbr.collins.com" and "@collins.com" both satisfy "collins.com". That
+# covers the regional sub-domains these vendors send from.
+#
+# Several vendors share a domain (Collins own Goodrich and UTAS; both Sumitomo
+# entities use spp.co.jp), so a single tick can admit more than one vendor —
+# that is expected, the vendor is identified later from the report content.
+VENDOR_EMAIL_DOMAINS = {
+    "UTC Aerospace Systems":                 ["collins.com"],
+    "Goodrich Aerospace PTE LTD.(SINGAPORE)": ["collins.com"],
+    "UTAS SENSORS - USA":                    ["collins.com"],
+    "Sumitomo Precision USA Repair Station": ["spp.co.jp"],
+    "Sumotimo Precision Products":           ["spp.co.jp"],
+    "Agro Tech Eaton":                       ["eaton.com"],
+    "Honeywell":                             ["rolls-royce.com"],
+    # Parker and Parker MEGGITT have no domain on file yet — add them here and
+    # they appear in the Step 3 list automatically.
+}
+
+
+def _sender_domain(mail):
+    """
+    Return the lower-case domain of an email's sender, or "" if unavailable.
+
+    Outlook reports SenderEmailAddress as an X.500 distinguished name rather
+    than an SMTP address whenever the sender is an Exchange account
+    ("/O=EXCHANGELABS/OU=.../CN=RECIPIENTS/CN=..."). That has no domain in it,
+    so the real SMTP address is read from the PROP_SMTP_ADDRESS property tag
+    first, falling back to SenderEmailAddress for plain SMTP senders.
+    """
+    PROP_SMTP_ADDRESS = "http://schemas.microsoft.com/mapi/proptag/0x39FE001E"
+    addr = ""
+    try:
+        if (mail.SenderEmailType or "").upper() == "EX":
+            try:
+                addr = mail.Sender.PropertyAccessor.GetProperty(PROP_SMTP_ADDRESS) or ""
+            except Exception:
+                addr = ""
+    except Exception:
+        addr = ""
+    if not addr:
+        try:
+            addr = mail.SenderEmailAddress or ""
+        except Exception:
+            addr = ""
+    addr = str(addr).strip().lower()
+    return addr.rsplit("@", 1)[1] if "@" in addr else ""
+
+
+def _domain_matches(sender_domain, allowed_domains):
+    """
+    True when `sender_domain` is, or is a sub-domain of, any allowed domain.
+    "gbr.collins.com" matches "collins.com"; "notcollins.com" does not.
+    """
+    d = (sender_domain or "").strip().lower().lstrip("@")
+    if not d:
+        return False
+    for raw in allowed_domains:
+        a = (raw or "").strip().lower().lstrip("@")
+        if a and (d == a or d.endswith("." + a)):
+            return True
+    return False
+
+
 # Sheet names inside the comparison workbook, in tab order.
 #   1. Report vs Maximo         — did the report agree with Maximo?
 #   2. Extracted Report Details — what was read out, and how good is the report?
@@ -2810,10 +2879,14 @@ def get_extractions(limit=1000):
                       email_received,values_json,extracted_by,machine,extracted_at
                FROM extractions ORDER BY id DESC LIMIT ?""", (limit,)
         ).fetchall()
+        # Column order of the SELECT above — keep these indexes in step with it:
+        #   0 po_number      1 vendor        2 report          3 file_name
+        #   4 pdf_path       5 source_xlsx   6 email_subject   7 email_received
+        #   8 values_json    9 extracted_by 10 machine        11 extracted_at
         out = []
         for r in rows:
             try:
-                values = json.loads(r[7]) if r[7] else {}
+                values = json.loads(r[8]) if r[8] else {}
             except Exception:
                 values = {}
             out.append({
@@ -2821,6 +2894,11 @@ def get_extractions(limit=1000):
                 "pdf_path": r[4], "source_xlsx": r[5], "subject": r[6],
                 "received": r[7], "values": values, "by": r[9], "machine": r[10],
                 "at": r[11], "score": calculate_vendor_score(r[1], values),
+                # Rubric quality score. There is no Maximo row here, so the
+                # RFR criterion cannot confirm correlation to the PO and caps
+                # at 2/3 — the comparison workbook holds the fully-informed
+                # score for rows that were matched.
+                "quality": score_report(values).get("weighted_percent", 0),
             })
         return out
     except Exception:
@@ -2862,7 +2940,8 @@ def _make_log(progress_cb):
 # ── Phase 1: Download ALL emails ─────────────────────────────────────────────
 def phase1_download(account_name, folder_name, target_root, skip_no_po,
                     attachment_ext_filter, log, entry_id=None, store_id=None,
-                    start_date=None, end_date=None, include_read=True, include_unread=True):
+                    start_date=None, end_date=None, include_read=True, include_unread=True,
+                    vendor_domains=None):
     """
     Scan the Outlook folder. For every qualifying email:
       • Save .msg  
@@ -2873,6 +2952,10 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
     matching emails are iterated — not the entire folder:
       • Date range  (start_date / end_date)
       • Read / Unread state
+    `vendor_domains` optionally restricts processing to mail whose sender
+    domain matches one of the given domains (Step 3 vendor filter). None or
+    an empty list means no sender restriction.
+
     Returns list of dicts: {pdf, po, subject, sender, entry_id, received}
     """
     queue = []
@@ -2909,6 +2992,14 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
         if not include_read and not include_unread:
             log("[PHASE 1] Neither Read nor Unread selected — nothing to process.", "warn")
             return queue
+
+        # Vendor sender-domain filter. Applied per email rather than through
+        # Restrict(): the SMTP address of an Exchange sender lives in a MAPI
+        # property that DASL cannot filter on, so it has to be read per item.
+        domain_list = [d for d in (vendor_domains or []) if d]
+        if domain_list:
+            log(f"[PHASE 1] Vendor filter: only mail from "
+                f"{', '.join('@' + d for d in sorted(set(domain_list)))}", "info")
 
         # ── Build a DASL Restrict() filter ────────────────────────────────────
         # DASL (@SQL=) is used instead of the older "[ReceivedTime] >= '...'"
@@ -3016,6 +3107,19 @@ def phase1_download(account_name, folder_name, target_root, skip_no_po,
                             continue
                         if include_read and not include_unread and is_unread:
                             continue
+
+                # ── Vendor sender-domain filter ───────────────────────────────
+                # Runs before the duplicate lookup so mail from other senders
+                # is never recorded as a skipped duplicate.
+                if domain_list:
+                    sdom = _sender_domain(mail)
+                    if not sdom:
+                        log(f"  [SKIP-SENDER] Sender address unavailable: "
+                            f"{subject[:45]}", "warn")
+                        continue
+                    if not _domain_matches(sdom, domain_list):
+                        log(f"  [SKIP-SENDER] @{sdom}: {subject[:45]}", "warn")
+                        continue
 
                 already = is_processed(mail_entry_id, log=log)
                 if already:
@@ -3352,7 +3456,8 @@ def phase4_maximo_match(maximo_path, log):
 def _run_job(account, folder, target, skip_no_po, ext_filter,
              entry_id=None, store_id=None, keep_converted=True,
              start_date=None, end_date=None, background_mode=False,
-             include_read=True, include_unread=True, maximo_path=None):
+             include_read=True, include_unread=True, maximo_path=None,
+             vendor_domains=None):
 
     _job["running"]     = True
     _job["phase"]       = ""
@@ -3372,7 +3477,8 @@ def _run_job(account, folder, target, skip_no_po, ext_filter,
         queue = phase1_download(account, folder, target, skip_no_po, ext_filter,
                     log, entry_id=entry_id, store_id=store_id,
                     start_date=start_date, end_date=end_date,
-                    include_read=include_read, include_unread=include_unread)
+                    include_read=include_read, include_unread=include_unread,
+                    vendor_domains=vendor_domains)
 
         # Attach the background_mode flag to every queued item so Phase 2 can honor it
         if background_mode and queue:
@@ -3508,6 +3614,14 @@ def api_browse():
         return jsonify({"ok": False, "error": str(e)})
 
 
+@app.route("/api/vendor_domains", methods=["GET"])
+def api_vendor_domains():
+    """Vendor -> sender-domain map, for the Step 3 vendor filter checkboxes."""
+    return jsonify({"ok": True,
+                    "vendors": [{"name": v, "domains": d}
+                                for v, d in sorted(VENDOR_EMAIL_DOMAINS.items())]})
+
+
 @app.route("/api/browse_file", methods=["POST"])
 def api_browse_file():
     """
@@ -3581,6 +3695,15 @@ def api_start():
     background_mode = bool(data.get("background_mode", False))
     maximo_path = (data.get("maximo_path") or "").strip()
 
+    # Step 3 vendor filter: the UI sends vendor names; map them to the sender
+    # domains on file. Unknown names are ignored rather than rejected, so
+    # renaming a vendor cannot break a run.
+    selected_vendors = data.get("vendors") or []
+    vendor_domains = []
+    for v in selected_vendors:
+        vendor_domains.extend(VENDOR_EMAIL_DOMAINS.get(v, []))
+    vendor_domains = sorted(set(vendor_domains))
+
     if not account or not folder:
         return jsonify({"ok": False, "error": "Account and folder are required."})
     if not target or not os.path.isdir(target):
@@ -3602,7 +3725,8 @@ def api_start():
                  "start_date": start_date, "end_date": end_date,
                  "background_mode": background_mode,
                  "include_read": include_read, "include_unread": include_unread,
-                 "maximo_path": maximo_path or None},
+                 "maximo_path": maximo_path or None,
+                 "vendor_domains": vendor_domains or None},
              daemon=True).start()
     return jsonify({"ok": True})
 
@@ -3913,10 +4037,25 @@ footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
                                 Background mode (do not bring Excel/Kofax to foreground)</label>
             <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="chkIncludeRead" checked> Include read</label>
             <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="chkIncludeUnread" checked> Include unread</label>
+            <label><input type="checkbox" id="chkVendorFilter" onchange="toggleVendorFilter()">
+                Filter emails by vendor (sender domain)</label>
       <label><input type="checkbox" id="chkSaveMsg" checked disabled>
         Save email as .msg (always on)</label>
       <label><input type="checkbox" id="chkKeepConverted" checked>
         Keep converted Excel files (in a <code>_converted</code> folder next to the PDF)</label>
+    </div>
+
+    <div id="vendorFilterRow" style="display:none;margin-top:10px;padding:10px 12px;
+         background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">
+        Only process mail whose sender address ends with the ticked vendor's domain.
+        Sub-domains count, so <code>@gbr.collins.com</code> satisfies <code>collins.com</code>.
+        Tick nothing and the filter is ignored.
+        <button class="btn btn-sm" style="margin-left:8px;" onclick="setAllVendors(true)">Select all</button>
+        <button class="btn btn-sm" onclick="setAllVendors(false)">Clear</button>
+      </div>
+      <div id="vendorChecks" class="check-row"
+           style="display:flex;flex-wrap:wrap;gap:10px 18px;"></div>
     </div>
 
     <div id="dateFilterRow" class="form-row" style="display:none; margin-top:10px;">
@@ -4010,7 +4149,8 @@ footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
         <tr>
           <th onclick="sortExtractions('po')">PO Number</th>
           <th onclick="sortExtractions('vendor')">Vendor</th>
-          <th onclick="sortExtractions('score')">Score</th>
+          <th onclick="sortExtractions('score')" title="Field completeness — how many of this vendor's fields were found">Score</th>
+          <th onclick="sortExtractions('quality')" title="Report quality against the scoring rubric (RFR + basic details)">Quality</th>
           <th onclick="sortExtractions('report')">Report</th>
           <th onclick="sortExtractions('file')">File</th>
           <th onclick="sortExtractions('subject')">Email Subject</th>
@@ -4226,7 +4366,8 @@ async function startJob() {
                                                         start_date: startDate, end_date: endDate,
                                                         background_mode: backgroundMode,
                                                         include_read: includeRead, include_unread: includeUnread,
-                                                        maximo_path: maximoPath
+                                                        maximo_path: maximoPath,
+                                                        vendors: selectedVendors()
                                                     })
         });
     const d = await r.json();
@@ -4415,7 +4556,7 @@ function renderExtractions() {
   rows.sort((a,b) => {
     const av = a[extSort.col] ?? '';
     const bv = b[extSort.col] ?? '';
-    if (extSort.col === 'score') {
+    if (extSort.col === 'score' || extSort.col === 'quality') {
       return (Number(av) - Number(bv)) * extSort.dir;
     }
     const as = av.toString().toLowerCase();
@@ -4434,6 +4575,7 @@ function renderExtractions() {
       <td><span class="badge badge-po">${esc(row.po||'—')}</span></td>
       <td><span class="badge badge-vendor">${esc(row.vendor||'—')}</span></td>
       <td><span class="badge badge-score" style="background:rgba(245,158,11,.12);color:#b45309;border:1px solid rgba(245,158,11,.24);">${esc((row.score||0) + '%')}</span></td>
+      <td>${qualityBadge(row.quality)}</td>
       <td>${esc(row.report||'—')}</td>
       <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(row.file||'')}">` +
         `<div>${esc(row.file||'—')}</div>` +
@@ -4443,7 +4585,7 @@ function renderExtractions() {
       <td style="font-size:12px;color:var(--muted);">${esc(row.received||row.at||'')}</td>
       <td><button class="expand-btn" onclick="toggleDetail(this,${i})">Details ▾</button></td>
     </tr>
-    <tr class="detail-row" id="detail-${i}" style="display:none;"><td colspan="9">
+    <tr class="detail-row" id="detail-${i}" style="display:none;"><td colspan="10">
       <div class="detail-grid">
         ${Object.entries(row.values||{}).map(([k,v])=>`
           <div class="detail-field"><b>${esc(k)}</b>${esc(v)||'<span style="color:var(--muted);">(empty)</span>'}</div>
@@ -4452,6 +4594,52 @@ function renderExtractions() {
     </td></tr>
   `).join('');
   window._extRowsSorted = rows;
+}
+
+// ── Step 3 vendor (sender-domain) filter ────────────────────────────────────
+let vendorDomainList = [];
+
+async function loadVendorDomains() {
+  try {
+    const r = await fetch('/api/vendor_domains');
+    const d = await r.json();
+    if (!d.ok) return;
+    vendorDomainList = d.vendors || [];
+    const box = document.getElementById('vendorChecks');
+    if (!box) return;
+    box.innerHTML = vendorDomainList.map((v, i) => `
+      <label style="display:flex;align-items:center;gap:6px;font-size:12px;">
+        <input type="checkbox" class="vendor-chk" data-vendor="${esc(v.name)}">
+        ${esc(v.name)}
+        <code style="font-size:11px;color:var(--muted);">@${esc((v.domains||[]).join(', @'))}</code>
+      </label>`).join('');
+  } catch(e) { /* leave the list empty; the filter simply stays unused */ }
+}
+
+function toggleVendorFilter() {
+  const on = document.getElementById('chkVendorFilter').checked;
+  document.getElementById('vendorFilterRow').style.display = on ? 'block' : 'none';
+}
+
+function setAllVendors(state) {
+  document.querySelectorAll('.vendor-chk').forEach(c => { c.checked = state; });
+}
+
+function selectedVendors() {
+  if (!document.getElementById('chkVendorFilter') ||
+      !document.getElementById('chkVendorFilter').checked) return [];
+  return Array.from(document.querySelectorAll('.vendor-chk'))
+              .filter(c => c.checked)
+              .map(c => c.getAttribute('data-vendor'));
+}
+
+function qualityBadge(pct) {
+  const v = Number(pct || 0);
+  // Same bands as the Excel sheet: green >= 80, amber >= 50, red below.
+  const c = v >= 80 ? ['rgba(16,185,129,.12)', '#166534', 'rgba(16,185,129,.3)']
+          : v >= 50 ? ['rgba(245,158,11,.12)', '#854d0e', 'rgba(245,158,11,.3)']
+                    : ['rgba(239,68,68,.12)',  '#991b1b', 'rgba(239,68,68,.3)'];
+  return `<span class="badge" style="background:${c[0]};color:${c[1]};border:1px solid ${c[2]};">${v}%</span>`;
 }
 
 function toggleDetail(btn, i) {
@@ -4547,7 +4735,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 });
 
-window.onload = () => { loadFolders(); loadExtractions(); loadTrackerInfo(); };
+window.onload = () => { loadFolders(); loadExtractions(); loadTrackerInfo(); loadVendorDomains(); };
 </script>
 </body>
 </html>
