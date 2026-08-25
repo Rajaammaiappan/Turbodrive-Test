@@ -16,6 +16,7 @@ Run:
     (or double-click the .bat launcher)
 """
 import os, re, io, email, json, difflib, threading, webbrowser, time, traceback, uuid
+import sqlite3, getpass, socket, csv
 from collections import Counter
 from datetime import datetime
 
@@ -32,6 +33,59 @@ PORT = 5001
 app.config['MAX_CONTENT_LENGTH'] = 120 * 1024 * 1024   # 120 MB total upload
 
 STORE = {}   # last comparison model, keyed by token
+
+# ============================================================================
+#  USAGE LOG DATABASE  --  EDIT THIS ONE LINE to set where the log is saved.
+#  Every time the tool is used, a row is written to this SQLite (.db) file.
+#  It is created automatically if it does not exist. Examples:
+#     LOG_DB_PATH = r"\\portfolioeng_nlr\EFS\CAIRO-Assist\usage_log.db"
+#     LOG_DB_PATH = r"C:\Users\u8531675\OneDrive - Rolls-Royce\CAIRO-Assist_usage_log.db"
+#  Default = a file named 'cairo_assist_log.db' next to this script.
+# ============================================================================
+LOG_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cairo_assist_log.db")
+
+def _db_connect():
+    d = os.path.dirname(LOG_DB_PATH)
+    if d and not os.path.isdir(d):
+        os.makedirs(d, exist_ok=True)
+    con = sqlite3.connect(LOG_DB_PATH, timeout=10)
+    con.execute("""CREATE TABLE IF NOT EXISTS usage_log(
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT, doc_type TEXT, action TEXT, user TEXT, machine TEXT,
+        task_no TEXT, task_title TEXT, documents TEXT, doc_count INTEGER,
+        rows INTEGER, note TEXT)""")
+    return con
+
+def current_user():
+    for key in ('USERNAME', 'USER'):
+        v = os.environ.get(key)
+        if v:
+            return v
+    try:
+        return getpass.getuser()
+    except Exception:
+        return 'unknown'
+
+def current_machine():
+    return os.environ.get('COMPUTERNAME') or socket.gethostname() or 'unknown'
+
+def log_event(doc_type, action, task_no='', task_title='', documents=None,
+              doc_count=0, rows=0, note=''):
+    """Write one audit row. Never raises - logging must not break the tool."""
+    try:
+        docs = ' | '.join(documents or [])
+        con = _db_connect()
+        con.execute("""INSERT INTO usage_log
+            (timestamp, doc_type, action, user, machine, task_no, task_title,
+             documents, doc_count, rows, note)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+            (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), doc_type, action,
+             current_user(), current_machine(), task_no or '', task_title or '',
+             docs, doc_count, rows, note))
+        con.commit(); con.close()
+    except Exception as e:
+        # last-resort: print to console so the tool keeps working
+        print('[usage-log] could not write log: %s' % e)
 
 # ------------------------------------------------------- light colour palette
 COLORS = {
@@ -279,6 +333,8 @@ def write_excel(model, rows):
     for j, w in enumerate([26, 16, 46] + [40] * len(model['names']), 1):
         ws.column_dimensions[get_column_letter(j)].width = w
     r, last = 2, None
+    if not rows:
+        ws.cell(2, 1, 'No rows matched the current filter.').font = Font(name='Arial', italic=True, size=10)
     for row in rows:
         ws.cell(r, 1, row['area'] if row['area'] != last else '').alignment = wrap
         last = row['area']
@@ -370,6 +426,7 @@ def compare():
         files = [f for f in request.files.getlist('files') if f and f.filename]
         if len(files) < 2:
             return jsonify({'ok': False, 'error': 'Please choose at least 2 MHTML files.'}), 400
+        orig_names = [f.filename for f in files]
         parsed = [parse_bytes(f.read(), secure_filename(f.filename)) for f in files]
         empties = [p['subject'] for p in parsed if not p['records']]
         if len([p for p in parsed if p['records']]) < 2:
@@ -378,6 +435,10 @@ def compare():
         model = build_model(parsed)
         token = uuid.uuid4().hex[:12]
         STORE[token] = model
+        STORE[token]['orig_names'] = orig_names
+        log_event('Manuals', 'compare', task_no=model['task_no'], task_title=model['task_title'],
+                  documents=orig_names, doc_count=len(orig_names), rows=len(model['rows']),
+                  note='%d criteria' % len(model['rows']))
         payload = {k: model[k] for k in ('names', 'task_no', 'task_title', 'rows', 'summary', 'pairs', 'generated')}
         payload['token'] = token
         payload['warnings'] = ['"%s" had no criteria (empty or a different task).' % e for e in empties]
@@ -392,15 +453,50 @@ def download():
     if not model:
         return jsonify({'ok': False, 'error': 'Result expired - run the comparison again.'}), 404
     rows = filter_rows(model['rows'], data.get('statuses'), data.get('query'))
-    if not rows:
-        rows = model['rows']   # never export an empty sheet
     bio = write_excel(model, rows)
+    log_event('Manuals', 'download', task_no=model.get('task_no'), task_title=model.get('task_title'),
+              documents=model.get('orig_names') or model.get('names'), doc_count=len(model['names']),
+              rows=len(rows), note='filtered export (%d of %d rows)' % (len(rows), len(model['rows'])))
     fname = 'CAIRO-Assist_%s_%s.xlsx' % (model['task_no'] or 'task', datetime.now().strftime('%Y%m%d_%H%M%S'))
     mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     try:
         return send_file(bio, as_attachment=True, attachment_filename=fname, mimetype=mime)
     except TypeError:
         return send_file(bio, as_attachment=True, download_name=fname, mimetype=mime)
+
+@app.route('/logs')
+def logs():
+    try:
+        con = _db_connect()
+        cur = con.execute("""SELECT id,timestamp,doc_type,action,user,machine,task_no,
+                             documents,doc_count,rows,note FROM usage_log ORDER BY id DESC LIMIT 500""")
+        data = cur.fetchall(); con.close()
+    except Exception as e:
+        return Response('<h3>Could not read log DB</h3><pre>%s</pre>' % e, mimetype='text/html')
+    cols = ['id', 'timestamp', 'doc type', 'action', 'user', 'machine', 'task', 'documents', 'docs', 'rows', 'note']
+    trs = ''
+    for r in data:
+        trs += '<tr>' + ''.join('<td>%s</td>' % ('' if v is None else str(v)) for v in r) + '</tr>'
+    html = LOGS_HTML.replace('__PATH__', LOG_DB_PATH).replace('__COUNT__', str(len(data)))
+    html = html.replace('__HEAD__', ''.join('<th>%s</th>' % c for c in cols)).replace('__ROWS__', trs)
+    return Response(html, mimetype='text/html')
+
+@app.route('/logs.csv')
+def logs_csv():
+    con = _db_connect()
+    cur = con.execute("""SELECT id,timestamp,doc_type,action,user,machine,task_no,task_title,
+                         documents,doc_count,rows,note FROM usage_log ORDER BY id DESC""")
+    rows = cur.fetchall(); con.close()
+    sio = io.StringIO(); w = csv.writer(sio)
+    w.writerow(['id', 'timestamp', 'doc_type', 'action', 'user', 'machine', 'task_no',
+                'task_title', 'documents', 'doc_count', 'rows', 'note'])
+    w.writerows(rows)
+    bio = io.BytesIO(sio.getvalue().encode('utf-8-sig')); bio.seek(0)
+    fname = 'CAIRO-Assist_usage_%s.csv' % datetime.now().strftime('%Y%m%d_%H%M%S')
+    try:
+        return send_file(bio, as_attachment=True, attachment_filename=fname, mimetype='text/csv')
+    except TypeError:
+        return send_file(bio, as_attachment=True, download_name=fname, mimetype='text/csv')
 
 # ================================================================= FRONT-END
 INDEX_HTML = r"""<!doctype html>
@@ -480,6 +576,8 @@ INDEX_HTML = r"""<!doctype html>
  .st-MISSING{background:var(--c-miss)}.st-UNIQUE{background:var(--c-uni)}.st-NA{background:var(--c-na);color:#9aa6b6}
  tr.arowtop th.area{border-top:2px solid #d3dcea}tr.arowtop td{border-top:2px solid #eef0f4}
  .flag{position:absolute;top:4px;right:5px;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;background:#0000000f;color:#4b5563}
+ .d{color:#d11313;font-weight:700;text-decoration:underline;text-decoration-color:#d11313}
+ .disp.dred{color:#d11313;font-weight:800}
  footer{color:var(--muted);font-size:11px;text-align:center;padding:16px}
 </style></head>
 <body>
@@ -562,7 +660,8 @@ INDEX_HTML = r"""<!doctype html>
   </div>
 </div>
 
-<footer>&copy; 2026 Alten-Rolls-Royce. All rights reserved. Confidential &ndash; Internal Use Only.</footer>
+<footer>&copy; 2026 Alten-Rolls-Royce. All rights reserved. Confidential &ndash; Internal Use Only.
+  &nbsp;&middot;&nbsp; <a href="/logs" target="_blank" style="color:var(--accent);text-decoration:none">Usage log</a></footer>
 
 <script>
 var chosen=[], MODEL=null;
@@ -618,6 +717,40 @@ function runTool(){
 function showErr(m){document.getElementById('errBox').innerHTML='<div class="err">'+m+'</div>';}
 function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
 function dispSplit(t){var i=t.lastIndexOf('\u2192');return i>0?[t.slice(0,i).trim(),t.slice(i+1).trim()]:[t,''];}
+
+// majority value in an array; on a tie, the FIRST element (leftmost document) wins
+function majority(arr){
+  var cnt={},best=null,bn=-1;
+  arr.forEach(function(v){cnt[v]=(cnt[v]||0)+1;});
+  for(var i=0;i<arr.length;i++){var v=arr[i];if(cnt[v]>bn){bn=cnt[v];best=v;}}
+  return best;
+}
+// which words of 'cw' are part of the longest common subsequence with 'rw'
+function lcsMatched(rw,cw){
+  var n=rw.length,m=cw.length,dp=[];
+  for(var i=0;i<=n;i++){dp.push(new Array(m+1).fill(0));}
+  for(i=1;i<=n;i++)for(var j=1;j<=m;j++)
+    dp[i][j]=(rw[i-1]===cw[j-1])?dp[i-1][j-1]+1:Math.max(dp[i-1][j],dp[i][j-1]);
+  var matched=new Array(m).fill(false); i=n; j=m;
+  while(i>0&&j>0){
+    if(rw[i-1]===cw[j-1]){matched[j-1]=true;i--;j--;}
+    else if(dp[i-1][j]>=dp[i][j-1])i--; else j--;
+  }
+  return matched;
+}
+// return HTML for 'cell' with words that differ from reference 'ref' wrapped in red
+function diffRed(ref,cell){
+  var rw=ref.split(/\s+/).filter(Boolean);
+  var cw=cell.split(/\s+/).filter(Boolean);
+  var matched=lcsMatched(rw,cw);
+  var toks=cell.split(/(\s+)/), wi=0, out='';
+  toks.forEach(function(tok){
+    if(/^\s+$/.test(tok)||tok===''){out+=tok;return;}
+    var ok=matched[wi];wi++;
+    out+= ok ? esc(tok) : '<span class="d">'+esc(tok)+'</span>';
+  });
+  return out;
+}
 
 function renderResults(){
   document.getElementById('results').style.display='block';
@@ -678,10 +811,28 @@ function renderRows(){
     var area='<th class="area">'+(top?esc(row.area):'')+'</th>';
     var crit='<td class="crit"><span class="mono">'+esc(row.criterion)+'</span>'
       +(row.condition?'<div style="color:#8a97a6;font-size:11px;margin-top:2px">'+esc(row.condition)+'</div>':'')+'</td>';
-    var cells=row.cells.map(function(c){var sp=dispSplit(c.text);
+    // split each cell into main text + disposition
+    row.cells.forEach(function(c){var sp=dispSplit(c.text);c._main=sp[0];c._disp=sp[1];});
+    // reference = what the majority of present documents say (tie -> leftmost)
+    var presentMains=[], presentDisps=[];
+    row.cells.forEach(function(c){if(c.status!=='NA'&&c.status!=='MISSING'){presentMains.push(c._main);presentDisps.push(c._disp);}});
+    var refMain=presentMains.length?majority(presentMains):null;
+    var refDisp=presentDisps.length?majority(presentDisps):null;
+    var cells=row.cells.map(function(c){
       var flag=(c.status!=='MATCH'&&c.status!=='NA')?'<span class="flag">'+(STLABEL[c.status]||'')+'</span>':'';
-      return '<td class="cell st-'+c.status+'" title="'+esc(c.text)+'">'+flag
-        +'<span class="mono">'+esc(sp[0])+'</span>'+(sp[1]?'<span class="disp">'+esc(sp[1])+'</span>':'')+'</td>';}).join('');
+      var mainHtml;
+      if(c.status==='NA'||c.status==='MISSING'||refMain===null||c._main===refMain){
+        mainHtml='<span class="mono">'+esc(c._main)+'</span>';          // agrees with the set -> plain
+      }else{
+        mainHtml='<span class="mono">'+diffRed(refMain,c._main)+'</span>'; // differs -> red on the differing words
+      }
+      var dispHtml='';
+      if(c._disp){
+        var dred=(c.status!=='NA'&&c.status!=='MISSING'&&refDisp!==null&&c._disp!==refDisp);
+        dispHtml='<span class="disp'+(dred?' dred':'')+'">'+esc(c._disp)+'</span>';
+      }
+      return '<td class="cell st-'+c.status+'" title="'+esc(c.text)+'">'+flag+mainHtml+dispHtml+'</td>';
+    }).join('');
     tr.innerHTML=area+crit+cells;tb.appendChild(tr);last=row.area;shown++;
   });
   document.getElementById('dlNote').textContent=shown+' of '+MODEL.rows.length+' rows shown \u2014 this is what downloads';
@@ -701,6 +852,37 @@ function downloadExcel(){
 </body></html>"""
 
 # ================================================================= MAIN
+LOGS_HTML = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1"><title>CAIRO-Assist - Usage log</title>
+<style>
+ body{margin:0;background:#eef2f9;color:#1e293b;font-family:system-ui,"Segoe UI",sans-serif;font-size:13px}
+ header{background:linear-gradient(180deg,#f6f8fb,#e9eef6);border-bottom:2px solid #cfd8e6;padding:12px 20px}
+ header h1{margin:0;font-size:18px;color:#12203a}
+ header p{margin:3px 0 0;color:#5b6675;font-size:12px}
+ .bar{padding:12px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+ .bar a{background:#1a4fad;color:#fff;text-decoration:none;border-radius:7px;padding:8px 14px;font-size:13px}
+ .bar .path{font-family:Consolas,monospace;font-size:12px;color:#5b6675;background:#fff;border:1px solid #c8d4e8;border-radius:6px;padding:6px 10px}
+ .wrap{padding:0 20px 24px}
+ .tablebox{background:#fff;border:1px solid #c8d4e8;border-radius:8px;overflow:auto;max-height:78vh}
+ table{border-collapse:collapse;width:100%;font-size:12.5px}
+ th,td{padding:8px 10px;border-bottom:1px solid #eceef2;text-align:left;vertical-align:top;white-space:nowrap}
+ thead th{position:sticky;top:0;background:#1f3fa0;color:#fff;font-weight:600;z-index:2}
+ td:nth-child(8){white-space:normal;min-width:280px}
+ tbody tr:nth-child(even){background:#f7f9fc}
+</style></head><body>
+<header><h1>CAIRO-Assist &ndash; Usage log</h1>
+<p>Backend audit of who ran the tool, on which machine, and which documents were compared.</p></header>
+<div class="bar">
+  <a href="/logs.csv">&#8681; Download CSV</a>
+  <a href="/" style="background:#fff;color:#1a4fad;border:1px solid #c8d4e8">&larr; Back to tool</a>
+  <span class="path">DB: __PATH__</span>
+  <span style="color:#5b6675">__COUNT__ most-recent entries</span>
+</div>
+<div class="wrap"><div class="tablebox">
+  <table><thead><tr>__HEAD__</tr></thead><tbody>__ROWS__</tbody></table>
+</div></div>
+</body></html>"""
+
 def open_browser():
     time.sleep(1.2)
     webbrowser.open('http://127.0.0.1:%d' % PORT)
