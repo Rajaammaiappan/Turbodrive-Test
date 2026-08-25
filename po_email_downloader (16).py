@@ -1,5479 +1,710 @@
+# -*- coding: utf-8 -*-
 """
-PO Email Attachment Downloader — single-file build
-────────────────────────────────────────────────────
-Tailored to the ESE / Anaconda 3.9.12 corporate environment (Rolls-Royce):
-  - Flask 1.1.2, openpyxl 3.0.10, pywin32 302 — all already installed,
-    nothing new required, no internet pip needed.
-  - No PDF text extraction anywhere (no pypdf dependency).
-  - Single click: Email -> Download Attachment -> Create PO Folder ->
-    Save Email (.msg) -> PDF -> Kofax Convert to Excel -> Excel-only
-    Vendor Detection + Field Extraction -> Display Results in UI.
-  - No tracker workbook. Extraction results are stored in SQLite and
-    shown in the "Extracted Report Details" tab.
+CAIRO-Assist  -  Inspection Criteria Comparator  (RR / ALTEN internal tool)
+===========================================================================
+Upload two OR MORE Rolls-Royce AeroManager / Pinpoint MHTML snapshots of the
+SAME maintenance task. Every document is compared against every other document
+(no baseline - the comparison is symmetric). The tool shows a light-coloured
+heat-map plus an all-pairs agreement matrix, and exports an Excel workbook that
+matches whatever you have filtered on screen.
 
-Run with:
-    "C:\\ProgramData\\Anaconda3\\python.exe" po_email_downloader.py
-
-The file is organised into clearly marked sections so it can still be
-split back into modules later if needed -- nothing below depends on
-anything outside this single file.
+Environment (confirmed available - no internet pip needed):
+    Python 3.9.12 (Anaconda)   Flask 1.1.2 / Werkzeug 2.0.3
+    beautifulsoup4 4.11.1  lxml 4.9.1  openpyxl 3.0.10
+Run:
+    "C:\\ProgramData\\Anaconda3\\python.exe" cairo_assist.py
+    (or double-click the .bat launcher)
 """
+import os, re, io, email, json, difflib, threading, webbrowser, time, traceback, uuid
+from collections import Counter
+from datetime import datetime
 
-import os
-import re
-import csv
-import json
-import time
-import shutil
-import sqlite3
-import tempfile
-import threading
-import traceback
-import webbrowser
-import contextlib
-import subprocess
-import time as _time
-from datetime import datetime, timedelta
-from pathlib import Path
+from flask import Flask, request, jsonify, send_file, Response
+from werkzeug.utils import secure_filename
 
-import win32com.client
-from flask import Flask, request, jsonify, render_template_string, send_file
+from bs4 import BeautifulSoup
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 
-
-
-# =============================================================================
-# SECTION 1 -- VENDOR REPORT TEMPLATES (config only, no I/O)
-# =============================================================================
-
-# ─────────────────────────────────────────────────────────────────────────────
-#  Source of truth: VS_Automation_Vendor_details.xlsx
-#
-#  Per-field options understood by the extraction engine:
-#     "labels"    list of header texts to look for in the workbook
-#     "tabular"   True  -> value sits BELOW the label   (header row / data row)
-#                 False -> value sits to the RIGHT of the label (same row)
-#     "stop_at"   text markers that end a multi-line capture
-#     "multiline" capture can run across several lines
-#     "post"      post-processing rule applied to the raw value:
-#                   "digits"    keep digits only          (ESN12345 -> 12345)
-#                   "schedule"  keep Scheduled/Unscheduled only
-#                   "date"      normalise to YYYY-MM-DD where possible
-#
-#  Vendors are ordered most-specific first so that, e.g., a Parker MEGGITT
-#  document is not claimed by the plain "Parker" entry.
-# ─────────────────────────────────────────────────────────────────────────────
-VENDOR_REPORTS = [
-
-    # ── 1. Parker MEGGITT ────────────────────────────────────────────────────
-    # NOTE: the vendor cell in the spreadsheet contains non-breaking spaces
-    # ("Parker\xa0 \xa0MEGGITT"); _norm_ws collapses those, and the aliases
-    # below cover the common spellings seen on the reports themselves.
-    {"vendor": "Parker MEGGITT", "report": "Service Breakdown Report",
-     "aliases": ["Parker MEGGITT", "Parker Meggitt", "Meggitt"],
-     "fields": [
-        {"column": "PO",                  "labels": ["CUSTOMER P.O.", "CUSTOMER PO", "PO"], "tabular": True},
-        {"column": "P/N Shipped",         "labels": ["P/N Shipped"], "tabular": True},
-        {"column": "S/N REC",             "labels": ["S/N REC"], "tabular": True},
-        {"column": "TSN",                 "labels": ["TSN Hours", "TSN"], "stop_at": ["TSR", "TT"], "expect": "number"},
-        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["CSR"], "expect": "number"},
-        {"column": "TSI",                 "labels": ["TSI"], "expect": "number"},
-        {"column": "CSI",                 "labels": ["CSI"], "expect": "number"},
-        {"column": "TSO",                 "labels": ["TSO"], "expect": "number"},
-        {"column": "CSO",                 "labels": ["CSO"], "expect": "number"},
-        {"column": "Reason For Removal",  "labels": ["Reason For Removal", "Reason for Return"],
-         "multiline": True,
-         "stop_at": ["RECEIVING TEST FAILURE", "Incoming/Confirmation",
-                     "Received Visual Condition", "Warranty"]},
-        {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
-        {"column": "Removal Date",        "labels": ["Removal Date"], "post": "date"},
-        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
-        # These are free text, so they are captured multiline and stopped at
-        # whichever following heading appears first.
-        {"column": "Actions Taken",       "labels": [
-            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
-            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
-            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
-            "Work Carried Out", "Repair Performed"],
-         "multiline": True,
-         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
-                     "Conclusion", "Disposition", "Root Cause"]},
-        {"column": "Findings",            "labels": [
-            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
-            "Primary Finding", "Secondary Finding", "Condition Found",
-            "Observations", "Defects Found", "Damage Found"],
-         "multiline": True,
-         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
-                     "Recommendation", "Scrap Notes"]},
-        {"column": "Fault Outcome",       "labels": [
-            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
-            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
-            "Scrap Notes", "Outcome"],
-         "multiline": True,
-         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
-     ]},
-
-    # ── 2. Parker ────────────────────────────────────────────────────────────
-    # Ref: Customer P.O. / P/N Shipped / S/N REC. are DOWN (tabular).
-    #      TSN,CSN,TSI,CSI,TSO,CSO sit to the RIGHT within the same cell block.
-    #      Reason For Removal is DOWN, ending at "RECEIVING TEST FAILURE".
-    {"vendor": "Parker", "report": "CONDITION REPORT",
-     "fields": [
-        {"column": "PO",                  "labels": ["CUSTOMER P.O.", "CUSTOMER PO"], "tabular": True},
-        {"column": "P/N Shipped",         "labels": ["P/N Shipped"], "tabular": True},
-        {"column": "S/N REC",             "labels": ["S/N REC"], "tabular": True},
-        {"column": "TSN",                 "labels": ["TSN"], "stop_at": ["TSR", "TT"], "expect": "number"},
-        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["CSR"], "expect": "number"},
-        {"column": "TSI",                 "labels": ["TSI"], "expect": "number"},
-        {"column": "CSI",                 "labels": ["CSI"], "expect": "number"},
-        {"column": "TSO",                 "labels": ["TSO"], "expect": "number"},
-        {"column": "CSO",                 "labels": ["CSO"], "expect": "number"},
-        {"column": "Reason For Removal",  "labels": ["REASON FOR RETURN", "Reason For Removal"],
-         "tabular": True, "multiline": True,
-         "stop_at": ["RECEIVING TEST FAILURE", "RECEIVING TEST FAILURES",
-                     "Shop Findings", "Incoming Condition", "Disposition"]},
-        {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
-        {"column": "Removal Date",        "labels": ["Removal Date"], "post": "date"},
-        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
-        # These are free text, so they are captured multiline and stopped at
-        # whichever following heading appears first.
-        {"column": "Actions Taken",       "labels": [
-            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
-            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
-            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
-            "Work Carried Out", "Repair Performed"],
-         "multiline": True,
-         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
-                     "Conclusion", "Disposition", "Root Cause"]},
-        {"column": "Findings",            "labels": [
-            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
-            "Primary Finding", "Secondary Finding", "Condition Found",
-            "Observations", "Defects Found", "Damage Found"],
-         "multiline": True,
-         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
-                     "Recommendation", "Scrap Notes"]},
-        {"column": "Fault Outcome",       "labels": [
-            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
-            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
-            "Scrap Notes", "Outcome"],
-         "multiline": True,
-         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
-     ]},
-
-    # ── 3. Agro Tech Eaton / EATON ───────────────────────────────────────────
-    # The spreadsheet lists "Agro Tech Eaton" and "EATON" as two rows with the
-    # same report and the same required details, so they are one entry here
-    # with aliases. Ref (EATON row): every value sits to the RIGHT of its
-    # label, so none of these are tabular. Scheduled Removal is a tick in the
-    # cell after the label.
-    {"vendor": "Agro Tech Eaton", "report": "INSPECTION & REPAIR REPORT",
-     "aliases": ["Agro Tech Eaton", "Agro-Tech Eaton", "EATON", "Eaton"],
-     "fields": [
-        {"column": "Purchase Order #",    "labels": ["Purchase Order #", "Purchase Order",
-                                                     "Customer PO", "Customer P.O."]},
-        {"column": "Part Number",         "labels": ["Part Number", "P/N"]},
-        {"column": "Serial Number",       "labels": ["Serial Number", "S/N"]},
-        {"column": "TSN Hours",           "labels": ["TSN Hours", "TSN"], "stop_at": ["CSN"]},
-        {"column": "CSN",                 "labels": ["CSN"], "stop_at": ["Reason"], "expect": "number"},
-        {"column": "Reason For Removal",  "labels": ["Reason For Removal", "Reason for Return"],
-         "multiline": True,
-         "stop_at": ["Aircraft Registration", "Repair Actions", "Disposition"]},
-        {"column": "Aircraft Registration No.",
-                                          "labels": ["Aircraft Registration No", "Aircraft Reg"]},
-        {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
-        {"column": "Scheduled Removal",   "labels": ["Scheduled Removal", "Scheduled"],
-         "post": "schedule"},
-        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
-        # These are free text, so they are captured multiline and stopped at
-        # whichever following heading appears first.
-        {"column": "Actions Taken",       "labels": [
-            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
-            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
-            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
-            "Work Carried Out", "Repair Performed"],
-         "multiline": True,
-         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
-                     "Conclusion", "Disposition", "Root Cause"]},
-        {"column": "Findings",            "labels": [
-            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
-            "Primary Finding", "Secondary Finding", "Condition Found",
-            "Observations", "Defects Found", "Damage Found"],
-         "multiline": True,
-         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
-                     "Recommendation", "Scrap Notes"]},
-        {"column": "Fault Outcome",       "labels": [
-            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
-            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
-            "Scrap Notes", "Outcome"],
-         "multiline": True,
-         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
-     ]},
-
-    # ── 4. UTC Aerospace Systems ─────────────────────────────────────────────
-    # Spec: UTC_Aerospace_Systems.docx
-    #   Cust PO      RIGHT, 10 digits starting with 4. If the report does not
-    #                carry it, fall back to the PO in the email subject; if
-    #                that is also missing, leave blank.
-    #   Cust Part    RIGHT
-    #   Input Part   RIGHT
-    #   Input Serial# DOWN (number & text)
-    #   TSN CSN TSI CSI TSO CSO   DOWN in the Measuring Point grid, but they
-    #                also appear inline in the same cell on some reports —
-    #                the engine tries the cell itself, then below, then right.
-    #   ESN / ENGINE SERIAL NUMBER   "ESN12345" -> keep 12345
-    #   Failure Date / Date Removed / Removal Date  are the SAME value, so
-    #                they are one column with all three spellings as labels.
-    #   Removal - Unscheduled/Scheduled   keep only that word.
-    {"vendor": "UTC Aerospace Systems", "report": "INSPECTION STRIP REPORT",
-     "aliases": ["UTC Aerospace Systems", "UTC Aerospace"],
-     "report_aliases": ["INSPECTION STRIP REPORT", "INSPECTION  STRIP REPORT",
-                        "SCRAP STRIP REPORT"],
-     "fields": [
-        {"column": "Cust PO",             "labels": ["Cust PO", "Customer PO"],
-         "post": "po10", "fallback": "po_from_subject"},
-        {"column": "Cust Part",           "labels": ["Cust Part", "Cust Part No"]},
-        {"column": "Input Part",          "labels": ["Input Part"]},
-        # Reads to the RIGHT on the header block ("Input Serial  PAJ20-094")
-        # and DOWN in the Measuring Point grid; the engine tries right first
-        # and neighbour_labels below stops it grabbing "Output Serial".
-        {"column": "Input Serial#",       "labels": ["Input Serial#", "Input Serial",
-                                                     "In Serial# No", "In Serial No"]},
-        {"column": "TSN",                 "labels": ["TSN"], "tabular": True, "stop_at": ["TSR", "TT"], "expect": "number"},
-        {"column": "CSN",                 "labels": ["CSN"], "tabular": True, "stop_at": ["CSR"], "expect": "number"},
-        {"column": "TSI",                 "labels": ["TSI"], "tabular": True, "expect": "number"},
-        {"column": "CSI",                 "labels": ["CSI"], "tabular": True, "expect": "number"},
-        # "ISO" is kept as an alias here because it turns up in the same grid
-        # position TSO normally occupies on some Kofax conversions (T/I OCR
-        # confusion). The position-based Measuring Point fallback below is
-        # the primary defence against this kind of OCR drift; this alias is
-        # just a fast-path for the one misread already observed.
-        {"column": "TSO",                 "labels": ["TSO", "ISO"], "tabular": True, "expect": "number"},
-        {"column": "CSO",                 "labels": ["CSO"], "tabular": True, "expect": "number"},
-        {"column": "Reason For Removal",  "labels": ["Customer Reason for Return",
-                                                     "Reason For Removal", "Removal Code"],
-         "multiline": True,
-         "stop_at": ["DOM:", "ESD (First Date)", "Administrative Notes", "Aircraft"]},
-        {"column": "ESN",                 "labels": ["ENGINE SERIAL NUMBER", "Engine Serial Number",
-                                                     "ESN"], "post": "digits"},
-        {"column": "Tail No",             "labels": ["Tail No", "Tail Number",
-                                                     "Aircraft Tail Number"]},
-        {"column": "Failure Date",        "labels": ["Failure Date", "Date Removed",
-                                                     "Removal Date"], "post": "date"},
-        # NOTE: the bare label "Removal" is deliberately NOT listed — it would
-        # prefix-match "Removal Code" and return the wrong cell. "Removal -"
-        # (WITH the trailing hyphen) is safe to list because "Removal Code"
-        # never has a hyphen right after "Removal", and it is needed for
-        # reports where the cell literally reads "Removal -" with the
-        # Scheduled/Unscheduled word in a separate cell to the right (seen
-        # under the Recertification/Comments block on some samples).
-        {"column": "Removal - Unscheduled/Scheduled",
-                                          "labels": ["Removal - Unschedules/Scheduled",
-                                                     "Removal - Unscheduled/Scheduled",
-                                                     "Removal -",
-                                                     "Removal Type"], "post": "schedule"},
-        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
-        # These are free text, so they are captured multiline and stopped at
-        # whichever following heading appears first.
-        {"column": "Actions Taken",       "labels": [
-            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
-            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
-            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
-            "Work Carried Out", "Repair Performed"],
-         "multiline": True,
-         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
-                     "Conclusion", "Disposition", "Root Cause"]},
-        {"column": "Findings",            "labels": [
-            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
-            "Primary Finding", "Secondary Finding", "Condition Found",
-            "Observations", "Defects Found", "Damage Found"],
-         "multiline": True,
-         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
-                     "Recommendation", "Scrap Notes"]},
-        {"column": "Fault Outcome",       "labels": [
-            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
-            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
-            "Scrap Notes", "Outcome"],
-         "multiline": True,
-         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
-     ],
-     # Labels that appear on this vendor's reports but are not extracted.
-     # They are registered so a blank field never returns a neighbouring
-     # heading ("Cust Part" -> "Cust Serial") as if it were a value.
-     "neighbour_labels": [
-        "Customer", "Operator PO", "Output Part", "Output Serial", "Qty",
-        "Workscope", "Cust Serial", "Status/Work", "Description",
-        "Removal Code", "Aircraft", "Engine Type", "Incoming NSN",
-        "Outgoing NSN", "Date Rec'd", "Quote Date", "Accept Date",
-        "Ship Date", "DOM", "Last Order Date", "Sales Order", "Work Order",
-        "Notification", "Measuring Point", "Serial #", "TSR", "CSR", "TSCMP",
-     ]},
-
-    # ── 5. UTAS SENSORS - USA ────────────────────────────────────────────────
-    {"vendor": "UTAS SENSORS - USA", "report": "SCRAP STRIP REPORT",
-     "aliases": ["UTAS SENSORS - USA", "UTAS SENSORS", "UTAS"],
-     "fields": [
-        {"column": "Cust PO",             "labels": ["Cust Po", "Cust PO", "Customer PO"]},
-        {"column": "Input Part",          "labels": ["Input Part"]},
-        {"column": "Input Serial",        "labels": ["Input Serial"]},
-        {"column": "Reason For Removal",  "labels": ["Reason for Return", "Reason For Removal"],
-         "multiline": True, "stop_at": ["TSN", "CSN", "ESN"]},
-        {"column": "TSN",                 "labels": ["TSN"], "expect": "number"},
-        {"column": "CSN",                 "labels": ["CSN"], "expect": "number"},
-        {"column": "ESN",                 "labels": ["ESN"], "post": "digits"},
-        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
-        # These are free text, so they are captured multiline and stopped at
-        # whichever following heading appears first.
-        {"column": "Actions Taken",       "labels": [
-            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
-            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
-            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
-            "Work Carried Out", "Repair Performed"],
-         "multiline": True,
-         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
-                     "Conclusion", "Disposition", "Root Cause"]},
-        {"column": "Findings",            "labels": [
-            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
-            "Primary Finding", "Secondary Finding", "Condition Found",
-            "Observations", "Defects Found", "Damage Found"],
-         "multiline": True,
-         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
-                     "Recommendation", "Scrap Notes"]},
-        {"column": "Fault Outcome",       "labels": [
-            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
-            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
-            "Scrap Notes", "Outcome"],
-         "multiline": True,
-         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
-     ]},
-
-    # ── 6. Sumitomo Precision USA Repair Station ─────────────────────────────
-    {"vendor": "Sumitomo Precision USA Repair Station",
-     "report": "Receiving Teardown/Analysis Report",
-     "aliases": ["Sumitomo Precision USA Repair Station", "Sumitomo Precision USA"],
-     "fields": [
-        {"column": "Customer's RO",       "labels": ["Customer's RO", "Customers RO"], "tabular": True},
-        {"column": "S/N",                 "labels": ["Serial number", "S/N"], "tabular": True},
-        {"column": "Part Number",         "labels": ["Part Number"], "tabular": True},
-        {"column": "TSN",                 "labels": ["TSN"], "expect": "number"},
-        {"column": "CSN",                 "labels": ["CSN"], "expect": "number"},
-        {"column": "TSI",                 "labels": ["TSI"], "expect": "number"},
-        {"column": "CSI",                 "labels": ["CSI"], "expect": "number"},
-        {"column": "TSO",                 "labels": ["TSO"], "expect": "number"},
-        {"column": "CSO",                 "labels": ["CSO"], "expect": "number"},
-        {"column": "Reason For Removal",  "labels": ["Reason For Removal", "Shop Findings",
-                                                     "Receiving Inspection"],
-         "multiline": True, "stop_at": ["LABOR", "Delivery Point", "100% Parts"]},
-        {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
-        {"column": "Removal Date",        "labels": ["Removal Date"], "post": "date"},
-        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
-        # These are free text, so they are captured multiline and stopped at
-        # whichever following heading appears first.
-        {"column": "Actions Taken",       "labels": [
-            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
-            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
-            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
-            "Work Carried Out", "Repair Performed"],
-         "multiline": True,
-         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
-                     "Conclusion", "Disposition", "Root Cause"]},
-        {"column": "Findings",            "labels": [
-            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
-            "Primary Finding", "Secondary Finding", "Condition Found",
-            "Observations", "Defects Found", "Damage Found"],
-         "multiline": True,
-         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
-                     "Recommendation", "Scrap Notes"]},
-        {"column": "Fault Outcome",       "labels": [
-            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
-            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
-            "Scrap Notes", "Outcome"],
-         "multiline": True,
-         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
-     ]},
-
-    # ── 7. Sumotimo Precision Products ───────────────────────────────────────
-    # Spelt "Sumotimo" in the spreadsheet — kept verbatim, with the likely
-    # alternative spelling as an alias.
-    {"vendor": "Sumotimo Precision Products", "report": "Shop Finding Report",
-     "aliases": ["Sumotimo Precision Products", "Sumitomo Precision Products"],
-     "fields": [
-        {"column": "PO",                  "labels": ["PO", "Purchase Order", "Customer PO"], "tabular": True},
-        {"column": "Part Number",         "labels": ["Part Number", "P/N"], "tabular": True},
-        {"column": "Serial Number",       "labels": ["Serial Number", "S/N"], "tabular": True},
-        {"column": "TSN",                 "labels": ["TSN"], "expect": "number"},
-        {"column": "CSN",                 "labels": ["CSN"], "expect": "number"},
-        {"column": "Date Removed",        "labels": ["Date Removed"], "post": "date"},
-        {"column": "Scheduled Removal",   "labels": ["Scheduled"], "post": "schedule"},
-        {"column": "Engine S/N",          "labels": ["Engine S/N", "Engine Serial Number", "ESN"],
-         "post": "digits"},
-        {"column": "Reason For Removal",  "labels": ["Reason for removal", "Reason for Return"],
-         "multiline": True, "stop_at": ["Disposition", "Findings"]},
-        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
-        # These are free text, so they are captured multiline and stopped at
-        # whichever following heading appears first.
-        {"column": "Actions Taken",       "labels": [
-            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
-            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
-            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
-            "Work Carried Out", "Repair Performed"],
-         "multiline": True,
-         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
-                     "Conclusion", "Disposition", "Root Cause"]},
-        {"column": "Findings",            "labels": [
-            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
-            "Primary Finding", "Secondary Finding", "Condition Found",
-            "Observations", "Defects Found", "Damage Found"],
-         "multiline": True,
-         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
-                     "Recommendation", "Scrap Notes"]},
-        {"column": "Fault Outcome",       "labels": [
-            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
-            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
-            "Scrap Notes", "Outcome"],
-         "multiline": True,
-         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
-     ]},
-
-    # ── 8. Goodrich Aerospace PTE LTD.(SINGAPORE) ────────────────────────────
-    {"vendor": "Goodrich Aerospace PTE LTD.(SINGAPORE)", "report": "Teardown Report",
-     "aliases": ["Goodrich Aerospace PTE LTD.(SINGAPORE)", "Goodrich Aerospace PTE",
-                 "Goodrich Aerospace", "Goodrich"],
-     "fields": [
-        {"column": "Cust PO",             "labels": ["Cust Po", "Cust PO", "Customer PO"]},
-        {"column": "Input Part",          "labels": ["Input Part"]},
-        {"column": "Input Serial",        "labels": ["Input Serial"]},
-        {"column": "Failure Date",        "labels": ["Failure Date"], "post": "date"},
-        {"column": "Reason For Removal",  "labels": ["Reason for Return", "Reason For Removal"],
-         "multiline": True, "stop_at": ["TSN", "CSN", "Findings"]},
-        {"column": "TSN",                 "labels": ["TSN"], "expect": "number"},
-        {"column": "CSN",                 "labels": ["CSN"], "expect": "number"},
-        {"column": "Engine S/N",          "labels": ["Engine Serial Number", "Engine S/N", "ESN"],
-         "post": "digits"},
-        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
-        # These are free text, so they are captured multiline and stopped at
-        # whichever following heading appears first.
-        {"column": "Actions Taken",       "labels": [
-            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
-            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
-            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
-            "Work Carried Out", "Repair Performed"],
-         "multiline": True,
-         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
-                     "Conclusion", "Disposition", "Root Cause"]},
-        {"column": "Findings",            "labels": [
-            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
-            "Primary Finding", "Secondary Finding", "Condition Found",
-            "Observations", "Defects Found", "Damage Found"],
-         "multiline": True,
-         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
-                     "Recommendation", "Scrap Notes"]},
-        {"column": "Fault Outcome",       "labels": [
-            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
-            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
-            "Scrap Notes", "Outcome"],
-         "multiline": True,
-         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
-     ]},
-
-    # ── 9. Honeywell ─────────────────────────────────────────────────────────
-    {"vendor": "Honeywell", "report": "Initial Findings Report",
-     "fields": [
-        {"column": "Customer PO",         "labels": ["Customer PO", "Customer P.O.", "PO"], "tabular": True},
-        {"column": "Part Number",         "labels": ["Part Number", "P/N"], "tabular": True},
-        {"column": "Serial Number",       "labels": ["Serial Number", "S/N"], "tabular": True},
-        {"column": "Reason For Removal",  "labels": ["Reason for removal", "Reason for Return"],
-         "multiline": True, "stop_at": ["Removal type", "Findings", "TSN"]},
-        {"column": "Removal Type",        "labels": ["Removal type", "Removal Type"],
-         "post": "schedule"},
-        {"column": "TSN",                 "labels": ["TSN"], "expect": "number"},
-        {"column": "CSN",                 "labels": ["CSN"], "expect": "number"},
-        # ── Narrative sections, needed for rubric criteria 3-6 ────────────
-        # These are free text, so they are captured multiline and stopped at
-        # whichever following heading appears first.
-        {"column": "Actions Taken",       "labels": [
-            "Actions Taken", "Action Taken", "Work Performed", "Work Scope Performed",
-            "Repair Actions", "Shop Action", "Shop Actions", "Inspection Performed",
-            "Teardown", "Disassembly", "RECEIVING TEST", "RECEIVING TEST FAILURES",
-            "Work Carried Out", "Repair Performed"],
-         "multiline": True,
-         "stop_at": ["Findings", "Shop Findings", "INSPECTION FAILURES",
-                     "Conclusion", "Disposition", "Root Cause"]},
-        {"column": "Findings",            "labels": [
-            "Findings", "Shop Findings", "Inspection Findings", "INSPECTION FAILURES",
-            "Primary Finding", "Secondary Finding", "Condition Found",
-            "Observations", "Defects Found", "Damage Found"],
-         "multiline": True,
-         "stop_at": ["Conclusion", "Disposition", "Root Cause", "Fault",
-                     "Recommendation", "Scrap Notes"]},
-        {"column": "Fault Outcome",       "labels": [
-            "Fault Confirmed", "No Fault Found", "Fault Category", "Fault Categorisation",
-            "Conclusion", "Root Cause", "Final Disposition", "Disposition",
-            "Scrap Notes", "Outcome"],
-         "multiline": True,
-         "stop_at": ["Recommendation", "Warranty", "Signature", "Approved"]},
-     ]},
-
-    # ── Add future vendors here — no other file needs to change ──────────────
-]
-
-# Fixed columns always shown for every extracted result, regardless of vendor,
-# followed by the union of every vendor's field columns (first-seen order).
-# Used only to drive the UI table — nothing is written to a workbook.
-RESULT_FIXED_COLUMNS = ["PO Number", "Vendor Name", "Report Name", "File Name",
-                         "Email Subject", "Email Received Date"]
-
-RESULT_DETAIL_FIELDS = []
-_seen = set()
-for _entry in VENDOR_REPORTS:
-    for _f in _entry["fields"]:
-        if _f["column"] not in _seen:
-            _seen.add(_f["column"])
-            RESULT_DETAIL_FIELDS.append(_f["column"])
-
-RESULT_ALL_COLUMNS = RESULT_FIXED_COLUMNS + RESULT_DETAIL_FIELDS
-
-VENDOR_NAMES = [e["vendor"] for e in VENDOR_REPORTS]
-REPORT_NAMES = sorted({e["report"] for e in VENDOR_REPORTS})
-
-# =============================================================================
-# SECTION 2 -- EXCEL-ONLY EXTRACTION ENGINE (never reads PDF content)
-# =============================================================================
-
-def _norm_ws(text):
-    """
-    Collapse whitespace so wrapped/multi-space cell text still matches.
-    Non-breaking spaces (\\xa0) are converted first — the vendor spreadsheet
-    contains them in "Parker\\xa0 \\xa0MEGGITT", and Kofax-converted workbooks
-    often carry them over from the source PDF.
-    """
-    t = (text or '').replace('\xa0', ' ').replace('\u2007', ' ').replace('\u202f', ' ')
-    return re.sub(r'\s+', ' ', t).strip()
-
-
-def _vendor_names(entry):
-    """Primary vendor name plus any aliases declared on the entry."""
-    names = [entry["vendor"]]
-    names.extend(entry.get("aliases", []))
-    return names
-
-
-def _report_names(entry):
-    """Primary report title plus any alternative titles declared on the entry."""
-    names = [entry["report"]]
-    names.extend(entry.get("report_aliases", []))
-    return names
-
-
-# ── Vendor / report identification (Excel content only) ───────────────────
-def identify_vendor_report(workbook_text):
-    """
-    Find which VENDOR_REPORTS entry this workbook belongs to, using only
-    text that came from Excel cells (never from a PDF). Returns the entry
-    dict, or None if no vendor/report match is found anywhere in the
-    workbook.
-
-    Both a vendor name (or one of its aliases) AND a report title (or one of
-    its report_aliases) must appear, which stops a workbook being claimed by
-    a vendor whose name merely happens to be mentioned in it.
-
-    VENDOR_REPORTS is ordered most-specific-first, so "Parker MEGGITT" is
-    tested before plain "Parker".
-    """
-    norm = _norm_ws(workbook_text).lower()
-    for entry in VENDOR_REPORTS:
-        vendor_hit = any(_norm_ws(n).lower() in norm for n in _vendor_names(entry))
-        if not vendor_hit:
-            continue
-        report_hit = any(_norm_ws(r).lower() in norm for r in _report_names(entry))
-        if report_hit:
-            return entry
-    return None
-
-
-# ── Post-processing rules declared per field via "post" ───────────────────
-_SCHEDULE_RE = re.compile(r'\b(un[\s-]?scheduled|scheduled)\b', re.IGNORECASE)
-
-# A clean counter reading: digits, optionally with thousands separators and a
-# decimal part. "2648", "23530.08", "21278.0", "1,539" all qualify.
-_PURE_NUMBER_RE = re.compile(r'^\d{1,3}(?:,\d{3})*(?:\.\d+)?$|^\d+(?:\.\d+)?$')
-
-
-def _numeric_only(value):
-    """
-    Keep a value only if it really is a counter reading.
-
-    CSN/TSN/CSO/TSO are numeric by spec, but when the label is missing or
-    OCR-damaged the scan can drift onto a neighbouring cell and return a
-    serial number ("HAP19-040"), an ESN ("ESN 26259") or a sentence
-    ("ISSUE 1 AUG 21/18 SATISFIED."). Those are silently wrong, which is
-    worse than blank, so anything that is not a plain number is dropped.
-
-    A bare label prefix is stripped first, so "CSN 2648" still yields 2648.
-    """
-    v = _norm_ws(value)
-    if not v:
-        return ""
-
-    # "CSN: 2648" / "TSN 23530.08" -> drop the leading label word
-    v = re.sub(r'^(?:CSN|TSN|CSO|TSO|CSI|TSI|CSR|TSR)\b\s*[:\-]?\s*', '', v,
-               flags=re.IGNORECASE).strip()
-
-    # An ESN reading is never a cycle/hour count
-    if re.match(r'^ESN\b', v, re.IGNORECASE):
-        return ""
-
-    if _PURE_NUMBER_RE.match(v):
-        return v.replace(",", "")
-    return ""
-
-
-def _trim_at_embedded_label(value, known_labels):
-    """
-    Cut a value short at the first embedded heading.
-
-    Kofax sometimes merges a whole row into one cell, so "Input Part" returns
-    "BPU200MK2 Input Serial B1151 Qty 1.000" instead of just "BPU200MK2".
-    Scanning left to right, the value ends as soon as a known heading appears.
-    """
-    v = _norm_ws(value)
-    if not v or not known_labels:
-        return v
-
-    words = v.split(" ")
-    cut = len(words)
-    for i in range(1, len(words)):          # never cut at position 0
-        for span in (3, 2, 1):              # prefer the longest heading match
-            if i + span > len(words):
-                continue
-            probe = " ".join(words[i:i + span]).lower().rstrip(" :#.,")
-            if probe in known_labels:
-                cut = min(cut, i)
-        if cut != len(words):
-            break
-    return " ".join(words[:cut]).strip(" :-,")
-
-
-def _apply_post(value, rule):
-    """
-    Clean a raw extracted value according to the field's "post" rule.
-
-      "digits"    keep digits only        ESN12345 -> 12345
-      "schedule"  keep the Scheduled / Unscheduled word only; a tick mark
-                  (checked box) with no word is reported as "Scheduled"
-      "date"      normalise common date spellings to YYYY-MM-DD; the original
-                  text is returned unchanged if it cannot be parsed
-    """
-    v = _norm_ws(value)
-    if not v or not rule:
-        return v
-
-    if rule == "digits":
-        digits = re.sub(r'\D', '', v)
-        return digits or v
-
-    if rule == "schedule":
-        m = _SCHEDULE_RE.search(v)
-        if m:
-            word = m.group(1).lower().replace(' ', '').replace('-', '')
-            return "Unscheduled" if word.startswith("un") else "Scheduled"
-        # A tick / cross in the cell after the label means the box was checked
-        if any(mark in v for mark in ("\u2713", "\u2714", "\u2611", "x", "X", "Y", "yes", "Yes")):
-            return "Scheduled"
-        return v
-
-    if rule == "po10":
-        # A Rolls-Royce PO is 10 digits beginning with 4 (4000…, 4600…).
-        m = re.search(r'\b(4\d{9})\b', v.replace(",", "").replace(" ", ""))
-        if m:
-            return m.group(1)
-        m = re.search(r'\b(4\d{9})\b', v)
-        return m.group(1) if m else ""
-
-    if rule == "date":
-        for fmt in ("%d.%m.%Y", "%d/%m/%Y", "%m/%d/%Y", "%Y-%m-%d", "%d-%m-%Y",
-                    "%d %b %Y", "%d %B %Y", "%b %d, %Y", "%B %d, %Y",
-                    "%d.%m.%y", "%d/%m/%y", "%m/%d/%y"):
-            try:
-                return datetime.strptime(v[:20].strip(), fmt).strftime("%Y-%m-%d")
-            except Exception:
-                continue
-        return v
-
-    return v
-
-
-# ── Text-based fallback (operates on text flattened FROM the workbook) ────
-def _label_start(text, label):
-    m = re.search(r'\b' + re.escape(label) + r'\b\s*[#.]*\s*[:\-]?\s*', text, re.IGNORECASE)
-    return m.end() if m else None
-
-
-def _positional_fallback(text, label, known_labels=frozenset()):
-    """
-    Handles values printed as a header row of column names followed by a
-    separate data row of values — common once a vendor's PDF grid has been
-    converted to Excel and re-flattened to text. Finds the line containing
-    `label` alongside other column headers, then reads the same column
-    position from the next non-blank line.
-
-    `known_labels` guards against the *vertical* variant of the Measuring
-    Point grid, where each header sits on its own line and the line after a
-    header is simply the NEXT header, not a value. Without the guard, CSN
-    returns "TSN", TSN returns "CSO", and so on down the block.
-    """
-    lines = text.split('\n')
-    for i, line in enumerate(lines):
-        if not re.search(r'\b' + re.escape(label) + r'\b', line, re.IGNORECASE):
-            continue
-        header_cols = re.split(r'\s{2,}', line.strip())
-        idx = next((ci for ci, col in enumerate(header_cols)
-                    if re.search(r'\b' + re.escape(label) + r'\b', col, re.IGNORECASE)), None)
-        if idx is None:
-            continue
-        for j in range(i + 1, min(i + 3, len(lines))):
-            data_line = lines[j].strip()
-            if not data_line:
-                continue
-            data_cols = re.split(r'\s{2,}', data_line)
-            if idx < len(data_cols):
-                candidate = data_cols[idx].strip()
-                # A header stacked under another header is not a value.
-                if _norm_ws(candidate).lower().rstrip(" :#.") in known_labels:
-                    return ""
-                return candidate
-            break
-    return ""
-
-
-def extract_field_value(text, field, entry):
-    """
-    Fallback extraction against text flattened FROM the Excel workbook
-    (never from a PDF). Same-line capture with vendor-aware stop terms.
-    """
-    multiline = field.get("multiline", False)
-
-    if field.get("tabular"):
-        # Everything the engine should recognise as a heading, so the
-        # positional fallback cannot mistake a stacked header for a value.
-        known = {_norm_ws(l).lower().rstrip(" :#.")
-                 for f in entry["fields"] for l in f["labels"]}
-        known |= {_norm_ws(l).lower().rstrip(" :#.")
-                  for l in entry.get("neighbour_labels", [])}
-        for label in field["labels"]:
-            val = _positional_fallback(text, label, known_labels=known)
-            if val:
-                return val[:120]
-
-    stop_terms = list(field.get("stop_at", []))
-    for other in entry["fields"]:
-        if other is not field:
-            stop_terms += other["labels"]
-    # Headings that are not extracted but must still end a capture, otherwise a
-    # blank field swallows the rest of the row ("Cust Part" -> "Cust Serial …").
-    stop_terms += entry.get("neighbour_labels", [])
-
-    for label in field["labels"]:
-        start = _label_start(text, label)
-        if start is None:
-            continue
-        end = len(text)
-        for term in stop_terms:
-            tm = re.search(re.escape(term), text[start:], re.IGNORECASE)
-            if tm:
-                end = min(end, start + tm.start())
-        if not multiline:
-            nl = text.find('\n', start)
-            if nl != -1:
-                end = min(end, nl)
-        value = _norm_ws(text[start:end]).strip(" :-/\t#.")
-        if value:
-            return value[:300] if multiline else value[:120]
-    return ""
-
-
-# ── Workbook reading (OpenPyXL) ─────────────────────────────────────────────
-def _excel_grids(xlsx_path):
-    """Read every worksheet of a workbook into a grid of trimmed cell strings."""
-    import openpyxl
-    grids = []
-    wb = openpyxl.load_workbook(xlsx_path, data_only=True, read_only=True)
-    try:
-        for ws in wb.worksheets:
-            grid = []
-            for row in ws.iter_rows(values_only=True):
-                grid.append(["" if c is None else str(c).strip() for c in row])
-            if grid:
-                grids.append(grid)
-    finally:
-        try:
-            wb.close()
-        except Exception:
-            pass
-    return grids
-
-
-def _grids_to_text(grids):
-    """Flatten the workbook into text for the label/stop-word fallback logic."""
-    lines = []
-    for grid in grids:
-        for row in grid:
-            cells = [c for c in row if c]
-            if cells:
-                lines.append("   ".join(cells))
-        lines.append("")
-    return "\n".join(lines)
-
-
-def _is_label_cell(text, known_labels):
-    t = _norm_ws(text).lower().rstrip(" :#.")
-    return t in known_labels
-
-
-def _belongs_to_other_field(text, known_labels, current_label):
-    """
-    True when `text` is a cell that carries ANOTHER field's label — either the
-    bare label ("TSO") or the label with its value attached ("TSO: 0:00").
-
-    Kofax lays these reports out as "TSN: 37452.29 | TSI: | TSO: 0:00" across
-    one row. Without this check, an empty TSI would scan right and return
-    "TSO: 0:00", so a blank field silently reports the next field's value.
-    """
-    t = _norm_ws(text).lower().rstrip(" :#.")
-    if not t:
-        return False
-    cur = _norm_ws(current_label).lower().rstrip(" :#.")
-    for lab in known_labels:
-        if not lab or lab == cur:
-            continue
-        if t == lab:
-            return True
-        # "tso: 0:00" -> starts with "tso" followed by a separator
-        if t.startswith(lab) and t[len(lab):len(lab) + 1] in (":", "-", "=", " ", "."):
-            return True
-    return False
-
-
-def _grid_label_value(grids, label, known_labels=frozenset(), prefer_below=False):
-    """
-    Find `label` in any cell, across any worksheet, and return its value:
-      1. the rest of the same cell (CASE A)
-      2. the nearest non-empty cell to the right (CASE B), or below for
-         header-row / data-row grids (CASE C, prefer_below = field["tabular"])
-    Cells that are themselves another field's label are skipped, so a
-    header row never returns the next heading as if it were a value.
-    """
-    lab = _norm_ws(label).lower().rstrip(" :#.")
-    if not lab:
-        return ""
-
-    def _right(grid, r, c):
-        row = grid[r]
-        for cc in range(c + 1, min(c + 4, len(row))):
-            v = _norm_ws(row[cc])
-            if not v:
-                continue
-            # Reached the next field's cell -> this field is genuinely blank
-            if _belongs_to_other_field(v, known_labels, label):
-                return ""
-            if not _is_label_cell(v, known_labels):
-                return v[:300]
-        return ""
-
-    def _below(grid, r, c):
-        for rr in range(r + 1, min(r + 3, len(grid))):
-            if c < len(grid[rr]):
-                v = _norm_ws(grid[rr][c])
-                if not v:
-                    continue
-                if _belongs_to_other_field(v, known_labels, label):
-                    return ""
-                if not _is_label_cell(v, known_labels):
-                    return v[:300]
-        return ""
-
-    for grid in grids:
-        for r, row in enumerate(grid):
-            for c, cell in enumerate(row):
-                t = _norm_ws(cell)
-                if not t:
-                    continue
-                tl = t.lower().rstrip(" :#.")
-                if tl != lab and not tl.startswith(lab):
-                    continue
-                if len(t) > len(label):
-                    rest = t[len(label):].strip(" :-#./\t")
-                    if rest:
-                        return rest[:300]
-                order = (_below, _right) if prefer_below else (_right, _below)
-                for fn in order:
-                    v = fn(grid, r, c)
-                    if v:
-                        return v
-    return ""
-
-
-# ── UTC Aerospace "Measuring Point" grid: position-based fallback ─────────
-# Every UTC Aerospace sample seen puts the grid's own column headers in this
-# stable order: Serial#, CSN, TSN, CSO, CSR, TSO, TSR, TSCMP. Kofax's PDF ->
-# Excel conversion regularly mangles the header CELLS themselves ("CSN" ->
-# "CSNI", "TSN" -> "n-±1", "TSO" -> "ISO", etc.) which breaks plain label
-# matching. "Serial #" / "Serial#" is the one header that reads cleanly in
-# every sample, so it is used as the anchor: once found, the remaining
-# columns are read by POSITION rather than by matching their own (possibly
-# garbled) header text. When the grid has more than one data row, the row
-# labelled "INF" is preferred, matching how these reports are read manually.
-_MP_COLUMN_ORDER = ["Serial#", "CSN", "TSN", "CSO", "CSR", "TSO", "TSR", "TSCMP"]
-_MP_FIELD_MAP = {"CSN": "CSN", "TSN": "TSN", "CSO": "CSO", "TSO": "TSO"}
-
-
-def _norm_header_cell(text):
-    return _norm_ws(text).lower().rstrip(" :#.")
-
-
-def _find_measuring_point_header(grids):
-    """Locate the Measuring Point grid via its one reliably-OCR'd column:
-    the cell that starts with 'serial' (Serial #, Serial#, Serial No…)."""
-    for grid in grids:
-        for r, row in enumerate(grid):
-            for c, cell in enumerate(row):
-                if _norm_header_cell(cell).startswith("serial"):
-                    return grid, r, c
-    return None, None, None
-
-
-def _measuring_point_values(grids):
-    """
-    Position-based fallback for the UTC Aerospace Measuring Point grid.
-    Returns {"CSN": .., "TSN": .., "CSO": .., "TSO": ..} for whichever
-    columns were actually found (missing/blank columns are simply absent
-    from the result), or {} if no Measuring Point grid was located.
-    """
-    grid, hdr_r, hdr_c = _find_measuring_point_header(grids)
-    if grid is None:
-        return {}
-
-    # Column positions relative to the "Serial #" cell, following the fixed
-    # order confirmed across samples.
-    col_positions = {name: hdr_c + i for i, name in enumerate(_MP_COLUMN_ORDER)}
-
-    # Candidate data rows below the header (skip fully-blank rows).
-    candidates = [(rr, grid[rr]) for rr in range(hdr_r + 1, min(hdr_r + 5, len(grid)))
-                  if any(_norm_ws(v) for v in grid[rr])]
-    if not candidates:
-        return {}
-
-    # Prefer the row explicitly labelled "INF"; else take the first data row.
-    chosen = next((row for _, row in candidates
-                   if any(_norm_header_cell(v) == "inf" for v in row)), None)
-    if chosen is None:
-        chosen = candidates[0][1]
-
-    out = {}
-    for col_name, field_key in _MP_FIELD_MAP.items():
-        idx = col_positions.get(col_name)
-        if idx is None or idx >= len(chosen):
-            continue
-        v = _norm_ws(chosen[idx])
-        if v and _norm_header_cell(v) not in ("inf", "our", "unknown"):
-            out[field_key] = v[:120]
-    return out
-
-
-def _mp_is_header_token(text):
-    """
-    True when a cell looks like a Measuring Point column header rather than a
-    value: short, contains no digit, and is not a section title ending in ':'.
-    Used to measure how tall the stacked header block is.
-    """
-    t = _norm_ws(text)
-    if not t or len(t) > 20:
-        return False
-    if t.endswith(":"):
-        return False
-    return not any(ch.isdigit() for ch in t)
-
-
-def _measuring_point_values_vertical(grids):
-    """
-    Position-based reader for the VERTICAL Measuring Point layout, where the
-    grid is rotated: each column header sits on its own row down a single
-    column, and the values follow immediately underneath in the same column:
-
-        Serial #        <- header block starts
-        CSN
-        TSN
-        ...
-        TSCMP           <- header block ends (8 rows)
-        BX560625        <- value block starts, same order
-        1273
-        10248.88
-        ...
-
-    Headers are read by POSITION off the "Serial #" anchor using the fixed
-    _MP_COLUMN_ORDER, exactly like the horizontal reader, so OCR damage to
-    the header text itself ("TSO" -> "ISO") does not matter.
-
-    Returns {"CSN": .., "TSN": .., "CSO": .., "TSO": ..} for the columns that
-    held a usable numeric value, or {} if no vertical grid was found.
-    """
-    n_cols = len(_MP_COLUMN_ORDER)
-
-    for grid in grids:
-        for r, row in enumerate(grid):
-            for c, cell in enumerate(row):
-                if not _norm_header_cell(cell).startswith("serial"):
-                    continue
-
-                # Vertical only: the next row in this column must also be a
-                # header token, otherwise this is the horizontal layout and
-                # the other reader handles it.
-                if r + 1 >= len(grid) or c >= len(grid[r + 1]):
-                    continue
-                if not _mp_is_header_token(grid[r + 1][c]):
-                    continue
-
-                # Measure the stacked header block, capped at the known
-                # number of columns so a non-numeric first value (e.g.
-                # "UNKNOWN") cannot extend it.
-                last = r
-                for rr in range(r + 1, min(r + n_cols, len(grid))):
-                    if c < len(grid[rr]) and _mp_is_header_token(grid[rr][c]):
-                        last = rr
-                    else:
-                        break
-                if last - r + 1 < 3:          # too short to be the grid
-                    continue
-
-                value_start = last + 1
-                out = {}
-                for i, name in enumerate(_MP_COLUMN_ORDER):
-                    field = _MP_FIELD_MAP.get(name)
-                    if not field:
-                        continue
-                    vr = value_start + i
-                    if vr >= len(grid) or c >= len(grid[vr]):
-                        continue
-                    v = _norm_ws(grid[vr][c])
-                    # CSN/TSN/CSO/TSO are numeric by spec — this rejects
-                    # "UNKNOWN" and OCR debris like "irt010WN".
-                    if v and any(ch.isdigit() for ch in v):
-                        out[field] = v[:120]
-                if out:
-                    return out
-    return {}
-
-
-def extract_excel_fields(xlsx_path, email_subject=""):
-    """
-    Detect the vendor/report template from a Kofax-converted Excel workbook
-    and pull out its field values — cell-by-cell first (CASE A/B/C/D/E),
-    then the flattened-text fallback (CASE F) as backup.
-
-    `email_subject` is optional. Fields declaring
-    {"fallback": "po_from_subject"} use it when the report itself does not
-    carry a PO number — the UTC Aerospace spec requires exactly this.
-
-    Returns {"vendor":.., "report":.., "values": {column: value}}, or None
-    if no known vendor/report template matched anywhere in the workbook.
-    This is the ONLY extraction entry point in the app — there is no PDF
-    text path.
-    """
-    try:
-        grids = _excel_grids(xlsx_path)
-    except Exception:
-        return None
-    if not grids:
-        return None
-
-    text = _grids_to_text(grids)
-    entry = identify_vendor_report(text)
-    if not entry:
-        return None
-
-    # Every label the engine should recognise as "this cell is a heading":
-    # the extracted fields' own labels plus any neighbour_labels the vendor
-    # declares. Without the neighbours, a blank field scanning right or down
-    # can return the next heading as though it were a value.
-    known_labels = {_norm_ws(l).lower().rstrip(" :#.")
-                    for fld in entry["fields"] for l in fld["labels"]}
-    known_labels |= {_norm_ws(l).lower().rstrip(" :#.")
-                     for l in entry.get("neighbour_labels", [])}
-    values = {}
-    for f in entry["fields"]:
-        val = ""
-        for label in f["labels"]:
-            val = _grid_label_value(grids, label, known_labels=known_labels,
-                                     prefer_below=bool(f.get("tabular")))
-            if val:
-                break
-        if not val:
-            val = extract_field_value(text, f, entry)   # flattened-text fallback
-        # A merged cell can carry the rest of the row with it — cut it back
-        # to just this field's value before anything else looks at it.
-        val = _trim_at_embedded_label(val, known_labels)
-
-        # Apply the field's post-processing rule (digits / schedule / date / po10)
-        val = _apply_post(val, f.get("post"))
-
-        # Counter readings must be plain numbers. Dropping a wrong value is
-        # safer than carrying it into the Maximo comparison, where it would
-        # read as a genuine disagreement.
-        if f.get("expect") == "number":
-            val = _numeric_only(val)
-
-        # Declared fallback: pull the PO from the email subject when the
-        # report itself does not show one (UTC Aerospace spec).
-        if not val and f.get("fallback") == "po_from_subject" and email_subject:
-            m = re.search(r'\b(4\d{9})\b', email_subject)
-            if m:
-                val = m.group(1)
-
-        values[f["column"]] = val
-
-    # UTC Aerospace: the Measuring Point grid's own header cells are often
-    # OCR-garbled past recognition ("CSN" -> "CSNI", "TSO" -> "ISO", etc.),
-    # so any CSN/TSN/CSO/TSO that came back blank from label matching gets
-    # one more try, read positionally off the "Serial #" anchor — first as a
-    # normal horizontal grid, then as the rotated vertical variant where the
-    # headers are stacked down one column with the values beneath them.
-    if entry["vendor"] == "UTC Aerospace Systems":
-        mp_vals = _measuring_point_values(grids)
-        if not mp_vals:
-            mp_vals = _measuring_point_values_vertical(grids)
-        for col, val in mp_vals.items():
-            if not values.get(col):
-                values[col] = val
-
-    # `report_text` is the whole workbook flattened to text. The reverse check
-    # searches it for Maximo values, so it must travel with the result.
-    return {"vendor": entry["vendor"], "report": entry["report"],
-            "values": values, "report_text": text}
-
-
-def calculate_vendor_score(vendor, values):
-    """Compute a vendor score from extracted field completeness."""
-    try:
-        values = values or {}
-        if not vendor or not isinstance(values, dict):
-            return 0
-        entry = next((e for e in VENDOR_REPORTS
-                      if _norm_ws(e["vendor"]).lower() == _norm_ws(vendor).lower()), None)
-        if not entry:
-            return 0
-        expected = len(entry["fields"])
-        if expected <= 0:
-            return 0
-        filled = sum(1 for v in values.values() if str(v).strip())
-        score = int(round(min(1.0, filled / expected) * 100))
-        return max(0, min(score, 100))
-    except Exception:
-        return 0
-
-
-# =============================================================================
-# SECTION 2B -- MAXIMO CROSS-CHECK (validate report data against system data)
-# =============================================================================
-#
-# After a report is extracted, its values are cross-checked against the Maximo
-# dump workbook the user browses to in the UI:
-#
-#   1. Filter the Maximo sheet by PO number  (MAXIMO_PO_COLUMN)
-#   2. Compare each rule in MAXIMO_MATCH_RULES between the Maximo row and the
-#      extracted report values
-#   3. If every non-optional rule matches, that Maximo row is written to the
-#      final tracker — the tracker's columns ARE the Maximo columns
-#
-# To change what gets compared, edit MAXIMO_MATCH_RULES only. Nothing else in
-# this file needs to change.
-# -----------------------------------------------------------------------------
-
-# Column in the Maximo dump holding the PO number used to filter rows.
-MAXIMO_PO_COLUMN = "RR_PO_NUMBER"
-
-# Which Maximo column is checked against which extracted report column.
-#   mode "exact"   normalised text equality (case/space/punctuation-insensitive)
-#   mode "number"  numeric equality         ("12,433" == "12433" == "12433.0")
-#   mode "words"   every significant word of the Maximo value must appear in
-#                  the report value — for free text like REASON_FOR_REMOVAL
-#   optional True  a blank or differing value does not fail the row
-MAXIMO_MATCH_RULES = [
-    {"maximo": "CORE_OEM_PART_NUMBER", "report": "Input Part",         "mode": "exact"},
-    {"maximo": "CORE_SERIAL_NUMBER",   "report": "Input Serial#",      "mode": "exact"},
-    {"maximo": "CORE_TSN",             "report": "TSN",                "mode": "number"},
-    {"maximo": "CORE_CSN",             "report": "CSN",                "mode": "number"},
-    {"maximo": "ENGINE_SERIAL_NUMBER", "report": "ESN",                "mode": "number"},
-    {"maximo": "REASON_FOR_REMOVAL",   "report": "Reason For Removal", "mode": "words"},
-    {"maximo": "AIRCRAFT_TAIL_NUMBER", "report": "Tail No",            "mode": "exact",
-     "optional": True},
-]
-
-# ── Vendor sender domains ────────────────────────────────────────────────────
-# Which email domain each vendor's reports arrive from. Used by the optional
-# Step 3 vendor filter: tick a vendor and only mail whose sender address ends
-# with one of its domains is processed.
-#
-# Matching is on the DOMAIN, suffix-style and case-insensitive, so
-# "@gbr.collins.com" and "@collins.com" both satisfy "collins.com". That
-# covers the regional sub-domains these vendors send from.
-#
-# Several vendors share a domain (Collins own Goodrich and UTAS; both Sumitomo
-# entities use spp.co.jp), so a single tick can admit more than one vendor —
-# that is expected, the vendor is identified later from the report content.
-VENDOR_EMAIL_DOMAINS = {
-    "UTC Aerospace Systems":                 ["collins.com"],
-    "Goodrich Aerospace PTE LTD.(SINGAPORE)": ["collins.com"],
-    "UTAS SENSORS - USA":                    ["collins.com"],
-    "Sumitomo Precision USA Repair Station": ["spp.co.jp"],
-    "Sumotimo Precision Products":           ["spp.co.jp"],
-    "Agro Tech Eaton":                       ["eaton.com"],
-    "Honeywell":                             ["rolls-royce.com"],
-    # Parker and Parker MEGGITT have no domain on file yet — add them here and
-    # they appear in the Step 3 list automatically.
-}
-
-
-def _sender_domain(mail):
-    """
-    Return the lower-case domain of an email's sender, or "" if unavailable.
-
-    Outlook reports SenderEmailAddress as an X.500 distinguished name rather
-    than an SMTP address whenever the sender is an Exchange account
-    ("/O=EXCHANGELABS/OU=.../CN=RECIPIENTS/CN=..."). That has no domain in it,
-    so the real SMTP address is read from the PROP_SMTP_ADDRESS property tag
-    first, falling back to SenderEmailAddress for plain SMTP senders.
-    """
-    PROP_SMTP_ADDRESS = "http://schemas.microsoft.com/mapi/proptag/0x39FE001E"
-    addr = ""
-    try:
-        if (mail.SenderEmailType or "").upper() == "EX":
-            try:
-                addr = mail.Sender.PropertyAccessor.GetProperty(PROP_SMTP_ADDRESS) or ""
-            except Exception:
-                addr = ""
-    except Exception:
-        addr = ""
-    if not addr:
-        try:
-            addr = mail.SenderEmailAddress or ""
-        except Exception:
-            addr = ""
-    addr = str(addr).strip().lower()
-    return addr.rsplit("@", 1)[1] if "@" in addr else ""
-
-
-def _domain_matches(sender_domain, allowed_domains):
-    """
-    True when `sender_domain` is, or is a sub-domain of, any allowed domain.
-    "gbr.collins.com" matches "collins.com"; "notcollins.com" does not.
-    """
-    d = (sender_domain or "").strip().lower().lstrip("@")
-    if not d:
-        return False
-    for raw in allowed_domains:
-        a = (raw or "").strip().lower().lstrip("@")
-        if a and (d == a or d.endswith("." + a)):
-            return True
-    return False
-
-
-# Sheet names inside the comparison workbook, in tab order.
-#   1. Report vs Maximo         — did the report agree with Maximo?
-#   2. Extracted Report Details — what was read out, and how good is the report?
-COMPARISON_SHEET        = "Report vs Maximo"
-EXTRACTED_DETAILS_SHEET = "Extracted Report Details"
-
-# Numeric tolerance for "number" comparisons (0 = must be identical).
-MAXIMO_NUMBER_TOLERANCE = 0.0
-
-# What to do when a checked value is BLANK on one side (usually because the
-# report simply does not print that field — "Removal Code" is empty on most
-# UTC samples, for example).
-#
-#   False  a blank cannot contradict Maximo, so it does not block the match;
-#          only a genuine DIFFER blocks it. Blanks are still recorded in the
-#          comparison workbook so you can see exactly which ones were skipped.
-#   True   every checked column must be present AND equal, so any blank
-#          blocks the match. Stricter, but on reports that routinely omit a
-#          field it will reject nearly everything.
-MAXIMO_BLANK_BLOCKS_MATCH = False
-
-# Append provenance columns after the Maximo columns so each tracker row can be
-# traced back to the report it came from. Set False for a tracker that is
-# purely the Maximo columns and nothing else.
-MAXIMO_TRACKER_AUDIT_COLUMNS = True
-
-
-# =============================================================================
-#  REPORT QUALITY SCORING  (rubric from the Scoring workbook)
-# =============================================================================
-#
-# Each criterion is scored 0-3 against the extracted report, then weighted:
-#
-#   0  Unacceptable   1  Insufficient   2  Needs Improving   3  Adequate
-#
-# Only the two criteria visible in the supplied rubric screenshot are encoded
-# below. Add the rest as further dicts — nothing else needs to change.
-# -----------------------------------------------------------------------------
-
-# Criterion 2 checks how much of the "basic details" list the report carries.
-# Each entry lists the candidate column names across vendors; the first one
-# present with a value counts as found.
-SCORING_BASIC_DETAILS = [
-    ("LRU SN",                 ["Input Serial#", "S/N REC", "Serial Number", "S/N", "Input Serial"]),
-    ("LRU PN",                 ["Input Part", "P/N Shipped", "Part Number", "Cust Part"]),
-    ("ESN",                    ["ESN", "Engine S/N"]),
-    ("TSN",                    ["TSN", "TSN Hours"]),
-    ("CSN",                    ["CSN"]),
-    ("Date of Removal",        ["Failure Date", "Date Removed", "Removal Date"]),
-    ("RO or PO Number",        ["Cust PO", "PO", "Customer PO", "Purchase Order #", "Customer's RO"]),
-    ("Scheduled/Unscheduled",  ["Removal - Unscheduled/Scheduled", "Scheduled Removal",
-                                "Removal Type"]),
-]
-
-# Columns that hold the Reason For Removal text, in order of preference.
-SCORING_RFR_COLUMNS = ["Reason For Removal", "Reason For Return"]
-
-SCORING_LEVEL_NAMES = {0: "Unacceptable", 1: "Insufficient",
-                       2: "Needs Improving", 3: "Adequate"}
-
-SCORING_CRITERIA = [
-    {"id": "RFR",         "weight": 5,
-     "name": "Quality of Reason for Removal (RFR) - is it clear and understandable"},
-    {"id": "BASICS",      "weight": 10,
-     "name": "Basic details (LRU/LRP Removal Details)"},
-    {"id": "ACTIONS",     "weight": 20,
-     "name": "Is the description of the actions taken by the Vendor clear and intelligible?"},
-    {"id": "FINDINGS",    "weight": 20,
-     "name": "Are the findings, primary or secondary, clear?"},
-    {"id": "OUTCOME",     "weight": 20,
-     "name": "Is there a clear outcome against the RFR - Fault confirmed or Fault not Found?"},
-    {"id": "CORRECTNESS", "weight": 25,
-     "name": "Were the declared findings correct against the RFR"},
-]
-
-# A narrative counts as "detailed" rather than a single-word entry once it
-# carries at least this many significant words.
-SCORING_DETAIL_WORDS = 4
-
-# Level awarded by criterion 6 when the text cannot settle whether the vendor's
-# conclusion was correct. Those rows are flagged "needs review" so a person can
-# confirm them. Set to 0 to score conservatively until reviewed, or 3 to give
-# the vendor the benefit of the doubt.
-SCORING_UNDETERMINED_LEVEL = 0
-
-# Wording that declares no fault was found. Used by criteria 5 and 6.
-_FNF_PATTERNS = [
-    r'\bno\s+fault\s+found\b', r'\bNFF\b', r'\bFNF\b',
-    r'\bno\s+defect\s+found\b', r'\bNDF\b',
-    r'\bno\s+fault\s+detected\b', r'\bfault\s+not\s+found\b',
-    r'\bserviceable\s+as\s+received\b', r'\bwithin\s+limits\b',
-    r'\btest(?:ed)?\s+(?:ok|satisfactory)\b',
-]
-
-# Wording that declares a fault was confirmed.
-_FAULT_CONFIRMED_PATTERNS = [
-    r'\bfault\s+confirmed\b', r'\bconfirmed\b', r'\bdefect\s+confirmed\b',
-    r'\bfailed\b', r'\bfailure\b', r'\bdefective\b', r'\bunserviceable\b',
-    r'\bout\s+of\s+limits?\b', r'\bworn\b', r'\bdamaged?\b',
-    r'\bcracked?\b', r'\bleak(?:ing|age)?\b', r'\bseized\b', r'\bjammed\b',
-    r'\bcontaminat(?:ed|ion)\b', r'\bcorroded\b', r'\bcorrosion\b',
-]
-
-# Wording that names a root cause, which criterion 5 needs for its top band.
-_ROOT_CAUSE_PATTERNS = [
-    r'\broot\s+cause\b', r'\bcaused\s+by\b', r'\bdue\s+to\b',
-    r'\bprimary\s+cause\b', r'\bresult(?:ed|ing)?\s+from\b',
-    r'\battributed\s+to\b', r'\bas\s+a\s+result\s+of\b',
-]
-
-# Concrete symptoms in an RFR. Criterion 6 flags the contradiction the rubric
-# describes: a specific symptom reported, yet the vendor declared No Fault Found.
-_SYMPTOM_PATTERNS = [
-    r'\bjam(?:med|ming)?\b', r'\bstuck\b', r'\bseiz(?:ed|ure)\b',
-    r'\bslow\s+to\s+(?:move|respond|operate)\b', r'\bsluggish\b',
-    r'\bleak(?:ing|age)?\b', r'\bcrack(?:ed|ing)?\b', r'\bbroken\b',
-    r'\bnoise|noisy\b', r'\bvibration\b', r'\boverheat(?:ing|ed)?\b',
-    r'\bfail(?:ed|ure|s)?\b', r'\binoperative\b', r'\berratic\b',
-    r'\bdrift(?:ing)?\b', r'\bout\s+of\s+(?:limits?|tolerance)\b',
-    r'\bhigh\s+reading\b', r'\blow\s+reading\b', r'\bno\s+output\b',
-]
-
-
-def _matches_any(text, patterns):
-    """True when `text` matches any of the given regex patterns."""
-    t = _norm_ws(text)
-    return any(re.search(p, t, re.IGNORECASE) for p in patterns) if t else False
-
-
-def _correlates_to_rfr(text, rfr):
-    """
-    True when `text` shares meaningful vocabulary with the RFR.
-
-    The rubric repeatedly asks whether a section "correlates to the RFR". That
-    is judged here by keyword overlap: at least one significant word from the
-    RFR reappearing in the section. It is an approximation of an engineering
-    judgement, not a substitute for one.
-    """
-    rfr_words = set(_mx_words(rfr)) - {"removal", "removed", "reason", "return"}
-    if not rfr_words or not _norm_ws(text):
-        return False
-    return bool(rfr_words & set(_mx_words(text)))
-
-
-def _first_present(values, candidates):
-    """First non-empty value among the candidate column names."""
-    for col in candidates:
-        v = _norm_ws((values or {}).get(col, ""))
-        if v:
-            return v
-    return ""
-
-
-def _score_rfr(values, maximo_row):
-    """
-    Criterion 1 — Quality of Reason for Removal.
-
-      0  the report has no RFR at all
-      1  a single-word RFR ("faulty") with no detail
-      2  a detailed RFR that does not correlate to the originator PO
-      3  a detailed RFR that does correlate to the originator PO
-
-    Correlation is judged against REASON_FOR_REMOVAL on the matched Maximo
-    row, which is what the PO carries on MMS. With no Maximo row to compare
-    against, correlation cannot be confirmed, so a detailed RFR caps at 2.
-    """
-    rfr = _first_present(values, SCORING_RFR_COLUMNS)
-    if not rfr:
-        return 0, "no RFR in the report"
-
-    words = _mx_words(rfr)
-    if len(words) <= 1:
-        return 1, f"single-word RFR ({rfr})"
-
-    mx_rfr = _norm_ws((maximo_row or {}).get("REASON_FOR_REMOVAL", ""))
-    if not mx_rfr:
-        return 2, "detailed RFR, but no Maximo row to correlate against"
-
-    status, _ = _mx_compare("words", mx_rfr, rfr)
-    if status == "match":
-        return 3, f"detailed RFR correlates to the PO ({mx_rfr})"
-    return 2, f"detailed RFR but does not correlate to the PO ({mx_rfr})"
-
-
-# Guard against the two checklists drifting apart: every "detail" declared by
-# the reverse check must exist in the criterion-2 checklist, or a confirmed item
-# would be silently reported as missing.
-def _validate_scoring_config():
-    checklist = {n for n, _ in SCORING_BASIC_DETAILS}
-    declared  = {x.get("detail") for x in
-                 (REVERSE_CHECK_FIELDS + REVERSE_EXTRA_DETAILS) if x.get("detail")}
-    unknown = declared - checklist
-    if unknown:
-        raise ValueError(
-            "Reverse-check 'detail' names not in SCORING_BASIC_DETAILS: "
-            + ", ".join(sorted(unknown)))
-
-
-def _basic_details_from_reverse(reverse_results):
-    """
-    Which criterion-2 items the reverse check confirmed present in the report.
-    Returns (found, missing) as lists of checklist names, or (None, None) when
-    there is no reverse-check data to work from.
-    """
-    if not reverse_results:
-        return None, None
-    by_detail = {}
-    for r in reverse_results:
-        d = r.get("detail")
-        if d:
-            by_detail[d] = by_detail.get(d, False) or bool(r["found"])
-    if not by_detail:
-        return None, None
-    checklist = [n for n, _ in SCORING_BASIC_DETAILS]
-    found   = [n for n in checklist if by_detail.get(n)]
-    missing = [n for n in checklist if n in by_detail and not by_detail.get(n)]
-    # Items the reverse check knows nothing about stay unconfirmed
-    missing += [n for n in checklist if n not in by_detail]
-    return found, missing
-
-
-def _score_basic_details(values, reverse_results=None):
-    """
-    Criterion 2 — how much of the basic-details list the report carries.
-
-      0  only SN and PN are present
-      1  exactly one item beyond the LRU SN/PN details
-      2  some but not all of the list
-      3  the complete list
-
-    Two ways of deciding whether an item is "present":
-
-      * Reverse check (preferred) — take the value Maximo holds and look for it
-        anywhere in the report text. This is used whenever a matched Maximo row
-        is available, because it does not depend on the tool locating a label,
-        which is exactly what fails on badly converted reports.
-
-      * Forward extraction (fallback) — whether the field was successfully
-        extracted. Used when there is no Maximo row for this PO.
-
-    The rubric names bands 0, 1 and 3 precisely but describes band 2 only as
-    "less than 50% from list", leaving 50-99% undefined. Band 2 is therefore
-    implemented as "more than one item beyond LRU, but not the full list",
-    which keeps the scale monotonic and matches bands 0, 1 and 3 exactly.
-    """
-    found, missing = _basic_details_from_reverse(reverse_results)
-    source = "confirmed against Maximo"
-    if found is None:
-        found, missing = [], []
-        for name, candidates in SCORING_BASIC_DETAILS:
-            (found if _first_present(values, candidates) else missing).append(name)
-        source = "read from the report"
-
-    total = len(SCORING_BASIC_DETAILS)
-    detail = f"{len(found)}/{total} present ({source})"
-    if missing:
-        detail += " — missing: " + ", ".join(missing)
-
-    if len(found) == total:
-        return 3, detail
-
-    beyond_lru = [f for f in found if f not in ("LRU SN", "LRU PN")]
-    if not beyond_lru:
-        return 0, detail
-    if len(beyond_lru) == 1:
-        return 1, detail
-    return 2, detail
-
-
-def _score_actions(values):
-    """
-    Criterion 3 (20%) — is the description of the vendor's actions clear?
-
-      0  no description of the actions taken to assess the LRU
-      1  a single-word description ("test", "strip")
-      2  some description, but not clearly correlated to the RFR
-      3  a detailed description that correlates to the RFR
-    """
-    actions = _norm_ws((values or {}).get("Actions Taken", ""))
-    if not actions:
-        return 0, "no actions-taken description found in the report"
-
-    words = _mx_words(actions)
-    if len(words) < 2:
-        return 1, f"single-word description ({actions})"
-
-    rfr = _first_present(values, SCORING_RFR_COLUMNS)
-    detailed = len(words) >= SCORING_DETAIL_WORDS
-    if detailed and _correlates_to_rfr(actions, rfr):
-        return 3, f"detailed description ({len(words)} words) correlating to the RFR"
-    if detailed:
-        return 2, f"detailed description ({len(words)} words) but no wording shared with the RFR"
-    return 2, f"brief description ({len(words)} words)"
-
-
-def _score_findings(values):
-    """
-    Criterion 4 (20%) — are the findings, primary or secondary, clear?
-
-      0  no findings at all
-      1  findings present
-      2  findings present but no relevance to the RFR
-      3  findings present with clear relevance to the RFR
-
-    Note: the rubric's bands 1 and 2 both read "findings present", with band 2
-    adding "but no relevance to RFR". Band 1 is therefore treated as a bare
-    mention with no substance, and band 2 as a substantive finding that does
-    not correlate. See the note in the user guide.
-    """
-    findings = _norm_ws((values or {}).get("Findings", ""))
-    if not findings:
-        return 0, "no findings recorded"
-
-    words = _mx_words(findings)
-    if len(words) < 2:
-        return 1, f"findings present but minimal ({findings})"
-
-    rfr = _first_present(values, SCORING_RFR_COLUMNS)
-    if _correlates_to_rfr(findings, rfr):
-        return 3, f"findings present ({len(words)} words) with wording relevant to the RFR"
-    return 2, f"findings present ({len(words)} words) but no wording shared with the RFR"
-
-
-def _score_outcome(values):
-    """
-    Criterion 5 (20%) — is there a clear outcome against the RFR?
-
-      0  no fault categorisation at all
-      1  fault categorised but not correlated to the RFR
-      2  fault categorised and correlated to the RFR
-      3  fault categorised, primary root cause identified, correlated to the RFR
-    """
-    outcome = _norm_ws((values or {}).get("Fault Outcome", ""))
-    findings = _norm_ws((values or {}).get("Findings", ""))
-    combined = f"{outcome} {findings}".strip()
-
-    categorised = (_matches_any(combined, _FNF_PATTERNS)
-                   or _matches_any(combined, _FAULT_CONFIRMED_PATTERNS))
-    if not categorised:
-        return 0, "no fault categorisation (neither fault confirmed nor no-fault-found)"
-
-    rfr = _first_present(values, SCORING_RFR_COLUMNS)
-    correlated = _correlates_to_rfr(combined, rfr)
-    has_root   = _matches_any(combined, _ROOT_CAUSE_PATTERNS)
-
-    if correlated and has_root:
-        return 3, "fault categorised, root cause stated and correlated to the RFR"
-    if correlated:
-        return 2, "fault categorised and correlated to the RFR, but no root cause stated"
-    return 1, "fault categorised but no wording shared with the RFR"
-
-
-def _score_correctness(values):
-    """
-    Criterion 6 (25%) — were the declared findings correct against the RFR?
-
-    The rubric offers only two bands, 0 (No) and 3 (Yes); bands 1 and 2 are
-    struck out. Its worked example is a contradiction: the RFR reports a
-    concrete symptom ("jammed", "slow to move") yet the vendor declared No
-    Fault Found.
-
-    That contradiction is detectable, and so is the straightforward agreeing
-    case. Anything else is a judgement about whether the vendor reached the
-    right engineering conclusion, which cannot be settled from the text alone
-    — those return needs_review so a person decides rather than the tool
-    guessing.
-
-    Returns (level, note, needs_review).
-    """
-    rfr = _first_present(values, SCORING_RFR_COLUMNS)
-    outcome = _norm_ws((values or {}).get("Fault Outcome", ""))
-    findings = _norm_ws((values or {}).get("Findings", ""))
-    combined = f"{outcome} {findings}".strip()
-
-    if not rfr:
-        return 0, "no RFR to judge the declared findings against", False
-    if not combined:
-        return 0, "no findings or outcome declared", False
-
-    rfr_symptom = _matches_any(rfr, _SYMPTOM_PATTERNS)
-    declared_fnf = _matches_any(combined, _FNF_PATTERNS)
-    declared_fault = _matches_any(combined, _FAULT_CONFIRMED_PATTERNS)
-
-    # The contradiction the rubric describes
-    if rfr_symptom and declared_fnf and not declared_fault:
-        return 0, ("RFR reports a specific symptom but the vendor declared "
-                   "no fault found - the rubric's worked example"), False
-
-    # Fault confirmed and the wording lines up with the RFR
-    if declared_fault and _correlates_to_rfr(combined, rfr):
-        return 3, "fault confirmed and consistent with the reported symptom", False
-
-    # A no-fault-found against an RFR with no concrete symptom is plausible
-    if declared_fnf and not rfr_symptom:
-        return 3, "no fault found, and the RFR reports no specific symptom to contradict it", False
-
-    return SCORING_UNDETERMINED_LEVEL, (
-        "cannot be judged from the report text - needs review by an engineer"), True
-
-
-def score_report(values, maximo_row=None, reverse_results=None):
-    """
-    Score one extracted report against the rubric.
-
-    Returns:
-      {"criteria": [{id, name, weight, level, level_name, note}, ...],
-       "weighted_percent": 0-100,
-       "total_weight": sum of the weights actually applied}
-
-    weighted_percent is the achieved share of the applied weighting, so it
-    stays meaningful while only part of the full rubric is encoded.
-    """
-    results, achieved, total_weight = [], 0.0, 0.0
-    review_needed = []
-
-    for crit in SCORING_CRITERIA:
-        needs_review = False
-        if crit["id"] == "RFR":
-            level, note = _score_rfr(values, maximo_row)
-        elif crit["id"] == "BASICS":
-            level, note = _score_basic_details(values, reverse_results)
-        elif crit["id"] == "ACTIONS":
-            level, note = _score_actions(values)
-        elif crit["id"] == "FINDINGS":
-            level, note = _score_findings(values)
-        elif crit["id"] == "OUTCOME":
-            level, note = _score_outcome(values)
-        elif crit["id"] == "CORRECTNESS":
-            level, note, needs_review = _score_correctness(values)
-        else:
-            continue
-
-        w = float(crit["weight"])
-        achieved     += (level / 3.0) * w
-        total_weight += w
-        if needs_review:
-            review_needed.append(crit["id"])
-        results.append({"id": crit["id"], "name": crit["name"], "weight": crit["weight"],
-                        "level": level, "level_name": SCORING_LEVEL_NAMES[level],
-                        "note": note, "needs_review": needs_review})
-
-    pct = round((achieved / total_weight) * 100, 1) if total_weight else 0.0
-    return {"criteria": results, "weighted_percent": pct, "total_weight": total_weight,
-            "needs_review": review_needed}
-
-
-# =============================================================================
-#  REVERSE CHECK  (Maximo as the source of truth, report as the haystack)
-# =============================================================================
-#
-# The forward check reads a value out of the report by finding its label, then
-# compares it with Maximo. That fails whenever Kofax scrambles the layout badly
-# enough that the label cannot be located — the value is usually still there in
-# the text, just no longer next to anything recognisable.
-#
-# The reverse check turns it round. It takes the PO number, pulls that row from
-# the Maximo dump, and then searches the WHOLE report text for each Maximo
-# value. Nothing has to be located; the value only has to appear somewhere.
-#
-# This is what drives rubric criterion 2, because "does the report contain the
-# LRU serial number" is answerable this way even on a report the forward pass
-# could not read a single label from.
-# -----------------------------------------------------------------------------
-
-# Similarity a free-text value must reach to count as present (0.80 = 80%).
-MAXIMO_REVERSE_THRESHOLD = 0.80
-
-# Which Maximo columns to look for in the report, and how to look.
-#
-#   "token"   an identifier — part number, serial, PO. Matched against each
-#             token in the report: exact after normalisation, then OCR-folded,
-#             then fuzzy at the threshold. Fuzzy is skipped for values under
-#             `min_fuzzy_len` characters, because at 80% similarity a 5-digit
-#             number matches any other differing by one digit.
-#   "number"  a counter reading. Compared numerically against every number in
-#             the report, so 12,433 / 12433 / 12433.0 are all the same value.
-#   "words"   free text. Counts what fraction of the Maximo value's significant
-#             words appear in the report and passes at the threshold.
-#   "either"  passes if the report contains any one of the listed alternatives
-#             (used for scheduled / unscheduled).
-#
-# "detail" ties the row to the criterion-2 checklist in the scoring rubric.
-REVERSE_CHECK_FIELDS = [
-    {"maximo": "CORE_SERIAL_NUMBER",   "detail": "LRU SN",             "mode": "token"},
-    {"maximo": "CORE_OEM_PART_NUMBER", "detail": "LRU PN",             "mode": "token"},
-    {"maximo": "ENGINE_SERIAL_NUMBER", "detail": "ESN",                "mode": "number"},
-    {"maximo": "CORE_TSN",             "detail": "TSN",                "mode": "number"},
-    {"maximo": "CORE_CSN",             "detail": "CSN",                "mode": "number"},
-    {"maximo": "RR_PO_NUMBER",         "detail": "RO or PO Number",    "mode": "token"},
-    {"maximo": "REASON_FOR_REMOVAL",   "detail": None,                 "mode": "words"},
-    {"maximo": "AIRCRAFT_TAIL_NUMBER", "detail": None,                 "mode": "token"},
-]
-
-# Criterion 2 also asks for the date of removal and whether the removal was
-# scheduled. Those have no single fixed Maximo column across dumps, so they are
-# looked for in the report directly.
-REVERSE_EXTRA_DETAILS = [
-    {"detail": "Date of Removal",       "mode": "date_present"},
-    # This name must match its entry in SCORING_BASIC_DETAILS exactly, or
-    # criterion 2 will report a confirmed item as missing.
-    {"detail": "Scheduled/Unscheduled", "mode": "either",
-     "alternatives": ["scheduled", "unscheduled", "un-scheduled"]},
-]
-
-# Fuzzy matching is only safe above this length (see "token" above).
-REVERSE_MIN_FUZZY_LEN = 7
-
-# Dates in almost any common written form, for the date-of-removal check.
-_ANY_DATE_RE = re.compile(
-    r'\b\d{1,4}[./-]\d{1,2}[./-]\d{1,4}\b'
-    r'|\b\d{1,2}\s+(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\s+\d{2,4}\b',
-    re.IGNORECASE)
-
-
-def _fuzzy_ratio(a, b):
-    """Similarity of two normalised strings, 0.0 to 1.0."""
-    import difflib
-    return difflib.SequenceMatcher(None, a, b).ratio()
-
-
-def _report_tokens(report_text):
-    """Every distinct word-like token in the report, normalised for comparison."""
-    return {_mx_text(t) for t in re.findall(r'[A-Za-z0-9][A-Za-z0-9\-/._]*', report_text or '')
-            if _mx_text(t)}
-
-
-def _report_numbers(report_text):
-    """Every number in the report as a float, for numeric comparison."""
-    out = set()
-    for raw in re.findall(r'-?\d[\d,]*(?:\.\d+)?', report_text or ''):
-        try:
-            out.add(float(raw.replace(",", "")))
-        except ValueError:
-            pass
-    return out
-
-
-def _find_token_in_report(value, tokens):
-    """
-    Look for an identifier among the report's tokens.
-    Returns (found, score, how) — how records which rule matched, so the
-    output shows whether a match was exact or needed allowances.
-    """
-    v = _mx_text(value)
-    if not v:
-        return False, 0.0, "no value in Maximo"
-    if v in tokens:
-        return True, 1.0, "exact"
-    folded = _mx_ocr_fold(v)
-    if folded in {_mx_ocr_fold(t) for t in tokens}:
-        return True, 1.0, "exact after OCR folding"
-    if len(v) < REVERSE_MIN_FUZZY_LEN:
-        return False, 0.0, f"not found (too short to fuzzy-match safely)"
-    best, best_tok = 0.0, ""
-    for t in tokens:
-        if abs(len(t) - len(v)) > 3:
-            continue
-        r = _fuzzy_ratio(v, t)
-        if r > best:
-            best, best_tok = r, t
-    if best >= MAXIMO_REVERSE_THRESHOLD:
-        return True, best, f"{best:.0%} similar to '{best_tok}'"
-    return False, best, "not found"
-
-
-def reverse_check_report(report_text, maximo_row):
-    """
-    Search the report text for every value on the Maximo row.
-
-    Returns a list of dicts:
-      {"maximo", "detail", "mode", "value", "found", "score", "how"}
-
-    `found` is what criterion 2 counts, and the whole list is written to the
-    output so it is visible which Maximo values were confirmed present in the
-    report and which were not.
-    """
-    text = report_text or ""
-    results = []
-    if not maximo_row:
-        return results
-
-    tokens = _report_tokens(text)
-    numbers = _report_numbers(text)
-    words_in_report = set(_mx_words(text))
-
-    for spec in REVERSE_CHECK_FIELDS:
-        value = _norm_ws(maximo_row.get(spec["maximo"], ""))
-        mode = spec["mode"]
-        found, score, how = False, 0.0, ""
-
-        if not value:
-            how = "no value in Maximo"
-
-        elif mode == "token":
-            found, score, how = _find_token_in_report(value, tokens)
-
-        elif mode == "number":
-            n = _mx_number(value)
-            if n is None:
-                how = "Maximo value is not numeric"
-            elif any(abs(n - r) <= MAXIMO_NUMBER_TOLERANCE for r in numbers):
-                found, score, how = True, 1.0, "exact"
-            else:
-                how = "not found"
-
-        elif mode == "words":
-            want = _mx_words(value)
-            if not want:
-                how = "no words to look for"
-            else:
-                hits = [w for w in want if w in words_in_report]
-                score = len(hits) / len(want)
-                found = score >= MAXIMO_REVERSE_THRESHOLD
-                missing = [w for w in want if w not in words_in_report]
-                how = (f"{score:.0%} of words present"
-                       + (f"; missing: {', '.join(missing)}" if missing else ""))
-
-        results.append({"maximo": spec["maximo"], "detail": spec.get("detail"),
-                        "mode": mode, "value": value,
-                        "found": found, "score": round(score, 3), "how": how})
-
-    # Details with no fixed Maximo column — looked for in the report directly
-    for spec in REVERSE_EXTRA_DETAILS:
-        if spec["mode"] == "date_present":
-            m = _ANY_DATE_RE.search(text)
-            results.append({"maximo": "", "detail": spec["detail"], "mode": spec["mode"],
-                            "value": "(any date)", "found": bool(m),
-                            "score": 1.0 if m else 0.0,
-                            "how": f"found '{m.group(0)}'" if m else "no date in the report"})
-        elif spec["mode"] == "either":
-            hit = next((a for a in spec["alternatives"]
-                        if a.replace("-", "") in _mx_text(text)), None)
-            results.append({"maximo": "", "detail": spec["detail"], "mode": spec["mode"],
-                            "value": " / ".join(spec["alternatives"]),
-                            "found": bool(hit), "score": 1.0 if hit else 0.0,
-                            "how": f"found '{hit}'" if hit else "neither word in the report"})
-
-    return results
-
-
-def _mx_text(value):
-    """Normalise a cell for text comparison: casefold, drop spaces/punctuation."""
-    return re.sub(r'[^a-z0-9]', '', _norm_ws(value).lower())
-
-
-def _mx_number(value):
-    """
-    Parse a cell as a number, tolerating thousands separators and stray text.
-    "12,433" -> 12433.0    "1539" -> 1539.0    "ESN11433" -> 11433.0
-    Returns None when the cell holds no number.
-    """
-    v = _norm_ws(value).replace(",", "")
-    m = re.search(r'-?\d+(?:\.\d+)?', v)
-    if not m:
-        return None
-    try:
-        return float(m.group(0))
-    except Exception:
-        return None
-
-
-_MX_STOPWORDS = {"the", "and", "of", "for", "to", "a", "an", "on", "in", "at", "by"}
-
-
-# Characters an OCR pass routinely swaps in alphanumeric part numbers.
-# Folding is only ever used as a fallback after a strict comparison fails.
-_OCR_FOLD = str.maketrans({"o": "0", "i": "1", "l": "1", "s": "5",
-                           "b": "8", "z": "2", "g": "6", "q": "0"})
-
-
-def _mx_ocr_fold(text):
-    """Collapse OCR-confusable characters so 'G5020FPUO2' == 'G5020FPU02'."""
-    return (text or "").translate(_OCR_FOLD)
-
-
-def _mx_words(value):
-    """Significant words of a free-text cell, for the 'words' comparison mode."""
-    return [w for w in re.findall(r'[a-z0-9]+', _norm_ws(value).lower())
-            if w not in _MX_STOPWORDS]
-
-
-def _mx_compare(mode, maximo_value, report_value):
-    """
-    Compare one Maximo cell against one extracted report value.
-    Returns (status, note) with status "match", "differ" or "blank".
-    """
-    mx_raw = _norm_ws(maximo_value)
-    rp_raw = _norm_ws(report_value)
-
-    if not mx_raw or not rp_raw:
-        return "blank", ("report value empty" if mx_raw else "maximo value empty")
-
-    if mode == "number":
-        a, b = _mx_number(mx_raw), _mx_number(rp_raw)
-        if a is None or b is None:
-            return "blank", "not numeric"
-        return ("match", "") if abs(a - b) <= MAXIMO_NUMBER_TOLERANCE \
-            else ("differ", f"{a:g} vs {b:g}")
-
-    if mode == "words":
-        mx_words = _mx_words(mx_raw)
-        rp_text  = " ".join(_mx_words(rp_raw))
-        if not mx_words:
-            return "blank", "no words to compare"
-        missing = [w for w in mx_words if w not in rp_text]
-        return ("match", "") if not missing \
-            else ("differ", "missing in report: " + ", ".join(missing))
-
-    a, b = _mx_text(mx_raw), _mx_text(rp_raw)
-    if not a or not b:
-        return "blank", "nothing to compare"
-    if a == b:
-        return "match", ""
-    # Second chance: fold the character pairs OCR routinely confuses in part
-    # numbers, so "G5020FPUO2" is recognised as "G5020FPU02". The note records
-    # that the match needed folding, so it stays visible in the comparison
-    # sheet rather than being silently accepted.
-    fa, fb = _mx_ocr_fold(a), _mx_ocr_fold(b)
-    if fa == fb:
-        return "match", f"OCR-normalised ({mx_raw} / {rp_raw})"
-    return "differ", f"{mx_raw} vs {rp_raw}"
-
-
-def load_maximo_dump(path, log=None):
-    """
-    Read the Maximo dump workbook into memory once per run.
-
-    Returns {"headers": [...], "by_po": {po_digits: [rowdict, ...]}, "rows": n}
-    or None if the file cannot be read. Rows are indexed by the digits of
-    MAXIMO_PO_COLUMN so "4600317870" and "4600317870.0" still find each other.
-    """
-    import openpyxl
-
-    def _log(m, l="info"):
-        if log:
-            log(m, l)
-
-    if not path or not os.path.exists(path):
-        _log(f"  [WARN] Maximo file not found: {path}", "warn")
-        return None
-
-    try:
-        wb = openpyxl.load_workbook(path, data_only=True, read_only=True)
-    except Exception as e:
-        _log(f"  [ERROR] Cannot open Maximo file: {e}", "error")
-        return None
-
-    try:
-        ws = wb.worksheets[0]
-        rows_iter = ws.iter_rows(values_only=True)
-
-        headers = []
-        for raw in rows_iter:                      # first non-empty row = header
-            cells = ["" if c is None else str(c).strip() for c in raw]
-            if any(cells):
-                headers = cells
-                break
-        if not headers:
-            _log("  [ERROR] Maximo file has no header row.", "error")
-            return None
-
-        if MAXIMO_PO_COLUMN not in headers:
-            _log(f"  [ERROR] Maximo file has no '{MAXIMO_PO_COLUMN}' column. "
-                 f"Found: {', '.join(h for h in headers if h)[:200]}", "error")
-            return None
-        po_idx = headers.index(MAXIMO_PO_COLUMN)
-
-        by_po, total = {}, 0
-        for raw in rows_iter:
-            cells = ["" if c is None else str(c).strip() for c in raw]
-            if not any(cells):
-                continue
-            total += 1
-            po_key = re.sub(r'\D', '', cells[po_idx]) if po_idx < len(cells) else ""
-            if not po_key:
-                continue
-            row = {h: (cells[i] if i < len(cells) else "")
-                   for i, h in enumerate(headers) if h}
-            by_po.setdefault(po_key, []).append(row)
-    finally:
-        try:
-            wb.close()
-        except Exception:
-            pass
-
-    _log(f"  Maximo dump loaded: {total} row(s), "
-         f"{len(by_po)} distinct PO number(s).", "ok")
-    return {"headers": [h for h in headers if h], "by_po": by_po, "rows": total}
-
-
-def match_report_against_maximo(po, report_values, maximo):
-    """
-    Filter the Maximo dump by `po`, then score every candidate row against the
-    extracted report values using MAXIMO_MATCH_RULES.
-
-    Returns:
-      {"status": "matched" | "mismatch" | "no_po_rows" | "no_maximo",
-       "row": winning Maximo row dict or None,
-       "checks": [ {maximo, report, mode, maximo_value, report_value,
-                    status, note, optional}, ... ],
-       "matched": n, "differed": n, "blank": n}
-    """
-    if not maximo:
-        return {"status": "no_maximo", "row": None, "checks": [],
-                "matched": 0, "differed": 0, "blank": 0}
-
-    po_key = re.sub(r'\D', '', str(po or ""))
-    candidates = maximo["by_po"].get(po_key, [])
-    if not candidates:
-        return {"status": "no_po_rows", "row": None, "checks": [],
-                "matched": 0, "differed": 0, "blank": 0}
-
-    best = None
-    for row in candidates:
-        checks = []
-        n_match = n_diff = n_blank = 0
-        for rule in MAXIMO_MATCH_RULES:
-            mx_val = row.get(rule["maximo"], "")
-            rp_val = (report_values or {}).get(rule["report"], "")
-            status, note = _mx_compare(rule.get("mode", "exact"), mx_val, rp_val)
-            if status == "match":
-                n_match += 1
-            elif status == "differ":
-                n_diff += 1
-            else:
-                n_blank += 1
-            checks.append({"maximo": rule["maximo"], "report": rule["report"],
-                           "mode": rule.get("mode", "exact"),
-                           "maximo_value": mx_val, "report_value": rp_val,
-                           "status": status, "note": note,
-                           "optional": bool(rule.get("optional"))})
-
-        # A row is accepted when no non-optional rule actively contradicts it.
-        # Blanks count as blocking only when MAXIMO_BLANK_BLOCKS_MATCH is on.
-        def _blocks(c):
-            if c["optional"]:
-                return False
-            if c["status"] == "differ":
-                return True
-            return c["status"] == "blank" and MAXIMO_BLANK_BLOCKS_MATCH
-
-        blocking = [c for c in checks if _blocks(c)]
-        result = {"status": "matched" if not blocking else "mismatch",
-                  "row": row, "checks": checks,
-                  "matched": n_match, "differed": n_diff, "blank": n_blank}
-
-        # Keep the strongest candidate: an accepted row wins outright,
-        # otherwise the one satisfying the most rules.
-        if best is None or \
-           (result["status"] == "matched" and best["status"] != "matched") or \
-           (result["status"] == best["status"] and result["matched"] > best["matched"]):
-            best = result
-        if best["status"] == "matched":
-            break
-
-    return best
-
-
-def append_to_maximo_comparison(context, result, log=None):
-    """
-    Append one row to the comparison workbook — written for EVERY extracted
-    report, whether it matched or not, so the run can be audited end to end.
-
-    Layout is side-by-side: for each rule in MAXIMO_MATCH_RULES there are
-    three columns — the value found in the report, the value found in Maximo,
-    and the verdict for that column. Cells are colour-coded (green MATCH,
-    red DIFFER, amber BLANK) so a mismatch is obvious at a glance.
-
-    This is deliberately separate from the matched-rows tracker: the tracker
-    holds clean Maximo data ready to use, this holds the evidence.
-    """
-    import openpyxl
-    from openpyxl.styles import Font, PatternFill
-
-    def _log(m, l="info"):
-        if log:
-            log(m, l)
-
-    status_label = {
-        "matched":    "MATCHED",
-        "mismatch":   "NOT MATCHED",
-        "no_po_rows": "PO NOT IN MAXIMO",
-        "no_maximo":  "NO MAXIMO FILE",
-    }.get(result.get("status", ""), result.get("status", ""))
-
-    lead = [
-        ("Match Status",        status_label),
-        ("PO Number",           context.get("po", "")),
-        ("Vendor Name",         context.get("vendor", "")),
-        ("Report Name",         context.get("report", "")),
-        ("Source File",         context.get("file_name", "")),
-        ("Email Subject",       context.get("subject", "")),
-        ("Email Received",      context.get("received", "")),
-    ]
-
-    checks = {c["maximo"]: c for c in result.get("checks", [])}
-    body = []
-    for rule in MAXIMO_MATCH_RULES:
-        col = rule["maximo"]
-        c   = checks.get(col)
-        body.append((f"{col} — Report", c["report_value"] if c else ""))
-        body.append((f"{col} — Maximo", c["maximo_value"] if c else ""))
-        body.append((f"{col} — Result",
-                     {"match": "MATCH", "differ": "DIFFER", "blank": "BLANK"}
-                     .get(c["status"], "") if c else "NOT CHECKED"))
-
-    tail = [
-        ("Rules Matched",  result.get("matched", 0)),
-        ("Rules Differed", result.get("differed", 0)),
-        ("Rules Blank",    result.get("blank", 0)),
-        ("Notes",          "; ".join(f"{c['maximo']}: {c['note']}"
-                                     for c in result.get("checks", [])
-                                     if c["status"] != "match" and c["note"])),
-        ("PDF Path",       context.get("pdf_path", "")),
-        ("Checked By",     CURRENT_USER),
-        ("Checked At",     datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-    ]
-
-    pairs   = lead + body + tail
-    headers = [k for k, _ in pairs]
-    row_map = dict(pairs)
-
-    GREEN = PatternFill("solid", fgColor="C6EFCE")
-    RED   = PatternFill("solid", fgColor="FFC7CE")
-    AMBER = PatternFill("solid", fgColor="FFEB9C")
-    GREY  = PatternFill("solid", fgColor="E7E6E6")
-
-    try:
-        with _file_lock(MAXIMO_COMPARISON_LOCK):
-            os.makedirs(os.path.dirname(MAXIMO_COMPARISON_XLSX), exist_ok=True)
-            if os.path.exists(MAXIMO_COMPARISON_XLSX):
-                wb = openpyxl.load_workbook(MAXIMO_COMPARISON_XLSX)
-                ws = wb[COMPARISON_SHEET] if COMPARISON_SHEET in wb.sheetnames \
-                    else wb.create_sheet(COMPARISON_SHEET, 0)
-                existing = [c.value for c in ws[1]] if ws.max_row >= 1 else []
-                existing = [h for h in existing if h]
-                if not existing:
-                    ws.append(headers)
-                    for cell in ws[1]:
-                        cell.font = Font(bold=True)
-                        cell.fill = GREY
-                    ws.freeze_panes = "B2"
-                else:
-                    for h in headers:
-                        if h not in existing:
-                            existing.append(h)
-                            ws.cell(row=1, column=len(existing), value=h)
-                    headers = existing
-            else:
-                wb = openpyxl.Workbook()
-                ws = wb.active
-                ws.title = COMPARISON_SHEET
-                ws.append(headers)
-                for cell in ws[1]:
-                    cell.font = Font(bold=True)
-                    cell.fill = GREY
-                ws.freeze_panes = "B2"
-
-            ws.append([row_map.get(h, "") for h in headers])
-            r = ws.max_row
-
-            # Colour the overall verdict and every per-column result cell
-            for idx, h in enumerate(headers, start=1):
-                val = str(row_map.get(h, ""))
-                if h == "Match Status":
-                    ws.cell(row=r, column=idx).fill = \
-                        GREEN if val == "MATCHED" else RED
-                    ws.cell(row=r, column=idx).font = Font(bold=True)
-                elif h.endswith("— Result"):
-                    if val == "MATCH":
-                        ws.cell(row=r, column=idx).fill = GREEN
-                    elif val == "DIFFER":
-                        ws.cell(row=r, column=idx).fill = RED
-                    elif val == "BLANK":
-                        ws.cell(row=r, column=idx).fill = AMBER
-
-            wb.save(MAXIMO_COMPARISON_XLSX)
-        return True
-    except Exception as e:
-        _log(f"  [WARN] Could not write the comparison workbook: {e}", "warn")
-        return False
-
-
-def append_to_extracted_details_sheet(context, values, score, log=None,
-                                       reverse_results=None):
-    """
-    Append one row to the "Extracted Report Details" sheet, which lives in the
-    SAME workbook as "Report vs Maximo" (the comparison file), immediately
-    after it.
-
-    Where the comparison sheet answers "does the report agree with Maximo?",
-    this sheet answers "what did we read out of the report, and how good is
-    the report?" — every extracted field, plus the rubric score.
-
-    Columns: identification, then every field this vendor extracts, then one
-    column per scoring criterion, then the overall weighted percentage. The
-    header grows automatically the first time a new vendor or criterion is
-    seen, so older rows are never disturbed.
-    """
-    import openpyxl
-    from openpyxl.styles import Font, PatternFill
-
-    def _log(m, l="info"):
-        if log:
-            log(m, l)
-
-    lead = [
-        ("PO Number",       context.get("po", "")),
-        ("Vendor Name",     context.get("vendor", "")),
-        ("Report Name",     context.get("report", "")),
-        ("Source File",     context.get("file_name", "")),
-        ("Email Subject",   context.get("subject", "")),
-        ("Email Received",  context.get("received", "")),
-        ("Maximo Match",    context.get("maximo_status_label", "")),
-    ]
-
-    body = [(col, val) for col, val in (values or {}).items()]
-
-    # Reverse-check columns: for each Maximo value, was it found in the report?
-    # Two columns per value — the value Maximo holds, and the verdict with the
-    # rule that decided it — so a FOUND on a fuzzy match is never mistaken for
-    # an exact one.
-    rev_cells = []
-    for r in (reverse_results or []):
-        key = r["maximo"] or r["detail"] or "?"
-        rev_cells.append((f"In report: {key}", "FOUND" if r["found"] else "NOT FOUND"))
-        rev_cells.append((f"In report note: {key}", r["how"]))
-
-    crit_cells = []
-    for c in score["criteria"]:
-        crit_cells.append((f"Score: {c['name']}", f"{c['level']} — {c['level_name']}"))
-        crit_cells.append((f"Score note: {c['id']}", c["note"]))
-
-    tail = [
-        ("Weighted Score %", score["weighted_percent"]),
-        ("Weighting Applied", score["total_weight"]),
-        ("Needs Engineer Review",
-         ", ".join(score.get("needs_review", [])) or "No"),
-        ("PDF Path",        context.get("pdf_path", "")),
-        ("Extracted By",    CURRENT_USER),
-        ("Extracted At",    datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-    ]
-
-    pairs   = lead + body + rev_cells + crit_cells + tail
-    headers = [k for k, _ in pairs]
-    row_map = dict(pairs)
-
-    GREY  = PatternFill("solid", fgColor="E7E6E6")
-    GREEN = PatternFill("solid", fgColor="C6EFCE")
-    AMBER = PatternFill("solid", fgColor="FFEB9C")
-    RED   = PatternFill("solid", fgColor="FFC7CE")
-
-    try:
-        with _file_lock(MAXIMO_COMPARISON_LOCK):
-            os.makedirs(os.path.dirname(MAXIMO_COMPARISON_XLSX), exist_ok=True)
-            if os.path.exists(MAXIMO_COMPARISON_XLSX):
-                wb = openpyxl.load_workbook(MAXIMO_COMPARISON_XLSX)
-            else:
-                wb = openpyxl.Workbook()
-                wb.active.title = "Report vs Maximo"
-
-            if EXTRACTED_DETAILS_SHEET in wb.sheetnames:
-                ws = wb[EXTRACTED_DETAILS_SHEET]
-                existing = [c.value for c in ws[1]]
-                for h in headers:
-                    if h not in existing:
-                        existing.append(h)
-                        ws.cell(row=1, column=len(existing), value=h)
-                headers = existing
-            else:
-                # Placed directly after "Report vs Maximo"
-                ws = wb.create_sheet(EXTRACTED_DETAILS_SHEET)
-                ws.append(headers)
-                for cell in ws[1]:
-                    cell.font = Font(bold=True)
-                    cell.fill = GREY
-                ws.freeze_panes = "B2"
-
-            ws.append([row_map.get(h, "") for h in headers])
-            r = ws.max_row
-
-            # Shade each criterion by band, and the overall percentage
-            for idx, h in enumerate(headers, start=1):
-                val = str(row_map.get(h, ""))
-                if h.startswith("Score: ") and val[:1].isdigit():
-                    lvl = int(val[0])
-                    ws.cell(row=r, column=idx).fill = (
-                        GREEN if lvl == 3 else AMBER if lvl == 2 else RED)
-                elif h.startswith("In report: "):
-                    if val == "FOUND":
-                        ws.cell(row=r, column=idx).fill = GREEN
-                    elif val == "NOT FOUND":
-                        ws.cell(row=r, column=idx).fill = RED
-                elif h == "Weighted Score %" and val:
-                    try:
-                        pct = float(val)
-                        ws.cell(row=r, column=idx).fill = (
-                            GREEN if pct >= 80 else AMBER if pct >= 50 else RED)
-                        ws.cell(row=r, column=idx).font = Font(bold=True)
-                    except ValueError:
-                        pass
-
-            wb.save(MAXIMO_COMPARISON_XLSX)
-        return True
-    except Exception as e:
-        _log(f"  [WARN] Could not write the Extracted Report Details sheet: {e}", "warn")
-        return False
-
-
-def append_to_maximo_tracker(maximo_row, maximo_headers, context, log=None):
-    """
-    Append one verified Maximo row to the final tracker workbook.
-
-    The tracker's columns are the Maximo columns, in Maximo order. When
-    MAXIMO_TRACKER_AUDIT_COLUMNS is on, a provenance block is appended after
-    them so each row can be traced back to its report.
-
-    Rows are only ever appended — nothing is reordered or overwritten — and
-    the write is guarded by its own lock file so two users running at the same
-    time cannot corrupt the workbook.
-    """
-    import openpyxl
-
-    def _log(m, l="info"):
-        if log:
-            log(m, l)
-
-    audit = [
-        ("Matched PO",     context.get("po", "")),
-        ("Vendor Name",    context.get("vendor", "")),
-        ("Report Name",    context.get("report", "")),
-        ("Source File",    context.get("file_name", "")),
-        ("PDF Path",       context.get("pdf_path", "")),
-        ("Email Subject",  context.get("subject", "")),
-        ("Email Received", context.get("received", "")),
-        ("Matched Rules",  context.get("matched_rules", "")),
-        ("Matched By",     CURRENT_USER),
-        ("Matched At",     datetime.now().strftime("%Y-%m-%d %H:%M:%S")),
-    ]
-
-    headers = list(maximo_headers)
-    row_data = dict(maximo_row)
-    if MAXIMO_TRACKER_AUDIT_COLUMNS:
-        headers += [k for k, _ in audit]
-        row_data.update(dict(audit))
-
-    try:
-        with _file_lock(MAXIMO_TRACKER_LOCK):
-            os.makedirs(os.path.dirname(MAXIMO_TRACKER_XLSX), exist_ok=True)
-            if os.path.exists(MAXIMO_TRACKER_XLSX):
-                wb = openpyxl.load_workbook(MAXIMO_TRACKER_XLSX)
-                ws = wb.active
-                existing = [c.value for c in ws[1]]
-                # Grow the header if the Maximo dump gained columns later on
-                for h in headers:
-                    if h not in existing:
-                        existing.append(h)
-                        ws.cell(row=1, column=len(existing), value=h)
-                headers = existing
-            else:
-                wb = openpyxl.Workbook()
-                ws = wb.active
-                ws.title = "Maximo Matched Tracker"
-                ws.append(headers)
-                for c in ws[1]:
-                    c.font = openpyxl.styles.Font(bold=True)
-                ws.freeze_panes = "A2"
-
-            ws.append([row_data.get(h, "") for h in headers])
-            wb.save(MAXIMO_TRACKER_XLSX)
-        return True
-    except Exception as e:
-        _log(f"  [WARN] Could not write Maximo tracker: {e}", "warn")
-        return False
-
-
-# =============================================================================
-# SECTION 3 -- KOFAX POWER PDF AUTOMATION (PDF -> Excel only)
-# =============================================================================
-
-# ── Config ──────────────────────────────────────────────────────────────────
-KOFAX_CONVERT_TIMEOUT = 180   # max seconds to wait for the .xlsx to appear
-CONVERTED_SUBDIR      = "_converted"
-
-
-
-def _sk_escape(text):
-    """Escape a string for WScript.Shell SendKeys (+ ^ % ~ ( ) [ ] { } are special)."""
-    out = []
-    for ch in str(text):
-        out.append("{" + ch + "}" if ch in "+^%~()[]{}" else ch)
-    return "".join(out)
-
-
-def _find_window(title_part, timeout):
-    """Wait up to `timeout`s for a visible window whose title contains `title_part`."""
-    try:
-        import win32gui
-    except Exception:
-        return None
-    needle = (title_part or "").lower()
-    deadline = time.time() + timeout
-    found = {}
-
-    def _cb(hwnd, _):
-        if not win32gui.IsWindowVisible(hwnd):
-            return
-        t = win32gui.GetWindowText(hwnd) or ""
-        if needle and needle in t.lower():
-            found["hwnd"] = hwnd
-            found["title"] = t
-
-    while time.time() < deadline:
-        found.clear()
-        try:
-            win32gui.EnumWindows(_cb, None)
-        except Exception:
-            pass
-        if found:
-            return (found["hwnd"], found["title"])
-        time.sleep(0.5)
-    return None
-
-
-def _activate_window(hwnd, title):
-    """Bring the Kofax window to the foreground before sending keystrokes."""
-    ok = False
-    try:
-        import win32gui, win32con
-        try:
-            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
-        except Exception:
-            pass
-        win32gui.SetForegroundWindow(hwnd)
-        ok = True
-    except Exception:
-        pass
-    if not ok:
-        try:
-            win32com.client.Dispatch("WScript.Shell").AppActivate(title)
-            ok = True
-        except Exception:
-            pass
-    time.sleep(0.6)
-    return ok
-
-
-def _wait_for_stable_file(path, timeout):
-    """Wait for `path` to exist and stop growing (Kofax writes progressively)."""
-    deadline = time.time() + timeout
-    last, stable = -1, 0
-    while time.time() < deadline:
-        if os.path.exists(path):
-            try:
-                size = os.path.getsize(path)
-            except Exception:
-                size = -1
-            if size > 0 and size == last:
-                stable += 1
-                if stable >= 3:
-                    return True
-            else:
-                stable = 0
-            last = size
-        time.sleep(0.5)
-    return os.path.exists(path)
-
-
-
-# ── Config for the Excel + Kofax-PDF-ribbon-add-in conversion method ─────────
-# Exact method, confirmed against this machine's actual Kofax PDF add-in:
-#   1. Open a blank workbook in Microsoft Excel
-#   2. Alt → "Y" "2" → selects the "Kofax PDF" ribbon tab (its KeyTip badge
-#      reads "Y2" — Office assigns two-character KeyTips once a workbook
-#      has more ribbon tabs than single letters/numbers to go around)
-#   3. "Y" → clicks "Open PDF/XPS" on that tab → a normal Windows
-#      file-open dialog appears
-#   4. Type the PDF's full path → Enter → Kofax's own "Kofax Convert
-#      Assistant" window opens and does the conversion
-#   5. If that window warns the output file already exists (e.g. left over
-#      from an earlier run), it is clicked "No" automatically → overwrite
-#   6. Ctrl+5 → Enter → starts / confirms the conversion
-#   7. The resulting workbook is then either opened automatically inside
-#      this same Excel instance, or written straight to Kofax's own default
-#      output folder (which is NOT necessarily next to the PDF — on this
-#      machine it lands under a mapped home-directory path). Either way,
-#      Excel's COM API tells us exactly where it ended up
-#      (`workbook.FullName`), so the file is then copied/relocated to sit
-#      next to the source PDF, matching every other attachment.
-#   8. Close everything, quit Excel, no manual save/close needed.
-#
-# The only guesswork left is step 2/3's KeyTips — if your Kofax add-in ever
-# changes version and the badges shift, open a blank workbook, press Alt
-# once to see the tab-level badges, then press just that tab's badge to see
-# the button-level badges, and update the two constants below.
-KOFAX_TAB_KEYTIP       = "y2"    # KeyTip over the "Kofax PDF" ribbon tab
-KOFAX_OPEN_PDF_KEYTIP  = "y"     # KeyTip over the "Open PDF/XPS" button
-KOFAX_CONVERT_KEYS     = "^5"    # Ctrl+5 — starts the conversion
-KOFAX_OPEN_WAIT        = 15.0    # seconds to wait for each dialog/window to appear
-KOFAX_CONVERT_TIMEOUT  = 180     # seconds to wait for the conversion to finish
-CONVERTED_SUBDIR       = "_converted"   # unused by default (xlsx is saved beside the PDF,
-                                        # per the single-click spec) — kept here in case
-                                        # you want to switch keep_converted behaviour later
-
-
-def _get_excel_hwnd(xl, timeout=15.0):
-    """Excel.Application exposes .Hwnd directly — poll it until it's ready."""
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            hwnd = xl.Hwnd
-            if hwnd:
-                return hwnd
-        except Exception:
-            pass
-        time.sleep(0.3)
-    return None
-
-
-def _click_button_by_text(parent_hwnd, texts, timeout=3.0):
-    """
-    Find a Button-class child control anywhere under `parent_hwnd` whose
-    visible text matches one of `texts` (case-insensitive, '&' mnemonic
-    markers stripped) and click it with a native BM_CLICK message —
-    reliable regardless of the dialog's keyboard mnemonics or tab order.
-    Returns True if a matching button was found and clicked.
-    """
-    try:
-        import win32gui
-        import win32con
-    except Exception:
-        return False
-    wanted = {t.strip().lower() for t in texts}
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        found = {}
-
-        def _cb(hwnd, _):
-            try:
-                cls = win32gui.GetClassName(hwnd)
-                if cls.lower() == "button":
-                    txt = (win32gui.GetWindowText(hwnd) or "").replace("&", "").strip().lower()
-                    if txt in wanted:
-                        found["hwnd"] = hwnd
-            except Exception:
-                pass
-
-        try:
-            win32gui.EnumChildWindows(parent_hwnd, _cb, None)
-        except Exception:
-            pass
-        if found:
-            try:
-                win32gui.SendMessage(found["hwnd"], win32con.BM_CLICK, 0, 0)
-                return True
-            except Exception:
-                return False
-        time.sleep(0.25)
-    return False
-
-
-def _get_documents_folder():
-    """
-    Resolve the user's real "Documents" folder via the Windows shell API —
-    this correctly follows folder redirection (e.g. a mapped home-directory
-    drive), unlike a hardcoded `~\\Documents` guess. Falls back to
-    %USERPROFILE%\\Documents if the shell API isn't available.
-    """
-    try:
-        from win32com.shell import shell, shellcon
-        path = shell.SHGetFolderPath(0, shellcon.CSIDL_PERSONAL, None, 0)
-        if path and os.path.isdir(path):
-            return path
-    except Exception:
-        pass
-    try:
-        fallback = os.path.join(os.environ.get("USERPROFILE", "C:\\"), "Documents")
-        if os.path.isdir(fallback):
-            return fallback
-    except Exception:
-        pass
-    return None
-
-
-def _close_window_containing(title_part, timeout=3.0):
-    """
-    Find any visible top-level window whose title contains `title_part`
-    (e.g. an Excel window Kofax opened on its own, outside our COM handle,
-    to show the converted file) and close it — Alt+F4, then click
-    "Don't Save" / "No" if a save prompt appears. No-op if not found.
-    """
-    win = _find_window(title_part, timeout)
-    if not win:
-        return False
-    hwnd, title = win
-    _activate_window(hwnd, title)
-    time.sleep(0.3)
-    try:
-        shell = win32com.client.Dispatch("WScript.Shell")
-        shell.SendKeys("%{F4}")
-        time.sleep(0.8)
-        _click_button_by_text(hwnd, ["Don't Save", "No"], timeout=2.0)
-    except Exception:
-        pass
-    return True
-
-
-def _candidate_kofax_output_dirs():
-    """
-    Likely folders Kofax's "Open PDF/XPS" conversion saves to by default,
-    in priority order: the real (shell-resolved) Documents folder, plus
-    any OneDrive-redirected Documents folder alongside it (common on
-    corporate O365 machines where Documents is redirected into OneDrive).
-    """
-    dirs = []
-    docs = _get_documents_folder()
-    if docs:
-        dirs.append(docs)
-    home = os.path.expanduser("~")
-    try:
-        for entry in os.listdir(home):
-            if entry.lower().startswith("onedrive"):
-                od_docs = os.path.join(home, entry, "Documents")
-                if os.path.isdir(od_docs) and od_docs not in dirs:
-                    dirs.append(od_docs)
-    except Exception:
-        pass
-    return dirs
-
-
-def _find_recent_output_xlsx(stem, since_ts, timeout):
-    """
-    Search the likely Kofax default-output folders (Documents, OneDrive
-    Documents) for an .xlsx file matching `stem` that was created/modified
-    at or after `since_ts`. Polls until `timeout` seconds have elapsed.
-    Returns the found path, or None.
-    """
-    dirs = _candidate_kofax_output_dirs()
-    stem_l = stem.lower()
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        for d in dirs:
-            try:
-                for fn in os.listdir(d):
-                    if not fn.lower().endswith(".xlsx"):
-                        continue
-                    if stem_l not in fn.lower():
-                        continue
-                    fp = os.path.join(d, fn)
-                    try:
-                        if os.path.getmtime(fp) >= since_ts:
-                            return fp
-                    except Exception:
-                        continue
-            except Exception:
-                continue
-        time.sleep(1.0)
-    return None
-
-
-def convert_pdf_to_excel_kofax(pdf_path, log=None, keep_converted=True, reuse=True, background_mode=False):
-    """
-    Convert a PDF to Excel using the "Kofax PDF" tab inside Microsoft Excel.
-
-    Flow:
-      1. Launch Excel via COM (win32com) and add a blank workbook
-      2. Send Alt → "y2" → "y" to reach Kofax PDF → Open PDF/XPS on the ribbon
-      3. Type the PDF's full path into the resulting Open dialog → Enter
-      4. If Kofax warns the output file already exists, click "No" (overwrite)
-      5. Send Ctrl+5 → Enter to start and confirm the conversion
-      6. Wait for the result (a newly opened workbook in this same Excel
-         instance), read its real save location via COM (`FullName`), and
-         copy/relocate it to sit next to the PDF (Excel's own SaveAs is
-         used instead if the workbook hasn't been saved anywhere yet)
-      7. Close the converted workbook and the blank one, quit Excel
-
-    Only step 2 depends on guessed keystrokes (the ribbon KeyTips); every
-    other step — launching, detecting the result, saving/relocating it, and
-    closing — goes through Excel's COM API directly.
-
-    Returns the .xlsx path (always next to the source PDF), or None on
-    failure. NOTE: this drives the real keyboard for the ribbon navigation
-    and the Kofax dialogs — do not use the mouse or keyboard while it runs.
-    """
-    def _log(m, l="info"):
-        if log:
-            log(m, l)
-
-    stem     = os.path.splitext(os.path.basename(pdf_path))[0]
-    out_dir  = os.path.dirname(os.path.abspath(pdf_path))
-    os.makedirs(out_dir, exist_ok=True)
-    out_xlsx = os.path.join(out_dir, stem + ".xlsx")
-    norm_pdf = os.path.normpath(pdf_path)
-
-    if reuse and os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0:
-        _log(f"  Reusing existing Excel: {os.path.basename(out_xlsx)}", "info")
-        return out_xlsx
-    if os.path.exists(out_xlsx):
-        try:
-            os.remove(out_xlsx)
-        except Exception:
-            pass
-
-    shell = None
-    if not background_mode:
-        try:
-            shell = win32com.client.Dispatch("WScript.Shell")
-        except Exception as e:
-            _log(f"  [ERROR] WScript.Shell unavailable: {e}", "error")
-            return None
-
-    # ── 1. Launch a fresh Excel instance via COM ────────────────────────────
-    _log("  Step 1: Launching Excel…", "info")
-    xl = None
-    try:
-        xl = win32com.client.DispatchEx("Excel.Application")
-        xl.Visible = not background_mode
-        xl.DisplayAlerts = False   # suppress "Save changes?" / overwrite prompts
-        xl.Workbooks.Add()
-        initial_count = xl.Workbooks.Count
-    except Exception as e:
-        _log(f"  [ERROR] Could not start Excel via COM: {e}", "error")
-        return None
-
-    hwnd = _get_excel_hwnd(xl, KOFAX_OPEN_WAIT) if not background_mode else None
-    if not background_mode and not hwnd:
-        _log("  [ERROR] Excel window handle not available.", "error")
-        try:
-            xl.Quit()
-        except Exception:
-            pass
-        return None
-    if not background_mode:
-        ok = _activate_window(hwnd, "Excel")
-        if not ok:
-            _log("  [ERROR] Could not activate Excel window for SendKeys.", "error")
-            try:
-                xl.Quit()
-            except Exception:
-                pass
-            return None
-        _log("  Excel ready.", "info")
-        time.sleep(0.6)
-    else:
-        _log("  Excel started in background mode (not visible).", "info")
-
-    # ── 2. Ribbon: Alt → Kofax PDF tab (y2) → Open PDF/XPS (y) ──────────────
-    _log("  Step 2: Opening Kofax PDF → Open PDF/XPS on the ribbon…", "info")
-    if not background_mode:
-        try:
-            ok = _activate_window(hwnd, "Excel")
-            if not ok:
-                raise RuntimeError("Could not activate Excel window")
-            shell.SendKeys("%")                     # Alt — shows ribbon KeyTips
-            time.sleep(0.5)
-            shell.SendKeys(KOFAX_TAB_KEYTIP)          # "y2" — selects the Kofax PDF tab
-            time.sleep(0.5)
-            shell.SendKeys(KOFAX_OPEN_PDF_KEYTIP)     # "y" — clicks Open PDF/XPS
-            time.sleep(0.8)
-        except Exception as e:
-            _log(f"  [ERROR] Ribbon navigation failed: {e}", "error")
-            try:
-                xl.Quit()
-            except Exception:
-                pass
-            return None
-    else:
-        _log("  Background mode: skipping ribbon SendKeys navigation (best-effort).", "info")
-
-    # ── 3. File-open dialog: type the PDF path → Enter ──────────────────────
-    _log(f"  Step 3: Selecting PDF: {os.path.basename(norm_pdf)}", "info")
-    if not background_mode:
-        file_dlg = (_find_window("Open", KOFAX_OPEN_WAIT)
-                    or _find_window("Choose", 5.0))
-        if file_dlg:
-            ok = _activate_window(file_dlg[0], file_dlg[1])
-            if not ok:
-                _log("  [WARN] Could not activate Open dialog — typing path to active window.", "warn")
-            time.sleep(0.3)
-        else:
-            _log("  [WARN] Open dialog not detected — typing path into the active window anyway.", "warn")
-
-        try:
-            shell.SendKeys(_sk_escape(norm_pdf))
-            time.sleep(0.3)
-            shell.SendKeys("{ENTER}")
-            _log("  PDF path sent → Enter.", "info")
-            time.sleep(0.9)
-        except Exception as e:
-            _log(f"  [ERROR] Could not type the PDF path: {e}", "error")
-            try:
-                xl.Quit()
-            except Exception:
-                pass
-            return None
-    else:
-        _log("  Background mode: attempting COM-only conversion invocation (best-effort).", "info")
-        try:
-            # Try known macro entrypoints for Kofax add-in (best-effort). These are not guaranteed.
-            macros = ["KofaxConvertAssistant", "Kofax_Convert", "KofaxConvertToExcel", "Kofax.PDF.Convert"]
-            called = False
-            for m in macros:
-                try:
-                    xl.Run(m, norm_pdf)
-                    _log(f"  Called xl.Run('{m}', pdf)", "info")
-                    called = True
-                    break
-                except Exception:
-                    pass
-            if not called:
-                try:
-                    xl.Workbooks.Open(norm_pdf)
-                    _log("  Opened PDF in Excel (fallback) — conversion may occur via add-in.", "info")
-                except Exception as e:
-                    _log(f"  [WARN] COM conversion fallback failed: {e}", "warn")
-        except Exception as e:
-            _log(f"  [WARN] Background conversion attempt failed: {e}", "warn")
-
-    # ── 4. Kofax Convert Assistant: dismiss "already exists" if it shows, then Ctrl+5 → Enter ─
-    # This is the same converter window throughout — search for it once,
-    # try the "No" (overwrite) button with a short timeout (fails fast as a
-    # no-op on the very common case where that prompt never appears — the
-    # old code searched for this window twice and waited up to 3s for a
-    # button that usually isn't there, costing several seconds on every
-    # single PDF for nothing), then send Ctrl+5 → Enter directly on it.
-    _log("  Step 4: Kofax converter window → Ctrl+5 → Enter…", "info")
-    if not background_mode:
-        conv_win = (_find_window("Kofax Convert Assistant", 8.0)
-                    or _find_window("Convert Assistant", 4.0)
-                    or _find_window("Kofax", 4.0))
-        if conv_win:
-            _activate_window(conv_win[0], conv_win[1])
-            _log(f"  Converter window: '{conv_win[1][:60]}'", "info")
-            if _click_button_by_text(conv_win[0], ["No"], timeout=1.2):
-                _log("  'Output file already exists' prompt detected — clicked No (overwrite).", "info")
-                time.sleep(0.6)
-        else:
-            _log("  [WARN] Converter window not detected — sending keys to the active window anyway.", "warn")
-            time.sleep(0.8)
-
-        try:
-            shell.SendKeys(KOFAX_CONVERT_KEYS)   # Ctrl+5 — start conversion
-            _log(f"  Sent {KOFAX_CONVERT_KEYS} to start the conversion.", "info")
-            time.sleep(0.9)
-            shell.SendKeys("{ENTER}")            # confirm
-            _log("  Enter sent to confirm.", "info")
-        except Exception as e:
-            _log(f"  [ERROR] Could not send the conversion keys: {e}", "error")
-            try:
-                xl.Quit()
-            except Exception:
-                pass
-            return None
-    else:
-        _log("  Background mode: conversion keys were not sent; waiting briefly for any automated conversion.", "info")
-        time.sleep(1.0)
-
-    # ── 6. Locate the converted file ─────────────────────────────────────────
-    # On this machine, Kofax converts + saves the .xlsx straight to its own
-    # default output folder (typically Documents, or OneDrive-redirected
-    # Documents) and then opens it — it does NOT land in our own `xl`
-    # Excel.Application's Workbooks collection (it's evidently a separate
-    # process/instance), so we check both: a quick opportunistic look at
-    # our own instance first, then a disk search of the likely default
-    # output folders for the rest of the timeout.
-    _log("  Step 5: Waiting for the converted file…", "info")
-    since_ts = time.time() - 3   # small buffer for clock/filesystem skew
-    new_wb = None
-    quick_deadline = time.time() + 6
-    while time.time() < quick_deadline:
-        try:
-            if xl.Workbooks.Count > initial_count:
-                new_wb = xl.Workbooks(xl.Workbooks.Count)
-                break
-        except Exception:
-            pass
-        time.sleep(0.5)
-
-    produced_path = None
-    if new_wb is not None:
-        try:
-            fn = new_wb.FullName
-            if fn and os.path.isfile(fn):
-                produced_path = fn
-        except Exception:
-            pass
-
-    if not produced_path:
-        _log("  Searching Documents / OneDrive Documents for the converted file…", "info")
-        remaining = max(10, KOFAX_CONVERT_TIMEOUT - int(time.time() - since_ts))
-        produced_path = _find_recent_output_xlsx(stem, since_ts, remaining)
-
-    if not produced_path:
-        _log("  [ERROR] Conversion did not produce a findable file within the timeout. "
-             "Check KOFAX_TAB_KEYTIP / KOFAX_OPEN_PDF_KEYTIP near the top of this file, "
-             "or that Kofax's default output folder is Documents / OneDrive Documents.", "error")
-        try:
-            xl.Quit()
-        except Exception:
-            pass
-        return None
-
-    _wait_for_stable_file(produced_path, 20)   # let Kofax finish writing it
-    _log(f"  Found converted file: {produced_path}", "ok")
-
-    # ── 7. Close the Excel window Kofax opened to show the result ───────────
-    # This releases the file lock so it can be moved, and satisfies "no need
-    # to keep the converted workbook open" — it's closed automatically.
-    _log("  Step 6: Closing the Excel window Kofax opened for the result…", "info")
-    if new_wb is not None:
-        try:
-            new_wb.Close(SaveChanges=False)
-        except Exception:
-            pass
-    # Only attempt to close/force-close windows when not running background_mode
-    if not background_mode:
-        for _ in range(3):   # a couple of passes in case more than one window matches
-            if not _close_window_containing(os.path.basename(produced_path), timeout=4.0):
-                break
-            time.sleep(0.4)
-        _close_window_containing(stem, timeout=3.0)
-        time.sleep(0.5)
-    else:
-        _log("  Background mode: skipping window-close actions.", "info")
-
-    # ── 8. Move the converted file beside the PDF, close our blank Excel ────
-    _log(f"  Step 7: Moving the converted file beside the PDF → {os.path.basename(out_xlsx)}", "info")
-    ok = False
-    same_location = os.path.normcase(os.path.abspath(produced_path)) == os.path.normcase(os.path.abspath(out_xlsx))
-    if same_location:
-        ok = os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0
-    else:
-        for attempt in range(4):   # the file may still be briefly locked right after closing
-            try:
-                shutil.move(produced_path, out_xlsx)
-                ok = os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0
-                break
-            except Exception as e:
-                if attempt == 3:
-                    _log(f"  [WARN] Move failed ({e}) — copying instead and leaving the original in place.", "warn")
-                    try:
-                        shutil.copy2(produced_path, out_xlsx)
-                        ok = os.path.exists(out_xlsx) and os.path.getsize(out_xlsx) > 0
-                    except Exception as e2:
-                        _log(f"  [ERROR] Copy also failed: {e2}", "error")
-                else:
-                    time.sleep(1.5)
-
-    try:
-        for i in range(xl.Workbooks.Count, 0, -1):
-            try:
-                xl.Workbooks(i).Close(SaveChanges=False)
-            except Exception:
-                pass
-    except Exception:
-        pass
-    try:
-        xl.Quit()
-    except Exception:
-        pass
-
-    if ok:
-        _log(f"  Converted to Excel: {os.path.basename(out_xlsx)}", "ok")
-        return out_xlsx
-
-    _log(f"  [ERROR] No Excel produced for {os.path.basename(pdf_path)}", "error")
-    return None
-
-# =============================================================================
-# SECTION 4 -- OUTLOOK EMAIL / ATTACHMENT PROCESSING
-# =============================================================================
-
-PO_RE = re.compile(r'\b(4\d{9})\b')   # PO numbers: 4 followed by 9 digits
-
-
-def get_outlook():
-    """Get the running Outlook instance."""
-    try:
-        return win32com.client.GetActiveObject("Outlook.Application")
-    except Exception:
-        return win32com.client.Dispatch("Outlook.Application")
-
-
-def _walk_folders(parent, acc_name, depth, results, max_depth=3):
-    """Recursively walk the Outlook folder tree up to max_depth levels deep."""
-    try:
-        for folder in parent.Folders:
-            try:
-                fname = folder.Name
-                path = f"{acc_name} > {fname}" if depth == 1 else f"{acc_name} (sub) > {fname}"
-                results.append({
-                    "account": acc_name,
-                    "folder": fname,
-                    "full": path,
-                    "depth": depth,
-                    "entry_id": folder.EntryID,
-                    "store_id": folder.StoreID,
-                })
-                if depth < max_depth:
-                    _walk_folders(folder, acc_name, depth + 1, results, max_depth)
-            except Exception:
-                pass
-    except Exception:
-        pass
-
-
-def list_shared_folders():
-    """
-    Return all folders Outlook can see, walking up to 3 levels deep. Shared
-    mailboxes appear as top-level entries in ns.Folders alongside the
-    user's own mailbox.
-    """
-    outlook = get_outlook()
-    ns = outlook.GetNamespace("MAPI")
-    folders = []
-    for account in ns.Folders:
-        try:
-            acc_name = account.Name
-            _walk_folders(account, acc_name, 1, folders, max_depth=3)
-        except Exception:
-            pass
-    return folders
-
-
-def find_folder(account_name, folder_name, entry_id=None, store_id=None):
-    """
-    Locate an Outlook folder object.
-    Priority:
-      1. By EntryID + StoreID (most reliable — survives renames)
-      2. By account name + folder name (walks 3 levels deep)
-    """
-    outlook = get_outlook()
-    ns = outlook.GetNamespace("MAPI")
-
-    if entry_id and store_id:
-        try:
-            return ns.GetFolderFromID(entry_id, store_id)
-        except Exception:
-            pass
-
-    target_acc = account_name.lower().strip()
-    target_fld = folder_name.lower().strip()
-
-    def search(parent, depth):
-        for folder in parent.Folders:
-            try:
-                if folder.Name.lower().strip() == target_fld:
-                    return folder
-                if depth < 3:
-                    found = search(folder, depth + 1)
-                    if found:
-                        return found
-            except Exception:
-                pass
-        return None
-
-    for account in ns.Folders:
-        try:
-            if account.Name.lower().strip() == target_acc:
-                result = search(account, 1)
-                if result:
-                    return result
-        except Exception:
-            pass
-    return None
-
-
-def extract_po_from_subject(subject):
-    """Return the first PO number (4XXXXXXXXX) found in the subject, or None."""
-    m = PO_RE.search(subject or "")
-    return m.group(1) if m else None
-
-
-def sanitise(name):
-    """Remove characters that are illegal in Windows folder/file names."""
-    return re.sub(r'[<>:"/\\|?*]', '_', name).strip()
-
-
-def save_email_as_msg(mail_item, dest_folder, base_name):
-    """Save the email as a .msg file using Outlook SaveAs."""
-    try:
-        msg_path = os.path.join(dest_folder, base_name + ".msg")
-        mail_item.SaveAs(msg_path, 3)   # olMSG = 3
-        return msg_path
-    except Exception:
-        return None
-
-# =============================================================================
-# SECTION 5 -- SQLITE DATABASE (processed-email tracking, activity log, extraction results)
-# =============================================================================
-
-# ── Config — change this ONE path so all users share the same DB + log ────
-SHARED_TRACKER_DIR = r"\portfolioeng_nlr\EFS\PO_Email_Tracker"
-
-DB_FILE       = os.path.join(SHARED_TRACKER_DIR, "processed_emails.db")
-LOG_CSV       = os.path.join(SHARED_TRACKER_DIR, "activity_log.csv")
-LOCK_FILE     = os.path.join(SHARED_TRACKER_DIR, "db.lock")
-
-# Shared Excel tracker — every extracted report is appended as a new row
-# below whatever is already there, so this file grows across every run,
-# every user. Change the path if you want it somewhere other than the
-# shared tracker folder above.
-TRACKER_XLSX      = os.path.join(SHARED_TRACKER_DIR, "Extracted_Report_Tracker.xlsx")
-TRACKER_LOCK_FILE = os.path.join(SHARED_TRACKER_DIR, "tracker_xlsx.lock")
-
-# Final tracker built only from Maximo rows whose data matched the report.
-# Its columns are the Maximo dump's columns (see SECTION 2B).
-MAXIMO_TRACKER_XLSX = os.path.join(SHARED_TRACKER_DIR, "Maximo_Matched_Tracker.xlsx")
-MAXIMO_TRACKER_LOCK = os.path.join(SHARED_TRACKER_DIR, "maximo_tracker.lock")
-
-# Evidence workbook: one row per report — matched AND not matched — with the
-# report value, the Maximo value and the verdict side by side for every
-# checked column. Always written, even when nothing matches.
-MAXIMO_COMPARISON_XLSX = os.path.join(SHARED_TRACKER_DIR, "Maximo_Comparison.xlsx")
-MAXIMO_COMPARISON_LOCK = os.path.join(SHARED_TRACKER_DIR, "maximo_comparison.lock")
-
-CURRENT_USER = os.environ.get("USERNAME", os.environ.get("USER", "unknown"))
-
-
-@contextlib.contextmanager
-def _file_lock(lock_path, timeout=30, stale_after=45):
-    """
-    Acquire a named lock file before a shared-file write. Releases on exit.
-    If the lock file is older than `stale_after` seconds, it's assumed to
-    be abandoned (left behind by a crashed/killed run) and is cleared
-    immediately instead of waiting out the full `timeout` on every call.
-    """
-    deadline = _time.time() + timeout
-    acquired = False
-    while _time.time() < deadline:
-        try:
-            fd = os.open(lock_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-            os.write(fd, f"{CURRENT_USER}|{_time.time()}".encode())
-            os.close(fd)
-            acquired = True
-            break
-        except FileExistsError:
-            try:
-                if _time.time() - os.path.getmtime(lock_path) > stale_after:
-                    os.remove(lock_path)   # abandoned lock — clear it now, don't wait it out
-                    continue
-            except Exception:
-                pass
-            _time.sleep(0.4)
-    if not acquired:
-        raise TimeoutError(f"Could not acquire lock file: {lock_path}")
-    try:
-        yield
-    finally:
-        try:
-            os.remove(lock_path)
-        except Exception:
-            pass
-
-
-def db_lock(timeout=30, stale_after=45):
-    """Lock for the shared SQLite DB — see _file_lock()."""
-    return _file_lock(LOCK_FILE, timeout=timeout, stale_after=stale_after)
-
-
-def init_db():
-    """Create the shared tracker folder and DB (all tables) if missing."""
-    try:
-        os.makedirs(SHARED_TRACKER_DIR, exist_ok=True)
-    except Exception as e:
-        raise RuntimeError(
-            f"Cannot reach shared tracker folder:\n{SHARED_TRACKER_DIR}\n\nError: {e}\n\n"
-            f"Update SHARED_TRACKER_DIR near the top of this file to a network path all users can write to."
-        )
-    conn = sqlite3.connect(DB_FILE, timeout=20)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS processed (
-            entry_id      TEXT PRIMARY KEY,
-            po_number     TEXT,
-            subject       TEXT,
-            sender        TEXT,
-            downloaded_by TEXT,
-            machine       TEXT,
-            target_folder TEXT,
-            file_count    INTEGER DEFAULT 0,
-            processed_at  TEXT
-        )""")
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS activity_log (
-            id            INTEGER PRIMARY KEY AUTOINCREMENT,
-            event         TEXT,
-            entry_id      TEXT,
-            po_number     TEXT,
-            subject       TEXT,
-            sender        TEXT,
-            filename      TEXT,
-            target_path   TEXT,
-            done_by       TEXT,
-            machine       TEXT,
-            ts            TEXT
-        )""")
-    # Extraction results — replaces the old Excel tracker workbook entirely.
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS extractions (
-            id             INTEGER PRIMARY KEY AUTOINCREMENT,
-            entry_id       TEXT,
-            po_number      TEXT,
-            vendor         TEXT,
-            report         TEXT,
-            file_name      TEXT,
-            pdf_path       TEXT,
-            source_xlsx    TEXT,
-            email_subject  TEXT,
-            email_received TEXT,
-            values_json    TEXT,
-            extracted_by   TEXT,
-            machine        TEXT,
-            extracted_at   TEXT
-        )""")
-    existing_cols = [r[1] for r in conn.execute("PRAGMA table_info(extractions)").fetchall()]
-    if "pdf_path" not in existing_cols:
-        try:
-            conn.execute("ALTER TABLE extractions ADD COLUMN pdf_path TEXT")
-        except Exception:
-            pass
-    conn.commit()
-    conn.close()
-
-    if not os.path.exists(LOG_CSV):
-        with open(LOG_CSV, "w", newline="", encoding="utf-8") as f:
-            w = csv.writer(f)
-            w.writerow(["Timestamp", "Event", "PO Number", "Subject", "Sender",
-                        "Filename", "Target Path", "Done By", "Machine"])
-
-
-_thread_local = threading.local()
-
-
-def _conn():
-    """
-    One SQLite connection per thread, reused for the rest of that thread's
-    life instead of reconnecting for every single query. `sqlite3.connect()`
-    over a UNC/network path is the single biggest per-call cost in this
-    file — reusing the connection cuts that out almost entirely for
-    everything after the first call in a given thread (e.g. the whole
-    background download/convert/extract run).
-    """
-    conn = getattr(_thread_local, "conn", None)
-    if conn is None:
-        conn = sqlite3.connect(DB_FILE, timeout=20, check_same_thread=False)
-        _thread_local.conn = conn
-    return conn
-
-
-def _reset_conn():
-    """Drop this thread's cached connection so the next _conn() call opens a fresh one."""
-    try:
-        conn = getattr(_thread_local, "conn", None)
-        if conn is not None:
-            conn.close()
-    except Exception:
-        pass
-    _thread_local.conn = None
-
-
-# ── Processed-email tracking ────────────────────────────────────────────────
-def is_processed(entry_id, log=None):
-    """
-    Check if this email's EntryID is already in the shared tracker.
-    Retries once with a fresh connection on error (covers a transient
-    network hiccup on the UNC path) before falling back to "not processed"
-    — and that fallback is now logged instead of silently swallowed, so a
-    flaky shared drive shows up as a warning rather than silent duplicates.
-    """
-    for attempt in (1, 2):
-        try:
-            conn = _conn()
-            row = conn.execute(
-                "SELECT downloaded_by, processed_at, target_folder FROM processed WHERE entry_id=?",
-                (entry_id,)
-            ).fetchone()
-            return row  # None = not processed; tuple = (user, time, folder)
-        except Exception as e:
-            _reset_conn()
-            if attempt == 2:
-                msg = (f"  [WARN] Shared tracker DB unreachable ({e}) — treating as NOT "
-                       f"processed for this item. Check the network path to SHARED_TRACKER_DIR.")
-                if log:
-                    log(msg, "warn")
-                else:
-                    print(msg)
-                return None  # fail-safe: allow processing if DB is unreachable
-
-
-def mark_processed(entry_id, po_number, subject, sender, target_folder, file_count, log=None):
-    """
-    Record this email as processed in the shared DB. Verifies the write
-    actually landed (rather than assuming success) so a failed insert over
-    a flaky network path is visible instead of silently causing the same
-    email to be re-downloaded on the next run.
-    """
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    machine = os.environ.get("COMPUTERNAME", "unknown")
-    for attempt in (1, 2):
-        try:
-            with db_lock():
-                conn = _conn()
-                conn.execute(
-                    """INSERT OR IGNORE INTO processed
-                       (entry_id,po_number,subject,sender,downloaded_by,machine,
-                        target_folder,file_count,processed_at)
-                       VALUES (?,?,?,?,?,?,?,?,?)""",
-                    (entry_id, po_number, subject, sender, CURRENT_USER,
-                     machine, target_folder, file_count, now)
-                )
-                conn.commit()
-            ok = is_processed(entry_id, log=log) is not None
-            if not ok:
-                msg = f"  [WARN] mark_processed() did not verify for {po_number} — it may be re-downloaded next run."
-                if log:
-                    log(msg, "warn")
-                else:
-                    print(msg)
-            return
-        except Exception as e:
-            _reset_conn()
-            if attempt == 2:
-                msg = f"  [WARN] Could not record {po_number} as processed ({e}) — it may be re-downloaded next run."
-                if log:
-                    log(msg, "warn")
-                else:
-                    print(msg)
-
-
-# ── Activity log ─────────────────────────────────────────────────────────────
-def log_activity(event, entry_id, po, subject, sender, filename, target_path):
-    """Write one row to both the SQLite activity_log and the shared CSV."""
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    machine = os.environ.get("COMPUTERNAME", "unknown")
-    try:
-        with db_lock():
-            conn = _conn()
-            conn.execute(
-                """INSERT INTO activity_log
-                   (event,entry_id,po_number,subject,sender,filename,
-                    target_path,done_by,machine,ts)
-                   VALUES (?,?,?,?,?,?,?,?,?,?)""",
-                (event, entry_id, po, subject, sender, filename,
-                 target_path, CURRENT_USER, machine, now)
-            )
-            conn.commit()
-    except Exception:
-        _reset_conn()
-    try:
-        with open(LOG_CSV, "a", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerow([
-                now, event, po, subject, sender,
-                filename, target_path, CURRENT_USER, machine
-            ])
-    except Exception:
-        pass
-
-
-def get_all_processed():
-    """Return full processed-email history from the shared DB."""
-    try:
-        conn = _conn()
-        rows = conn.execute(
-            """SELECT po_number,subject,sender,downloaded_by,machine,
-                      target_folder,file_count,processed_at
-               FROM processed ORDER BY processed_at DESC"""
-        ).fetchall()
-        return [{"po": r[0], "subject": r[1], "sender": r[2],
-                 "by": r[3], "machine": r[4], "folder": r[5],
-                 "files": r[6], "at": r[7]} for r in rows]
-    except Exception:
-        _reset_conn()
-        return []
-
-
-def get_activity_log(limit=200):
-    """Return recent activity log rows."""
-    try:
-        conn = _conn()
-        rows = conn.execute(
-            """SELECT ts,event,po_number,subject,filename,target_path,done_by,machine
-               FROM activity_log ORDER BY id DESC LIMIT ?""", (limit,)
-        ).fetchall()
-        return [{"ts": r[0], "event": r[1], "po": r[2], "subject": r[3],
-                 "file": r[4], "path": r[5], "by": r[6], "machine": r[7]} for r in rows]
-    except Exception:
-        _reset_conn()
-        return []
-
-
-# ── Extraction results (replaces the old Excel tracker workbook) ──────────
-def save_extraction(entry_id, po, vendor, report, file_name, pdf_path, source_xlsx,
-                     email_subject, email_received, values):
-    """Persist one extracted report's results for the UI's results grid."""
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    machine = os.environ.get("COMPUTERNAME", "unknown")
-    try:
-        with db_lock():
-            conn = _conn()
-            conn.execute(
-                """INSERT INTO extractions
-                   (entry_id,po_number,vendor,report,file_name,pdf_path,source_xlsx,
-                    email_subject,email_received,values_json,extracted_by,machine,extracted_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (entry_id, po, vendor, report, file_name, pdf_path, source_xlsx,
-                 email_subject, email_received, json.dumps(values),
-                 CURRENT_USER, machine, now)
-            )
-            conn.commit()
-    except Exception:
-        _reset_conn()
-
-
-def append_to_tracker_workbook(entry_id, po, vendor, report, file_name,
-                                email_subject, email_received, values, log=None, pdf_path=None):
-    """
-    Append one extracted report as a new row at the BOTTOM of the shared
-    Excel tracker (TRACKER_XLSX) — this never overwrites or reorders
-    existing rows; every run, from every user, just adds more rows
-    underneath whatever is already there.
-
-    Columns: PO Number, Vendor Name, Report Name, File Name, Email
-    Subject, Email Received Date, every extracted field (added
-    automatically the first time it's seen — onboarding a new vendor
-    later just grows the header, it never disturbs older rows), plus
-    Extracted By / Extracted At for traceability.
-
-    Locked with its own lock file (separate from the SQLite DB lock) so
-    a slow Excel save never blocks unrelated database writes. Failure
-    here is non-fatal — the result is already safely in the app's own
-    database either way, so this only ever logs a warning, never breaks
-    the run.
-    """
-    import openpyxl
-
-    def _log(msg, level="info"):
-        if log:
-            log(msg, level)
-
-    row_data = {
-        "PO Number": po,
-        "Vendor Name": vendor,
-        "Report Name": report,
-        "File Name": file_name,
-        "PDF Path": pdf_path or "",
-        "Email Subject": email_subject,
-        "Email Received Date": email_received,
-    }
-    row_data.update(values or {})
-    row_data["Extracted By"] = CURRENT_USER
-    row_data["Extracted At"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-    try:
-        with _file_lock(TRACKER_LOCK_FILE):
-            os.makedirs(os.path.dirname(TRACKER_XLSX), exist_ok=True)
-            if os.path.exists(TRACKER_XLSX):
-                wb = openpyxl.load_workbook(TRACKER_XLSX)
-                ws = wb.active
-                headers = [c.value for c in ws[1]]
-                headers = [h for h in headers if h]   # drop trailing blanks
-            else:
-                wb = openpyxl.Workbook()
-                ws = wb.active
-                ws.title = "Extracted Reports"
-                headers = []
-
-            # Extend the header row with any new columns this row introduces
-            # — existing columns/rows are never touched or reordered.
-            header_changed = False
-            for key in row_data.keys():
-                if key not in headers:
-                    headers.append(key)
-                    header_changed = True
-            if header_changed:
-                for col_idx, h in enumerate(headers, start=1):
-                    ws.cell(row=1, column=col_idx, value=h)
-
-            next_row = ws.max_row + 1   # append below whatever is already there
-
-            for col_idx, h in enumerate(headers, start=1):
-                value = row_data.get(h, "")
-                cell = ws.cell(row=next_row, column=col_idx, value=value)
-                if value and h == "File Name":
-                    pdf_path = row_data.get("PDF Path", "")
-                    if pdf_path:
-                        pdf_uri = Path(pdf_path).resolve().as_uri()
-                        cell.hyperlink = pdf_uri
-                        cell.style = "Hyperlink"
-
-            wb.save(TRACKER_XLSX)
-        _log(f"  Tracker row added (row {next_row} of {os.path.basename(TRACKER_XLSX)}).", "info")
-        return True
-    except Exception as e:
-        _log(f"  [WARN] Could not update the shared tracker workbook ({e}) — "
-             f"the result is still saved in the app's own history.", "warn")
-        return False
-
-
-def get_extractions(limit=1000):
-    """Return extraction results (most recent first) for the results grid."""
-    try:
-        conn = _conn()
-        rows = conn.execute(
-            """SELECT po_number,vendor,report,file_name,pdf_path,source_xlsx,email_subject,
-                      email_received,values_json,extracted_by,machine,extracted_at
-               FROM extractions ORDER BY id DESC LIMIT ?""", (limit,)
-        ).fetchall()
-        # Column order of the SELECT above — keep these indexes in step with it:
-        #   0 po_number      1 vendor        2 report          3 file_name
-        #   4 pdf_path       5 source_xlsx   6 email_subject   7 email_received
-        #   8 values_json    9 extracted_by 10 machine        11 extracted_at
-        out = []
-        for r in rows:
-            try:
-                values = json.loads(r[8]) if r[8] else {}
-            except Exception:
-                values = {}
-            out.append({
-                "po": r[0], "vendor": r[1], "report": r[2], "file": r[3],
-                "pdf_path": r[4], "source_xlsx": r[5], "subject": r[6],
-                "received": r[7], "values": values, "by": r[9], "machine": r[10],
-                "at": r[11], "score": calculate_vendor_score(r[1], values),
-                # Rubric quality score. There is no Maximo row here, so the
-                # RFR criterion cannot confirm correlation to the PO and caps
-                # at 2/3 — the comparison workbook holds the fully-informed
-                # score for rows that were matched.
-                "quality": score_report(values).get("weighted_percent", 0),
-            })
-        return out
-    except Exception:
-        return []
-
-# =============================================================================
-# SECTION 6 -- FLASK APP: ORCHESTRATION, ROUTES, UI
-# =============================================================================
-
-PORT = 5001
 app = Flask(__name__)
+PORT = 5001
+app.config['MAX_CONTENT_LENGTH'] = 120 * 1024 * 1024   # 120 MB total upload
 
-# ── Background job state ─────────────────────────────────────────────────────
-_job = {
-    "running":     False,
-    "phase":       "",          # "DOWNLOAD" | "CONVERT" | "EXTRACT" | ""
-    "log":         [],
-    "summary":     None,
-    "extractions": [],          # live-appended during Phase 3 for the UI grid
+STORE = {}   # last comparison model, keyed by token
+
+# ------------------------------------------------------- light colour palette
+COLORS = {
+    'MATCH':     'C6EFCE',   # light green
+    'PARTIAL':   'FFF2CC',   # light yellow
+    'THRESHOLD': 'FCE4D6',   # light orange
+    'MISSING':   'FFC7CE',   # light red / pink
+    'UNIQUE':    'E4DFEC',   # light purple
+    'NA':        'F2F2F2',   # light grey (criterion not applicable here)
 }
+STATUS_ORDER = ['MATCH', 'PARTIAL', 'THRESHOLD', 'MISSING', 'UNIQUE']
 
+# ================================================================= PARSING
+def clean(s):
+    return re.sub(r'\s+', ' ', s.replace('\xa0', ' ')).strip()
 
-# =============================================================================
-#  3-PHASE PIPELINE
-#  Phase 1 — Download ALL emails  → save MSG + PDFs, build conversion queue
-#  Phase 2 — Convert ALL PDFs     → Kofax (existing working code, untouched)
-#  Phase 3 — Extract ALL xlsx     → search vendor/report → fetch fields → UI
-# =============================================================================
+def load_main_html_from_bytes(raw):
+    msg = email.message_from_bytes(raw)
+    subject = None
+    for k, v in msg.items():
+        if k.lower() == 'subject':
+            subject = v
+    best = ""
+    for part in msg.walk():
+        if part.get_content_type() == 'text/html':
+            payload = part.get_payload(decode=True)
+            if payload:
+                h = payload.decode('utf-8', 'ignore')
+                if len(h) > len(best):
+                    best = h
+    return subject, best
 
-def _make_log(progress_cb):
-    """Return a log(msg, level) function that appends to _job and calls cb."""
-    def log(msg, level="info"):
-        entry = {"t": datetime.now().strftime("%H:%M:%S"), "m": msg, "l": level}
-        _job["log"].append(entry)
-        progress_cb(entry)
-    return log
+def parse_bytes(raw, fallback_name):
+    subject, html = load_main_html_from_bytes(raw)
+    soup = BeautifulSoup(html, 'lxml')
+    vp = soup.select_one('.viewPage') or soup
 
+    task_title = None
+    hf = soup.select_one('.pgHeaderFooter')
+    if hf:
+        for c in hf.find_all(['td', 'th']):
+            t = clean(c.get_text(' '))
+            if t and 'Manual' not in t and 'Export' not in t and len(t) < 60:
+                task_title = t
+                break
+    task_no = None
+    m = re.search(r'\b(\d{2}-\d{2}-\d{2}-\d{3}-\d{3})\b', vp.get_text(' '))
+    if m:
+        task_no = m.group(1)
 
-# ── Phase 1: Download ALL emails ─────────────────────────────────────────────
-def phase1_download(account_name, folder_name, target_root, skip_no_po,
-                    attachment_ext_filter, log, entry_id=None, store_id=None,
-                    start_date=None, end_date=None, include_read=True, include_unread=True,
-                    vendor_domains=None):
-    """
-    Scan the Outlook folder. For every qualifying email:
-      • Save .msg  
-      • Save PDF attachments to PO-numbered folder  
-      • Mark email as processed in shared DB  
+    records = []
+    cur_subtask = None
+    for el in vp.descendants:
+        if getattr(el, 'name', None) is None:
+            continue
+        cls = el.get('class') or []
+        if el.name in ('h1', 'h2', 'h3', 'h4', 'div', 'span', 'p'):
+            txt = clean(el.get_text(' '))
+            if re.match(r'^(Initially )?Examine the ', txt) and len(txt) < 90 and el.find('table') is None:
+                cur_subtask = txt
+        if el.name == 'table' and 'src-table' in cls:
+            cond = None
+            prev = el.find_previous(string=lambda s: s and clean(s).endswith(':') and len(clean(s)) < 60)
+            if prev:
+                cond = clean(prev)
+            for tr in el.find_all('tr'):
+                cells = [clean(c.get_text(' ')) for c in tr.find_all(['td', 'th'])]
+                if len(cells) >= 2:
+                    crit, disp = cells[0], cells[-1]
+                    dl = disp.lower()
+                    disp_norm = 'Accept' if dl.startswith('accept') else ('Reject' if dl.startswith('reject') else disp)
+                    if crit and disp:
+                        records.append({'subtask': cur_subtask or '(root)', 'condition': cond or '',
+                                        'criterion': crit, 'disposition': disp_norm})
+    return {'subject': subject or fallback_name, 'task_no': task_no,
+            'task_title': task_title, 'records': records}
 
-    Filters applied via Outlook's Restrict() BEFORE the loop so only
-    matching emails are iterated — not the entire folder:
-      • Date range  (start_date / end_date)
-      • Read / Unread state
-    `vendor_domains` optionally restricts processing to mail whose sender
-    domain matches one of the given domains (Step 3 vendor filter). None or
-    an empty list means no sender restriction.
+# ================================================================= MATCHING
+def norm_area(s):
+    s = s.lower()
+    s = re.sub(r'\bhp turbine\b', '', s)
+    s = re.sub(r'\bblades\b', 'blade', s)
+    s = re.sub(r'\brotor blade\b', 'blade', s)
+    s = re.sub(r'\binitially\b', '', s)
+    s = re.sub(r'[^a-z0-9 ]', ' ', s)
+    return re.sub(r'\s+', ' ', s).strip()
 
-    Returns list of dicts: {pdf, po, subject, sender, entry_id, received}
-    """
-    queue = []
-    try:
-        folder = find_folder(account_name, folder_name,
-                             entry_id=entry_id, store_id=store_id)
-        if not folder:
-            log(f"Cannot find folder '{folder_name}' in '{account_name}'", "error")
-            return queue
+def norm_crit(s):
+    s = s.lower()
+    s = re.sub(r'\(.*?\)', '', s)
+    s = re.sub(r'refer to.*', '', s)
+    s = re.sub(r'[^a-z0-9., ]', ' ', s)
+    return re.sub(r'\s+', ' ', s).strip(' .,')
 
-        items_all = folder.Items
-        try:
-            items_all.Sort("[ReceivedTime]", True)   # newest first, stable order
-        except Exception:
-            pass
+def numbers(s):
+    return re.findall(r'\d+[.,]?\d*', s)
 
-        # ── Parse the requested window once, up front ─────────────────────────
-        from_dt = to_dt = None
-        if start_date:
-            try:
-                from_dt = datetime.strptime(start_date, "%Y-%m-%d").date()
-            except Exception:
-                log(f"  [WARN] Invalid start date '{start_date}' — ignored", "warn")
-        if end_date:
-            try:
-                to_dt = datetime.strptime(end_date, "%Y-%m-%d").date()
-            except Exception:
-                log(f"  [WARN] Invalid end date '{end_date}' — ignored", "warn")
-        if from_dt and to_dt and from_dt > to_dt:
-            log(f"  [WARN] Start date {start_date} is after end date {end_date} — "
-                f"swapping them", "warn")
-            from_dt, to_dt = to_dt, from_dt
+def related(a, b):
+    """Do these two criteria describe the SAME check (ignoring threshold/wording)?"""
+    na, nb = norm_crit(a['criterion']), norm_crit(b['criterion'])
+    if na == nb:
+        return True
+    return difflib.SequenceMatcher(None, na, nb).ratio() > 0.6
 
-        if not include_read and not include_unread:
-            log("[PHASE 1] Neither Read nor Unread selected — nothing to process.", "warn")
-            return queue
+def crit_key(r):
+    return (norm_crit(r['criterion']), r['disposition'], tuple(numbers(r['criterion'])))
 
-        # Vendor sender-domain filter. Applied per email rather than through
-        # Restrict(): the SMTP address of an Exchange sender lives in a MAPI
-        # property that DASL cannot filter on, so it has to be read per item.
-        domain_list = [d for d in (vendor_domains or []) if d]
-        if domain_list:
-            log(f"[PHASE 1] Vendor filter: only mail from "
-                f"{', '.join('@' + d for d in sorted(set(domain_list)))}", "info")
+# ================================================================= ALL-PAIRS MODEL
+def build_model(parsed):
+    names = [(p['subject'] or 'file')[:45] for p in parsed]
+    ndoc = len(parsed)
 
-        # ── Build a DASL Restrict() filter ────────────────────────────────────
-        # DASL (@SQL=) is used instead of the older "[ReceivedTime] >= '...'"
-        # Jet syntax because Jet expects the *machine's* short-date format:
-        # on a UK-locale PC "08/01/2026" means 8 January, not 1 August, so the
-        # filter silently returns the wrong emails. DASL takes an unambiguous
-        # yyyy-mm-dd string on every locale.
-        #
-        # The end of the range uses "< next day 00:00" rather than
-        # "<= 23:59" so emails received in the final minute are still included.
-        dasl_parts = []
-        if from_dt:
-            dasl_parts.append(
-                "\"urn:schemas:httpmail:datereceived\" >= '%s 00:00'"
-                % from_dt.strftime("%Y-%m-%d"))
-        if to_dt:
-            next_day = to_dt + timedelta(days=1)
-            dasl_parts.append(
-                "\"urn:schemas:httpmail:datereceived\" < '%s 00:00'"
-                % next_day.strftime("%Y-%m-%d"))
-        if include_unread and not include_read:
-            dasl_parts.append("\"urn:schemas:httpmail:read\" = 0")   # unread only
-        elif include_read and not include_unread:
-            dasl_parts.append("\"urn:schemas:httpmail:read\" = 1")   # read only
+    # records grouped by (doc, area)
+    per_doc_area = [dict() for _ in range(ndoc)]
+    area_order, seen = [], set()
+    for di, p in enumerate(parsed):
+        for r in p['records']:
+            a = norm_area(r['subtask'])
+            per_doc_area[di].setdefault(a, []).append(r)
+            if a not in seen:
+                seen.add(a); area_order.append(a)
 
-        # ── Apply the filter, materialising the result into a plain list ──────
-        # The list is built BEFORE any processing starts. A live Outlook
-        # Items collection re-evaluates itself as messages change: with an
-        # unread filter, marking a message read removes it from the collection
-        # mid-loop and every following message shifts down an index, so items
-        # get silently skipped. Copying to a Python list avoids that entirely.
-        source   = items_all
-        filtered = bool(dasl_parts)
+    rows = []
+    # pairwise agreement accumulators
+    co = [[0] * ndoc for _ in range(ndoc)]      # co-present count
+    ag = [[0] * ndoc for _ in range(ndoc)]      # agreement count
 
-        if dasl_parts:
-            restrict_str = "@SQL=" + " AND ".join(dasl_parts)
-            log(f"[PHASE 1] Outlook filter: {restrict_str}", "info")
-            try:
-                source = items_all.Restrict(restrict_str)
-            except Exception as re_err:
-                log(f"[PHASE 1] Restrict() failed ({re_err}) — scanning all emails "
-                    f"and filtering in Python instead.", "warn")
-                source, filtered = items_all, False
+    for area in area_order:
+        # gather this area's records per doc
+        area_recs = [per_doc_area[di].get(area, []) for di in range(ndoc)]
+        pretty = next((rs[0]['subtask'] for rs in area_recs if rs), area)
 
-        mails = []
-        try:
-            m = source.GetFirst()
-            while m is not None:
-                mails.append(m)
-                m = source.GetNext()
-        except Exception as it_err:
-            log(f"[PHASE 1] Could not enumerate items ({it_err})", "error")
-            return queue
-
-        if filtered:
-            log(f"[PHASE 1] {len(mails)} email(s) matched the filter in "
-                f"{account_name} / {folder_name}", "info")
-        else:
-            log(f"[PHASE 1] {len(mails)} email(s) in {account_name} / {folder_name} "
-                f"({'no filter' if not dasl_parts else 'filtering in Python'})", "info")
-
-        for idx, mail in enumerate(mails, start=1):
-            try:
-                if mail.Class != 43:
-                    continue
-
-                subject       = mail.Subject or ""
-                sender        = mail.SenderEmailAddress or ""
-                mail_entry_id = mail.EntryID
-                try:
-                    received_str = mail.ReceivedTime.strftime("%Y-%m-%d %H:%M:%S")
-                except Exception:
-                    received_str = ""
-
-                # ── Date filter (safety net) ──────────────────────────────────
-                # Normally already applied by Restrict() above. This runs when
-                # Restrict() failed, and is also a cheap correctness check that
-                # guarantees nothing outside the window is ever processed.
-                if from_dt or to_dt:
-                    try:
-                        recv_dt = mail.ReceivedTime.date()
-                    except Exception:
-                        log(f"  [SKIP-NODATE] No received date: {subject[:45]}", "warn")
+        # ---- cluster criteria across docs (one member per doc per cluster)
+        clusters = []   # each: {members:{di:rec}}
+        for di in range(ndoc):
+            for r in area_recs[di]:
+                placed = False
+                for cl in clusters:
+                    if di in cl['members']:
                         continue
-                    if from_dt and recv_dt < from_dt:
-                        if not filtered:
-                            log(f"  [SKIP-DATE] {recv_dt} before {from_dt}: {subject[:45]}", "warn")
-                        continue
-                    if to_dt and recv_dt > to_dt:
-                        if not filtered:
-                            log(f"  [SKIP-DATE] {recv_dt} after {to_dt}: {subject[:45]}", "warn")
-                        continue
+                    if related(cl['rep'], r):
+                        cl['members'][di] = r
+                        placed = True
+                        break
+                if not placed:
+                    clusters.append({'rep': r, 'members': {di: r}})
 
-                # ── Read / Unread filter (safety net) ─────────────────────────
-                # Normally already applied by Restrict(). Runs before the
-                # duplicate lookup so emails outside the selected read state
-                # are never reported as skipped duplicates.
-                if not (include_read and include_unread):
-                    try:
-                        is_unread = bool(mail.UnRead)
-                    except Exception:
-                        is_unread = None
-                    if is_unread is not None:
-                        if include_unread and not include_read and not is_unread:
-                            continue
-                        if include_read and not include_unread and is_unread:
-                            continue
+        for cl in clusters:
+            present = cl['members']
+            keys = {di: crit_key(r) for di, r in present.items()}
+            consensus = Counter(keys.values()).most_common(1)[0][0]
+            cons_txt, cons_disp, cons_nums = consensus
+            only_one = len(present) == 1
 
-                # ── Vendor sender-domain filter ───────────────────────────────
-                # Runs before the duplicate lookup so mail from other senders
-                # is never recorded as a skipped duplicate.
-                if domain_list:
-                    sdom = _sender_domain(mail)
-                    if not sdom:
-                        log(f"  [SKIP-SENDER] Sender address unavailable: "
-                            f"{subject[:45]}", "warn")
-                        continue
-                    if not _domain_matches(sdom, domain_list):
-                        log(f"  [SKIP-SENDER] @{sdom}: {subject[:45]}", "warn")
-                        continue
-
-                already = is_processed(mail_entry_id, log=log)
-                if already:
-                    who  = already[0] or "unknown"
-                    when = already[1] or "?"
-                    log(f"  [SKIP-DUP] {who} on {when}: {subject[:45]}", "warn")
-                    continue
-
-                po = extract_po_from_subject(subject)
-                if not po:
-                    if skip_no_po:
-                        log(f"  [SKIP-NOPO] {subject[:60]}", "warn")
-                        log_activity("SKIP-NOPO", mail_entry_id, "", subject,
-                                     sender, "", target_root)
-                        continue
+            cells = []
+            for di in range(ndoc):
+                if di in present:
+                    r = present[di]; k = keys[di]
+                    if only_one:
+                        st = 'UNIQUE'
+                    elif k == consensus:
+                        st = 'MATCH'
+                    elif k[0] == cons_txt and k[1] == cons_disp and k[2] != cons_nums:
+                        st = 'THRESHOLD'
                     else:
-                        po = "NO_PO_" + sanitise(subject[:20])
+                        st = 'PARTIAL'
+                    cells.append({'text': r['criterion'] + '  \u2192 ' + r['disposition'], 'status': st})
+                else:
+                    cells.append({'text': '\u2014', 'status': 'NA' if only_one else 'MISSING'})
 
-                atts      = mail.Attachments
-                att_count = atts.Count
-                wanted    = []
-                for a in range(1, att_count + 1):
-                    try:
-                        att      = atts.Item(a)
-                        name_low = (att.FileName or "").lower()
-                        if attachment_ext_filter:
-                            if any(name_low.endswith(x) for x in attachment_ext_filter):
-                                wanted.append(att)
-                        else:
-                            wanted.append(att)
-                    except Exception:
-                        pass
+            # pairwise stats over docs that BOTH have this criterion
+            pres_idx = list(present.keys())
+            for x in range(len(pres_idx)):
+                for y in range(x + 1, len(pres_idx)):
+                    i, j = pres_idx[x], pres_idx[y]
+                    co[i][j] += 1; co[j][i] += 1
+                    if keys[i] == keys[j]:
+                        ag[i][j] += 1; ag[j][i] += 1
 
-                if not wanted:
-                    log(f"  [SKIP-NOATT] {subject[:60]}", "warn")
-                    log_activity("SKIP-NOATT", mail_entry_id, po, subject,
-                                 sender, "", target_root)
-                    continue
+            cond = Counter([r['condition'] for r in present.values()]).most_common(1)[0][0]
+            rep_txt = next((r['criterion'] for di, r in present.items() if keys[di] == consensus),
+                           list(present.values())[0]['criterion'])
+            rows.append({'area': pretty, 'condition': cond, 'criterion': rep_txt, 'cells': cells})
 
-                po_folder  = os.path.join(target_root, po)
-                os.makedirs(po_folder, exist_ok=True)
-                ts_prefix  = datetime.now().strftime("%Y%m%d_%H%M%S")
-                saved_files = []
+    # per-doc summary
+    summary = []
+    for di in range(ndoc):
+        c = {s: 0 for s in STATUS_ORDER}
+        c['present'] = 0
+        for r in rows:
+            st = r['cells'][di]['status']
+            if st in c:
+                c[st] += 1
+            if st in ('MATCH', 'PARTIAL', 'THRESHOLD', 'UNIQUE'):
+                c['present'] += 1
+        summary.append(c)
 
-                msg_path = save_email_as_msg(mail, po_folder, f"{po}_{ts_prefix}")
-                if msg_path:
-                    saved_files.append(msg_path)
-                    log(f"  📧 MSG: {os.path.basename(msg_path)}", "ok")
-                    log_activity("SAVED-MSG", mail_entry_id, po, subject,
-                                 sender, os.path.basename(msg_path), msg_path)
-
-                for att in wanted:
-                    try:
-                        safe_name = sanitise(att.FileName)
-                        dest      = os.path.join(po_folder, f"{ts_prefix}_{safe_name}")
-                        att.SaveAsFile(dest)
-                        saved_files.append(dest)
-                        log(f"  📎 {safe_name} → {po}/", "ok")
-                        log_activity("SAVED-ATT", mail_entry_id, po, subject,
-                                     sender, safe_name, dest)
-                        if safe_name.lower().endswith(".pdf"):
-                            queue.append({
-                                "pdf":      dest,
-                                "po":       po,
-                                "subject":  subject,
-                                "sender":   sender,
-                                "entry_id": mail_entry_id,
-                                "received": received_str,
-                            })
-                    except Exception as ae:
-                        log(f"  [ERROR] Save failed: {ae}", "error")
-                        log_activity("ERROR-ATT", mail_entry_id, po, subject,
-                                     sender, str(att.FileName), str(ae))
-
-                mark_processed(mail_entry_id, po, subject, sender,
-                               po_folder, len(saved_files), log=log)
-                log_activity("COMPLETED", mail_entry_id, po, subject, sender,
-                             f"{len(saved_files)} files", po_folder)
-                log(f"[OK] {po} — {subject[:55]} ({len(saved_files)} file(s))", "ok")
-
-            except Exception as e:
-                log(f"[ERROR] Item {idx}: {e}", "error")
-
-    except Exception:
-        log(f"[FATAL] {traceback.format_exc()}", "error")
-
-    log(f"[PHASE 1 DONE] {len(queue)} PDF(s) queued for Kofax conversion.", "ok")
-    return queue
-
-
-# ── Phase 2: Convert ALL PDFs via Kofax (existing working code called here) ──
-def phase2_convert(queue, log, keep_converted=True):
-    """
-    For each PDF queued in Phase 1, call convert_pdf_to_excel_kofax()
-    (the existing working function — completely unchanged).
-    Adds "xlsx" key to each queue item.
-    """
-    log(f"[PHASE 2] Converting {len(queue)} PDF(s) to Excel via Kofax…", "info")
-
-    for item in queue:
-        pdf = item["pdf"]
-        po  = item["po"]
-        log(f"  Converting: {os.path.basename(pdf)}  ({po})", "info")
-        try:
-            # pass through background_mode if provided on the queue item
-            bg = item.get("background_mode", False)
-            xlsx = convert_pdf_to_excel_kofax(
-                pdf, log=log, keep_converted=keep_converted, reuse=True, background_mode=bg)
-            item["xlsx"] = xlsx
-            if xlsx:
-                log(f"  ✅ Excel: {os.path.basename(xlsx)}", "ok")
-                log_activity("CONVERTED-TO-EXCEL", item["entry_id"], po,
-                             item["subject"], item["sender"],
-                             os.path.basename(pdf), xlsx)
+    # pairwise agreement percentage matrix
+    pairs = []
+    for i in range(ndoc):
+        row = []
+        for j in range(ndoc):
+            if i == j:
+                row.append(None)
             else:
-                log(f"  ❌ Conversion failed: {os.path.basename(pdf)}", "error")
-                log_activity("ERROR-CONVERT", item["entry_id"], po,
-                             item["subject"], item["sender"],
-                             os.path.basename(pdf), "Kofax conversion failed")
-        except Exception as e:
-            item["xlsx"] = None
-            log(f"  [ERROR] {os.path.basename(pdf)}: {e}", "error")
+                row.append(round(100.0 * ag[i][j] / co[i][j]) if co[i][j] else None)
+        pairs.append(row)
 
-    done   = sum(1 for i in queue if i.get("xlsx"))
-    failed = len(queue) - done
-    log(f"[PHASE 2 DONE] {done} converted, {failed} failed.", "ok")
-    return queue
+    return {'names': names, 'task_no': parsed[0]['task_no'], 'task_title': parsed[0]['task_title'],
+            'rows': rows, 'summary': summary, 'pairs': pairs, 'co': co,
+            'generated': datetime.now().strftime('%d %b %Y  %H:%M')}
 
-
-# ── Phase 3: Extract fields from Excel, push results live to UI ──────────────
-def phase3_extract(queue, log):
-    """
-    For each converted xlsx:
-      1. extract_excel_fields() — searches for vendor + report keyword,
-         pulls the data cells.
-      2. save_extraction()      — persists to SQLite.
-      3. _job["extractions"]    — appended live so poll returns new cards
-         to the UI before the job finishes.
-    """
-    ready = [i for i in queue if i.get("xlsx")]
-    log(f"[PHASE 3] Extracting data from {len(ready)} Excel file(s)…", "info")
-
-    matched   = 0
-    unmatched = 0
-
-    for item in ready:
-        xlsx     = item["xlsx"]
-        po       = item["po"]
-        subject  = item["subject"]
-        sender   = item["sender"]
-        entry_id = item["entry_id"]
-        received = item["received"]
-
-        log(f"  Searching: {os.path.basename(xlsx)}", "info")
-        try:
-            res = extract_excel_fields(xlsx, email_subject=subject)
-        except Exception as e:
-            log(f"  [ERROR] extract_excel_fields: {e}", "error")
+# ================================================================= FILTER (shared by UI + download)
+def filter_rows(rows, statuses, query):
+    sset = set(statuses) if statuses else set(STATUS_ORDER)
+    q = (query or '').lower().strip()
+    out = []
+    for r in rows:
+        cstat = [c['status'] for c in r['cells']]
+        if not any(s in sset for s in cstat):
             continue
+        if q:
+            hay = (r['area'] + ' ' + r['condition'] + ' ' + r['criterion'] + ' ' +
+                   ' '.join(c['text'] for c in r['cells'])).lower()
+            if q not in hay:
+                continue
+        out.append(r)
+    return out
 
-        if not res:
-            unmatched += 1
-            log(f"  ⚠️  No vendor/report match: {os.path.basename(xlsx)}", "warn")
-            log_activity("EXTRACT-NO-MATCH", entry_id, po, subject,
-                         sender, os.path.basename(xlsx), xlsx)
-            continue
+# ================================================================= EXCEL
+def write_excel(model, rows):
+    wb = Workbook()
+    thin = Side(style='thin', color='C8CED8')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    wrap = Alignment(wrap_text=True, vertical='top')
+    center = Alignment(horizontal='center', vertical='center', wrap_text=True)
+    hdr_fill = PatternFill('solid', fgColor='305496')          # header still readable, text white
+    hdr_font = Font(name='Arial', bold=True, color='FFFFFF', size=10)
 
-        save_extraction(
-            entry_id=entry_id, po=po, vendor=res["vendor"],
-            report=res["report"], file_name=os.path.basename(item["pdf"]),
-            pdf_path=item["pdf"], source_xlsx=xlsx, email_subject=subject,
-            email_received=received, values=res["values"])
-        log_activity("EXTRACTED", entry_id, po, subject, sender,
-                     os.path.basename(xlsx), xlsx)
+    ws = wb.active
+    ws.title = 'Heatmap'
+    titles = ['Inspection Area', 'Condition', 'Criterion'] + model['names']
+    for j, t in enumerate(titles, 1):
+        c = ws.cell(1, j, t); c.fill = hdr_fill; c.font = hdr_font; c.alignment = center; c.border = border
+    for j, w in enumerate([26, 16, 46] + [40] * len(model['names']), 1):
+        ws.column_dimensions[get_column_letter(j)].width = w
+    r, last = 2, None
+    for row in rows:
+        ws.cell(r, 1, row['area'] if row['area'] != last else '').alignment = wrap
+        last = row['area']
+        ws.cell(r, 2, row['condition']).alignment = wrap
+        ws.cell(r, 3, row['criterion']).alignment = wrap
+        for k, cell in enumerate(row['cells']):
+            xc = ws.cell(r, 4 + k, cell['text'])
+            xc.fill = PatternFill('solid', fgColor=COLORS[cell['status']])
+            xc.alignment = wrap; xc.font = Font(name='Arial', size=9); xc.border = border
+        for j in range(1, 4):
+            ws.cell(r, j).font = Font(name='Arial', size=9); ws.cell(r, j).border = border
+        r += 1
+    ws.freeze_panes = 'D2'
+    if r > 2:
+        ws.auto_filter.ref = "A1:%s%d" % (get_column_letter(len(titles)), r - 1)
 
-        append_to_tracker_workbook(
-            entry_id=entry_id, po=po, vendor=res["vendor"], report=res["report"],
-            file_name=os.path.basename(item["pdf"]), email_subject=subject,
-            email_received=received, values=res["values"], log=log,
-            pdf_path=item["pdf"])
+    # Summary
+    ss = wb.create_sheet('Summary')
+    ss.cell(1, 1, 'Task').font = Font(name='Arial', bold=True)
+    ss.cell(1, 2, "%s  (%s)" % (model['task_title'] or '', model['task_no'] or '')).font = Font(name='Arial')
+    ss.cell(2, 1, 'Rows exported').font = Font(name='Arial', bold=True)
+    ss.cell(2, 2, len(rows)).font = Font(name='Arial')
+    heads = ['Document', 'Match', 'Partial', 'Threshold diff', 'Missing', 'Unique', 'Criteria present']
+    for j, h in enumerate(heads, 1):
+        c = ss.cell(4, j, h); c.fill = hdr_fill; c.font = hdr_font; c.alignment = center; c.border = border
+    for i, (nm, cnt) in enumerate(zip(model['names'], model['summary'])):
+        rr = 5 + i
+        ss.cell(rr, 1, nm).font = Font(name='Arial', size=10)
+        for j, key in enumerate(['MATCH', 'PARTIAL', 'THRESHOLD', 'MISSING', 'UNIQUE', 'present'], 2):
+            cc = ss.cell(rr, j, cnt[key]); cc.alignment = center; cc.border = border; cc.font = Font(name='Arial', size=10)
+    for j, w in enumerate([40, 9, 9, 14, 9, 9, 16], 1):
+        ss.column_dimensions[get_column_letter(j)].width = w
+    # legend
+    lr = 7 + len(model['names'])
+    ss.cell(lr, 1, 'Legend').font = Font(name='Arial', bold=True)
+    for i, (st, lab) in enumerate([('MATCH', 'Match - all documents agree'),
+                                   ('PARTIAL', 'Partial - wording differs, same intent'),
+                                   ('THRESHOLD', 'Threshold diff - numeric limit differs'),
+                                   ('MISSING', 'Missing - criterion absent in this document'),
+                                   ('UNIQUE', 'Unique - criterion only in this document'),
+                                   ('NA', 'Not applicable')]):
+        cc = ss.cell(lr + 1 + i, 1, lab)
+        cc.fill = PatternFill('solid', fgColor=COLORS[st]); cc.font = Font(name='Arial', size=10)
 
-        # Push live to UI (poll endpoint streams these during Phase 3)
-        _job["extractions"].append({
-            "po":       po,
-            "vendor":   res["vendor"],
-            "report":   res["report"],
-            "file":     os.path.basename(item["pdf"]),
-            "pdf_path": item["pdf"],
-            "subject":  subject,
-            "received": received,
-            "values":   res["values"],
-            "report_text": res.get("report_text", ""),
-            "score":    calculate_vendor_score(res["vendor"], res["values"]),
-            "at":       datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        })
+    # Pairwise agreement matrix
+    pm = wb.create_sheet('Pairwise')
+    pm.cell(1, 1, 'All-pairs agreement (%) - share of shared criteria that match exactly').font = Font(name='Arial', bold=True)
+    for j, nm in enumerate(model['names'], 2):
+        c = pm.cell(3, j, nm); c.fill = hdr_fill; c.font = hdr_font; c.alignment = center; c.border = border
+    for i, nm in enumerate(model['names']):
+        rr = 4 + i
+        c = pm.cell(rr, 1, nm); c.fill = hdr_fill; c.font = hdr_font; c.alignment = Alignment(wrap_text=True); c.border = border
+        for j in range(len(model['names'])):
+            v = model['pairs'][i][j]
+            cc = pm.cell(rr, 2 + j, '\u2014' if v is None else v)
+            cc.alignment = center; cc.border = border; cc.font = Font(name='Arial', size=10)
+            if v is not None:
+                shade = 'C6EFCE' if v >= 90 else ('FFF2CC' if v >= 70 else 'FFC7CE')
+                cc.fill = PatternFill('solid', fgColor=shade)
+    pm.column_dimensions['A'].width = 34
+    for j in range(len(model['names'])):
+        pm.column_dimensions[get_column_letter(2 + j)].width = 18
 
-        matched += 1
-        log(f"  ✅ {res['vendor']} — {res['report']} | PO {po}", "ok")
-        for col, val in res["values"].items():
-            log(f"     {col}: {val or '(empty)'}", "ok" if val else "warn")
+    # Details (full text, unfiltered)
+    ds = wb.create_sheet('Details (all)')
+    for j, t in enumerate(titles, 1):
+        c = ds.cell(1, j, t); c.fill = hdr_fill; c.font = hdr_font; c.alignment = center; c.border = border
+    for j, w in enumerate([26, 16, 46] + [40] * len(model['names']), 1):
+        ds.column_dimensions[get_column_letter(j)].width = w
+    for i, row in enumerate(model['rows'], 2):
+        ds.cell(i, 1, row['area']).alignment = wrap
+        ds.cell(i, 2, row['condition']).alignment = wrap
+        ds.cell(i, 3, row['criterion']).alignment = wrap
+        for k, cell in enumerate(row['cells']):
+            ds.cell(i, 4 + k, cell['text']).alignment = wrap
+    ds.freeze_panes = 'D2'
 
-    log(f"[PHASE 3 DONE] {matched} matched, {unmatched} unmatched.", "ok")
-    return {"matched": matched, "unmatched": unmatched}
+    bio = io.BytesIO(); wb.save(bio); bio.seek(0)
+    return bio
 
-
-# ── Background job runner ─────────────────────────────────────────────────────
-# ── Phase 4: Cross-check extracted reports against the Maximo dump ──────────
-def phase4_maximo_match(maximo_path, log):
-    """
-    For every report extracted in Phase 3:
-      1. Filter the Maximo dump by the report's PO number
-      2. Compare the MAXIMO_MATCH_RULES columns against the extracted values
-      3. Write a row to the COMPARISON workbook — always, matched or not, so
-         both outcomes are visible side by side
-      4. On a full match, also append the Maximo row to the matched tracker
-
-    Reads the extractions Phase 3 streamed into _job["extractions"] and writes
-    the verdict back onto each one so the UI cards can show it.
-
-    Returns {"matched", "mismatch", "no_po_rows", "checked", "compared"}.
-    """
-    counts = {"matched": 0, "mismatch": 0, "no_po_rows": 0,
-              "checked": 0, "compared": 0}
-    extractions = _job.get("extractions", [])
-
-    if not maximo_path:
-        log("[PHASE 4] No Maximo file selected — cross-check skipped.", "warn")
-        return counts
-    if not extractions:
-        log("[PHASE 4] Nothing was extracted — cross-check skipped.", "warn")
-        return counts
-
-    log(f"[PHASE 4] Loading Maximo dump: {os.path.basename(maximo_path)}", "info")
-    maximo = load_maximo_dump(maximo_path, log=log)
-    if not maximo:
-        log("[PHASE 4] Maximo dump could not be read — cross-check skipped.", "error")
-        return counts
-
-    rule_summary = ", ".join(f"{r['maximo']}~{r['report']}" for r in MAXIMO_MATCH_RULES)
-    log(f"[PHASE 4] Checking {len(extractions)} report(s) on: {rule_summary}", "info")
-
-    for ext in extractions:
-        po     = ext.get("po", "")
-        values = ext.get("values", {}) or {}
-        counts["checked"] += 1
-
-        result  = match_report_against_maximo(po, values, maximo)
-        status  = result["status"]
-        context = {"po": po,
-                   "vendor":    ext.get("vendor", ""),
-                   "report":    ext.get("report", ""),
-                   "file_name": ext.get("file", ""),
-                   "pdf_path":  ext.get("pdf_path", ""),
-                   "subject":   ext.get("subject", ""),
-                   "received":  ext.get("received", "")}
-
-        ext["maximo_status"] = status
-        ext["maximo_checks"] = result.get("checks", [])
-
-        # Log every rule so a mismatch explains itself
-        for c in result.get("checks", []):
-            icon = {"match": "✓", "differ": "✗", "blank": "–"}[c["status"]]
-            opt  = " (optional)" if c["optional"] else ""
-            detail = f" — {c['note']}" if c["note"] else ""
-            log(f"     {icon} {c['maximo']} vs {c['report']}{opt}: "
-                f"{c['maximo_value'] or '(blank)'} / "
-                f"{c['report_value'] or '(blank)'}{detail}",
-                "ok" if c["status"] == "match" else
-                ("warn" if c["status"] == "blank" or c["optional"] else "error"))
-
-        # ── Comparison workbook: both sheets, for EVERY report ───────────────
-        # Sheet 1 "Report vs Maximo"        — did the report agree with Maximo?
-        # Sheet 2 "Extracted Report Details" — what did we read, and how good
-        #                                      is the report against the rubric?
-        if append_to_maximo_comparison(context, result, log=log):
-            counts["compared"] += 1
-
-        # ── Reverse check: search the report for every Maximo value ──────────
-        # Independent of whether the forward comparison matched — it answers a
-        # different question ("is this value anywhere in the report?") and is
-        # what criterion 2 is scored on.
-        reverse = reverse_check_report(ext.get("report_text", ""), result.get("row"))
-        ext["reverse"] = reverse
-        if reverse:
-            hits = sum(1 for r in reverse if r["found"])
-            log(f"     Reverse check: {hits}/{len(reverse)} Maximo value(s) "
-                f"found in the report text", "ok" if hits else "warn")
-            for r in reverse:
-                if not r["value"] or r["value"] == "(any date)":
-                    continue
-                log(f"        {'✓' if r['found'] else '✗'} "
-                    f"{r['maximo'] or r['detail']}: '{r['value'][:40]}' — {r['how']}",
-                    "ok" if r["found"] else "warn")
-
-        score = score_report(values, result.get("row"), reverse_results=reverse)
-        ext["score"] = score
-        append_to_extracted_details_sheet(
-            dict(context, maximo_status_label={
-                "matched": "MATCHED", "mismatch": "NOT MATCHED",
-                "no_po_rows": "PO NOT IN MAXIMO", "no_maximo": "NO MAXIMO FILE",
-            }.get(status, status)),
-            values, score, log=log, reverse_results=reverse)
-
-        log(f"     Report score: {score['weighted_percent']}% of the "
-            f"{score['total_weight']:g}% weighting applied — "
-            + "; ".join(f"{c['id']} {c['level']}/3 ({c['level_name']})"
-                        for c in score["criteria"]),
-            "ok" if score["weighted_percent"] >= 80 else "warn")
-
-        if status == "no_po_rows":
-            counts["no_po_rows"] += 1
-            log(f"  ⚠️  PO {po}: not present in the Maximo dump — "
-                f"recorded in the comparison sheet", "warn")
-            continue
-
-        if status != "matched":
-            counts["mismatch"] += 1
-            log(f"  ✗ PO {po}: {result['matched']} matched, "
-                f"{result['differed']} differed, {result['blank']} blank "
-                f"— not added to the tracker, see the comparison sheet", "warn")
-            continue
-
-        matched_rules = "; ".join(f"{c['maximo']}={c['maximo_value']}"
-                                  for c in result["checks"] if c["status"] == "match")
-        ok = append_to_maximo_tracker(
-            result["row"], maximo["headers"],
-            dict(context, matched_rules=matched_rules), log=log)
-
-        if ok:
-            counts["matched"] += 1
-            ext["maximo_row"] = result["row"]
-            log(f"  ✅ PO {po}: all rules matched — Maximo row added to "
-                f"{os.path.basename(MAXIMO_TRACKER_XLSX)}", "ok")
-            log_activity("MAXIMO-MATCHED", ext.get("entry_id", ""), po,
-                         ext.get("subject", ""), "", ext.get("file", ""),
-                         MAXIMO_TRACKER_XLSX)
-        else:
-            counts["mismatch"] += 1
-
-    log(f"[PHASE 4 DONE] {counts['matched']} matched and written to the tracker, "
-        f"{counts['mismatch']} not matched, "
-        f"{counts['no_po_rows']} PO not found in Maximo.", "ok")
-    log(f"[PHASE 4] {counts['compared']} row(s) written to "
-        f"{os.path.basename(MAXIMO_COMPARISON_XLSX)} — sheet "
-        f"'{COMPARISON_SHEET}' shows matched and not-matched side by side, "
-        f"sheet '{EXTRACTED_DETAILS_SHEET}' holds every extracted field "
-        f"plus the rubric score.", "ok")
-    return counts
-
-
-
-def _run_job(account, folder, target, skip_no_po, ext_filter,
-             entry_id=None, store_id=None, keep_converted=True,
-             start_date=None, end_date=None, background_mode=False,
-             include_read=True, include_unread=True, maximo_path=None,
-             vendor_domains=None):
-
-    _job["running"]     = True
-    _job["phase"]       = ""
-    _job["log"]         = []
-    _job["summary"]     = None
-    _job["extractions"] = []
-
-    def cb(entry):
-        _job["log"].append(entry)
-
-    log = _make_log(cb)
-
-    try:
-        # ── Phase 1: Download ─────────────────────────────────────────────────
-        _job["phase"] = "DOWNLOAD"
-        log("═══ PHASE 1 — Downloading emails & saving PDFs ═══", "info")
-        queue = phase1_download(account, folder, target, skip_no_po, ext_filter,
-                    log, entry_id=entry_id, store_id=store_id,
-                    start_date=start_date, end_date=end_date,
-                    include_read=include_read, include_unread=include_unread,
-                    vendor_domains=vendor_domains)
-
-        # Attach the background_mode flag to every queued item so Phase 2 can honor it
-        if background_mode and queue:
-            for it in queue:
-                it['background_mode'] = True
-
-        # ── Phase 2: Convert (Kofax — existing working code) ─────────────────
-        _job["phase"] = "CONVERT"
-        log("═══ PHASE 2 — Converting PDFs to Excel via Kofax ═══", "info")
-        queue = phase2_convert(queue, log, keep_converted=keep_converted)
-
-        # ── Phase 3: Extract & display ────────────────────────────────────────
-        _job["phase"] = "EXTRACT"
-        log("═══ PHASE 3 — Extracting data from Excel files ═══", "info")
-        counts = phase3_extract(queue, log)
-
-        # ── Phase 4: Cross-check against the Maximo dump ──────────────────────
-        mx_counts = {"matched": 0, "mismatch": 0, "no_po_rows": 0,
-                     "checked": 0, "compared": 0}
-        if maximo_path:
-            _job["phase"] = "MAXIMO"
-            log("═══ PHASE 4 — Cross-checking against Maximo ═══", "info")
-            mx_counts = phase4_maximo_match(maximo_path, log)
-        else:
-            log("Phase 4 skipped — no Maximo file was selected.", "info")
-
-        _job["summary"] = {
-            "processed":         sum(1 for i in queue),
-            "files_saved":       [i["pdf"] for i in queue] +
-                                 [i["xlsx"] for i in queue if i.get("xlsx")],
-            "errors":            sum(1 for i in queue if not i.get("xlsx")),
-            "tracker_rows":      counts["matched"],
-            "tracker_unmatched": counts["unmatched"],
-            "maximo_matched":    mx_counts["matched"],
-            "maximo_mismatch":   mx_counts["mismatch"],
-            "maximo_no_po":      mx_counts["no_po_rows"],
-            "maximo_compared":   mx_counts.get("compared", 0),
-            "maximo_tracker":    MAXIMO_TRACKER_XLSX if maximo_path else "",
-            "maximo_comparison": MAXIMO_COMPARISON_XLSX if maximo_path else "",
-        }
-
-    except Exception as e:
-        log(f"[FATAL] {e}", "error")
-    finally:
-        _job["phase"]   = ""
-        _job["running"] = False
-
-
-def _run_kofax_test_job(pdf_path, keep_converted=True, background_mode=False):
-    """
-    Background thread for 'Test Kofax on one PDF' — converts a single PDF,
-    extracts its fields from the resulting workbook, and reports the
-    result, for debugging/vendor onboarding (no email context involved).
-    """
-    _job["running"] = True
-    _job["log"] = []
-    _job["summary"] = None
-
-    def log(msg, level="info"):
-        _job["log"].append({"t": datetime.now().strftime("%H:%M:%S"), "m": msg, "l": level})
-
-    try:
-        log(f"Kofax test on: {pdf_path}", "info")
-        log("Do NOT touch the mouse or keyboard until this finishes.", "warn")
-        xlsx = convert_pdf_to_excel_kofax(pdf_path, log=log,
-                            keep_converted=keep_converted, reuse=False,
-                            background_mode=background_mode)
-        if not xlsx:
-            log("Conversion failed — check KOFAX_TAB_KEYTIP / KOFAX_OPEN_PDF_KEYTIP near the top of this file.", "error")
-            _job["summary"] = {"processed": 1, "files_saved": [], "errors": 1,
-                               "tracker_rows": 0, "tracker_unmatched": 0}
-            return
-        log(f"Converted workbook: {xlsx}", "ok")
-
-        res = extract_excel_fields(xlsx)
-        if not res:
-            log("Workbook created, but no known vendor/report template was matched in it.", "warn")
-            _job["summary"] = {"processed": 1, "files_saved": [xlsx], "errors": 0,
-                               "tracker_rows": 1, "tracker_unmatched": 1}
-            return
-
-        log(f"Matched: {res['vendor']} - {res['report']}", "ok")
-        for col, val in res["values"].items():
-            log(f"   {col}: {val or '(empty)'}", "ok" if val else "warn")
-
-        # Persist so it also shows up under "Extracted Report Details" for review.
-        test_entry_id = f"TEST-{datetime.now().strftime('%Y%m%d%H%M%S')}"
-        test_received = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        save_extraction(
-            entry_id=test_entry_id, po="(manual test)",
-            vendor=res["vendor"], report=res["report"], file_name=os.path.basename(pdf_path),
-            pdf_path=pdf_path, source_xlsx=xlsx, email_subject="(Test Kofax on one PDF)",
-            email_received=test_received, values=res["values"])
-        append_to_tracker_workbook(
-            entry_id=test_entry_id, po="(manual test)", vendor=res["vendor"], report=res["report"],
-            file_name=os.path.basename(pdf_path), email_subject="(Test Kofax on one PDF)",
-            email_received=test_received, values=res["values"], log=log,
-            pdf_path=pdf_path)
-
-        _job["summary"] = {"processed": 1, "files_saved": [xlsx], "errors": 0,
-                           "tracker_rows": 1, "tracker_unmatched": 0}
-    except Exception as e:
-        log(f"[FATAL] {e}", "error")
-    finally:
-        _job["running"] = False
-
-
-# ── Flask routes ─────────────────────────────────────────────────────────
-@app.route("/")
+# ================================================================= ROUTES
+@app.route('/')
 def index():
-    return render_template_string(HTML_PAGE)
+    return Response(INDEX_HTML, mimetype='text/html')
 
-
-@app.route("/api/folders", methods=["GET"])
-def api_folders():
+@app.route('/compare', methods=['POST'])
+def compare():
     try:
-        return jsonify({"ok": True, "folders": list_shared_folders()})
+        files = [f for f in request.files.getlist('files') if f and f.filename]
+        if len(files) < 2:
+            return jsonify({'ok': False, 'error': 'Please choose at least 2 MHTML files.'}), 400
+        parsed = [parse_bytes(f.read(), secure_filename(f.filename)) for f in files]
+        empties = [p['subject'] for p in parsed if not p['records']]
+        if len([p for p in parsed if p['records']]) < 2:
+            return jsonify({'ok': False, 'error': 'Fewer than 2 files contained inspection criteria. '
+                            'Make sure each snapshot has the task open in Pinpoint before saving as MHTML.'}), 400
+        model = build_model(parsed)
+        token = uuid.uuid4().hex[:12]
+        STORE[token] = model
+        payload = {k: model[k] for k in ('names', 'task_no', 'task_title', 'rows', 'summary', 'pairs', 'generated')}
+        payload['token'] = token
+        payload['warnings'] = ['"%s" had no criteria (empty or a different task).' % e for e in empties]
+        return jsonify({'ok': True, 'model': payload})
     except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
-
-@app.route("/api/browse", methods=["POST"])
-def api_browse():
-    """Open a Windows folder-picker dialog and return the selected path."""
+@app.route('/download', methods=['POST'])
+def download():
+    data = request.get_json(force=True, silent=True) or {}
+    model = STORE.get(data.get('token'))
+    if not model:
+        return jsonify({'ok': False, 'error': 'Result expired - run the comparison again.'}), 404
+    rows = filter_rows(model['rows'], data.get('statuses'), data.get('query'))
+    if not rows:
+        rows = model['rows']   # never export an empty sheet
+    bio = write_excel(model, rows)
+    fname = 'CAIRO-Assist_%s_%s.xlsx' % (model['task_no'] or 'task', datetime.now().strftime('%Y%m%d_%H%M%S'))
+    mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     try:
-        import tkinter as tk
-        from tkinter import filedialog
-        root = tk.Tk(); root.withdraw(); root.attributes("-topmost", True)
-        path = filedialog.askdirectory(title="Select Target Folder")
-        root.destroy()
-        return jsonify({"ok": True, "path": path or ""})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
+        return send_file(bio, as_attachment=True, attachment_filename=fname, mimetype=mime)
+    except TypeError:
+        return send_file(bio, as_attachment=True, download_name=fname, mimetype=mime)
 
-
-@app.route("/api/vendor_domains", methods=["GET"])
-def api_vendor_domains():
-    """Vendor -> sender-domain map, for the Step 3 vendor filter checkboxes."""
-    return jsonify({"ok": True,
-                    "vendors": [{"name": v, "domains": d}
-                                for v, d in sorted(VENDOR_EMAIL_DOMAINS.items())]})
-
-
-@app.route("/api/browse_file", methods=["POST"])
-def api_browse_file():
-    """
-    Open a Windows file-picker and return the selected file's full path.
-
-    Used for the Maximo dump. A browser <input type="file"> only exposes the
-    file name, never the path, so the picker is opened server-side — the
-    server and the browser are the same machine here.
-    """
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-        root = tk.Tk(); root.withdraw(); root.attributes("-topmost", True)
-        path = filedialog.askopenfilename(
-            title="Select Maximo dump file",
-            filetypes=[("Excel workbooks", "*.xlsx *.xlsm *.xls"), ("All files", "*.*")])
-        root.destroy()
-        return jsonify({"ok": True, "path": path or ""})
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-
-
-@app.route("/api/maximo_preview", methods=["POST"])
-def api_maximo_preview():
-    """
-    Validate a Maximo dump before the run: confirm it opens, that the PO
-    column exists, and report how many rows and PO numbers it holds. Also
-    returns which of the configured match columns are actually present.
-    """
-    data = request.get_json() or {}
-    path = (data.get("path") or "").strip()
-    if not path:
-        return jsonify({"ok": False, "error": "No path given."})
-    if not os.path.exists(path):
-        return jsonify({"ok": False, "error": "File not found."})
-
-    info = load_maximo_dump(path)
-    if not info:
-        return jsonify({"ok": False,
-                        "error": f"Could not read the file, or it has no "
-                                 f"'{MAXIMO_PO_COLUMN}' column."})
-
-    wanted  = [r["maximo"] for r in MAXIMO_MATCH_RULES]
-    present = [c for c in wanted if c in info["headers"]]
-    missing = [c for c in wanted if c not in info["headers"]]
-    return jsonify({"ok": True, "rows": info["rows"],
-                    "pos": len(info["by_po"]),
-                    "po_column": MAXIMO_PO_COLUMN,
-                    "present": present, "missing": missing})
-
-
-@app.route("/api/start", methods=["POST"])
-def api_start():
-    """The single 'Process Emails' click — runs the entire pipeline."""
-    if _job["running"]:
-        return jsonify({"ok": False, "error": "A job is already running."})
-    data = request.get_json() or {}
-    account = data.get("account", "").strip()
-    folder = data.get("folder", "").strip()
-    target = data.get("target", "").strip()
-    skip_no_po = data.get("skip_no_po", True)
-    ext_types = data.get("ext_types", [".pdf"])
-    ext_filter = [e.lower() for e in ext_types]   # empty list = all types
-    entry_id = data.get("entry_id", "")
-    store_id = data.get("store_id", "")
-    keep_converted = bool(data.get("keep_converted", True))
-    start_date = data.get("start_date", "")
-    end_date = data.get("end_date", "")
-    include_read = bool(data.get("include_read", True))
-    include_unread = bool(data.get("include_unread", True))
-    background_mode = bool(data.get("background_mode", False))
-    maximo_path = (data.get("maximo_path") or "").strip()
-
-    # Step 3 vendor filter: the UI sends vendor names; map them to the sender
-    # domains on file. Unknown names are ignored rather than rejected, so
-    # renaming a vendor cannot break a run.
-    selected_vendors = data.get("vendors") or []
-    vendor_domains = []
-    for v in selected_vendors:
-        vendor_domains.extend(VENDOR_EMAIL_DOMAINS.get(v, []))
-    vendor_domains = sorted(set(vendor_domains))
-
-    if not account or not folder:
-        return jsonify({"ok": False, "error": "Account and folder are required."})
-    if not target or not os.path.isdir(target):
-        return jsonify({"ok": False, "error": "Target folder does not exist or is empty."})
-    if maximo_path and not os.path.exists(maximo_path):
-        return jsonify({"ok": False,
-                        "error": f"Maximo file not found:\n{maximo_path}"})
-    if start_date and end_date:
-        try:
-            datetime.strptime(start_date, "%Y-%m-%d")
-            datetime.strptime(end_date, "%Y-%m-%d")
-        except Exception:
-            return jsonify({"ok": False, "error": "Invalid date format for start or end date."})
-
-    threading.Thread(target=_run_job,
-             args=(account, folder, target, skip_no_po, ext_filter),
-             kwargs={"entry_id": entry_id, "store_id": store_id,
-                 "keep_converted": keep_converted,
-                 "start_date": start_date, "end_date": end_date,
-                 "background_mode": background_mode,
-                 "include_read": include_read, "include_unread": include_unread,
-                 "maximo_path": maximo_path or None,
-                 "vendor_domains": vendor_domains or None},
-             daemon=True).start()
-    return jsonify({"ok": True})
-
-
-@app.route("/api/test_kofax", methods=["POST"])
-def api_test_kofax():
-    """Pick one PDF and run the full Kofax + extraction pipeline on it."""
-    if _job["running"]:
-        return jsonify({"ok": False, "error": "A job is already running."})
-    data = request.get_json() or {}
-    keep_converted = bool(data.get("keep_converted", True))
-    background_mode = bool(data.get("background_mode", False))
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-        root = tk.Tk(); root.withdraw(); root.attributes("-topmost", True)
-        pdf_path = filedialog.askopenfilename(
-            title="Select one PDF to test the Kofax conversion",
-            filetypes=[("PDF file", "*.pdf")])
-        root.destroy()
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)})
-    if not pdf_path:
-        return jsonify({"ok": False, "error": "No file selected."})
-    threading.Thread(target=_run_kofax_test_job, args=(pdf_path, keep_converted, background_mode), daemon=True).start()
-    return jsonify({"ok": True, "path": pdf_path})
-
-
-@app.route("/api/poll", methods=["GET"])
-def api_poll():
-    offset     = int(request.args.get("offset", 0))
-    ext_offset = int(request.args.get("ext_offset", 0))
-    return jsonify({
-        "running":     _job["running"],
-        "phase":       _job.get("phase", ""),
-        "log":         _job["log"][offset:],
-        "summary":     _job["summary"],
-        "extractions": _job.get("extractions", [])[ext_offset:],
-    })
-
-
-@app.route("/api/history", methods=["GET"])
-def api_history():
-    return jsonify({"ok": True, "rows": get_all_processed()})
-
-
-@app.route("/api/activity", methods=["GET"])
-def api_activity():
-    limit = int(request.args.get("limit", 200))
-    return jsonify({"ok": True, "rows": get_activity_log(limit)})
-
-
-@app.route("/api/extractions", methods=["GET"])
-def api_extractions():
-    """Extracted Report Details tab — vendor/report options included for filters."""
-    limit = int(request.args.get("limit", 1000))
-    return jsonify({"ok": True, "rows": get_extractions(limit),
-                    "vendors": VENDOR_NAMES, "reports": REPORT_NAMES})
-
-
-@app.route("/api/open_pdf", methods=["GET"])
-def api_open_pdf():
-    path = request.args.get("path", "")
-    if not path:
-        return jsonify({"ok": False, "error": "Missing file path."}), 400
-    try:
-        path = os.path.abspath(path)
-        if not os.path.isfile(path):
-            return jsonify({"ok": False, "error": "File not found."}), 404
-        return send_file(path, as_attachment=False)
-    except Exception as e:
-        return jsonify({"ok": False, "error": str(e)}), 500
-
-
-@app.route("/api/tracker_info", methods=["GET"])
-def api_tracker_info():
-    return jsonify({
-        "ok": True,
-        "shared_path": SHARED_TRACKER_DIR,
-        "db_file": DB_FILE,
-        "log_csv": LOG_CSV,
-        "tracker_xlsx": TRACKER_XLSX,
-        "current_user": CURRENT_USER,
-        "db_exists": os.path.exists(DB_FILE),
-        "csv_exists": os.path.exists(LOG_CSV),
-        "tracker_xlsx_exists": os.path.exists(TRACKER_XLSX),
-    })
-
-
-# ── HTML / CSS / JS ─────────────────────────────────────────────────────────
-HTML_PAGE = r"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>PO Email Downloader — ALTEN / Rolls-Royce</title>
+# ================================================================= FRONT-END
+INDEX_HTML = r"""<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CAIRO-Assist</title>
 <style>
-:root{
-  --bg:#eef2f9;--surface:#fff;--surface2:#f1f5fb;--border:#c8d4e8;
-  --accent:#1a4fad;--accent2:#1d6fdb;--green:#059669;--red:#dc2626;
-  --amber:#d97706;--text:#1e293b;--muted:#475569;
-}
-*{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:system-ui,"Segoe UI",sans-serif;font-size:14px;background:var(--bg);color:var(--text);}
-header{background:var(--surface);border-bottom:3px solid var(--accent);padding:12px 28px;
-  display:flex;align-items:center;gap:18px;box-shadow:0 2px 6px rgba(0,0,0,.08);}
-.logo-rr{background:#1a1a1a;color:#fff;font-weight:900;font-size:15px;padding:6px 10px;border-radius:4px;letter-spacing:1px;}
-.logo-alten{background:var(--accent);color:#fff;font-weight:800;font-size:15px;padding:6px 10px;border-radius:4px;}
-.header-divider{width:1px;height:36px;background:var(--border);}
-.header-title h1{font-size:20px;font-weight:800;color:var(--accent);}
-.header-title p{font-size:12px;color:var(--muted);margin-top:2px;}
-main{max-width:1040px;margin:28px auto;padding:0 20px;}
-.steps{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;}
-.step-pill{padding:5px 14px;border-radius:20px;font-size:12px;font-weight:700;
-  background:var(--surface2);border:1.5px solid var(--border);color:var(--muted);}
-.step-pill.active{background:var(--accent);color:#fff;border-color:var(--accent);}
-.card{background:var(--surface);border:1px solid var(--border);border-radius:10px;
-  padding:20px 22px;margin-bottom:16px;box-shadow:0 1px 4px rgba(0,0,0,.06);}
-.card-title{font-size:15px;font-weight:700;color:var(--accent);margin-bottom:12px;
-  display:flex;align-items:center;gap:8px;}
-.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px;}
-.form-group{display:flex;flex-direction:column;gap:4px;}
-label{font-size:12px;font-weight:600;color:var(--muted);}
-select,input[type=text]{padding:8px 10px;border:1.5px solid var(--border);border-radius:6px;
-  font-size:13px;background:var(--surface2);color:var(--text);outline:none;
-  transition:border-color .15s;width:100%;}
-select:focus,input:focus{border-color:var(--accent);}
-.path-row{display:flex;gap:8px;align-items:center;}
-.path-row input{flex:1;}
-.btn-browse{padding:7px 14px;background:var(--surface2);border:1.5px solid var(--border);
-  border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;white-space:nowrap;transition:background .15s;}
-.btn-browse:hover{background:var(--border);}
-.check-row{display:flex;gap:18px;margin-top:6px;flex-wrap:wrap;}
-.check-row label{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:400;
-  color:var(--text);cursor:pointer;}
-input[type=checkbox]{width:15px;height:15px;accent-color:var(--accent);}
-.btn{padding:9px 22px;border:none;border-radius:7px;cursor:pointer;font-size:14px;
-  font-weight:700;transition:opacity .15s;}
-.btn:disabled{opacity:.45;cursor:not-allowed;}
-.btn-primary{background:var(--accent);color:#fff;}
-.btn-primary:hover:not(:disabled){background:var(--accent2);}
-.btn-sm{padding:5px 12px;font-size:12px;}
-#progressWrap{display:none;margin-top:14px;}
-.prog-bar-bg{height:10px;background:var(--surface2);border-radius:6px;border:1px solid var(--border);
-  overflow:hidden;margin-bottom:6px;}
-.prog-bar{height:100%;width:0%;background:var(--accent);transition:width .3s;border-radius:6px;}
-.phase-banner{display:none;padding:9px 16px;border-radius:10px;font-size:12px;
-    font-weight:700;margin:8px 0;text-align:center;letter-spacing:.4px;
-    animation:phasePulse 1.6s ease-in-out infinite;}
-.phase-banner.dl{background:rgba(0,174,239,.1);border:1.5px solid rgba(0,174,239,.4);color:#00AEEF;}
-.phase-banner.cv{background:rgba(139,92,246,.1);border:1.5px solid rgba(139,92,246,.4);color:#a78bfa;}
-.phase-banner.ex{background:rgba(16,185,129,.1);border:1.5px solid rgba(16,185,129,.4);color:#10B981;}
-@keyframes phasePulse{0%,100%{opacity:.7;}50%{opacity:1;}}
-.result-card{background:rgba(255,255,255,.04);border:1.5px solid rgba(255,255,255,.08);
-    border-radius:14px;padding:14px 16px;margin-bottom:10px;border-left:5px solid #10B981;}
-.result-card-hdr{display:flex;align-items:center;justify-content:space-between;
-    margin-bottom:8px;flex-wrap:wrap;gap:6px;}
-.rbadge{display:inline-block;padding:2px 9px;border-radius:20px;font-size:10px;font-weight:700;}
-.rgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:6px;margin-top:8px;}
-.rfield{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);
-    border-radius:8px;padding:7px 9px;}
-.rfield-lbl{font-size:9px;color:#64748b;font-weight:700;text-transform:uppercase;margin-bottom:2px;}
-.rfield-val{font-size:13px;font-weight:700;color:#e2e8f0;}
-#progMsg{font-size:12px;color:var(--muted);}
-#logBox{background:#0f172a;color:#e2e8f0;font-family:Consolas,monospace;font-size:12px;
-  padding:12px;border-radius:8px;height:280px;overflow-y:auto;display:none;margin-top:10px;}
-.log-ok{color:#4ade80;} .log-warn{color:#fbbf24;} .log-err{color:#f87171;} .log-info{color:#93c5fd;}
-#summaryGrid{display:none;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px;}
-.sum-card{background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;
-  padding:12px;text-align:center;}
-.sum-val{font-size:22px;font-weight:800;color:var(--accent);}
-.sum-lbl{font-size:11px;color:var(--muted);margin-top:2px;}
-table{width:100%;border-collapse:collapse;font-size:13px;}
-th{background:var(--surface2);font-size:11px;font-weight:700;text-transform:uppercase;
-  color:var(--muted);padding:7px 10px;border-bottom:2px solid var(--border);text-align:left;
-  cursor:pointer;user-select:none;}
-th:hover{color:var(--accent);}
-td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top;}
-tr:last-child td{border:none;}
-.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;}
-.badge-po{background:#dbeafe;color:#1e40af;}
-.badge-vendor{background:#ede9fe;color:#5b21b6;}
-.tabs{display:flex;gap:0;margin-bottom:16px;border-bottom:2px solid var(--border);}
-.tab{padding:8px 20px;cursor:pointer;font-weight:600;font-size:13px;border:none;
-  background:none;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-2px;
-  transition:all .15s;}
-.tab.active{color:var(--accent);border-bottom-color:var(--accent);}
-footer{text-align:center;font-size:11px;color:var(--muted);padding:18px 0 30px;
-  border-top:1px solid var(--border);margin-top:28px;}
-.filter-row{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center;}
-.filter-row input,.filter-row select{width:auto;min-width:160px;}
-.detail-row td{background:var(--surface2);padding:12px 16px;}
-.detail-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px 18px;}
-.detail-field{font-size:12px;}
-.detail-field b{color:var(--muted);display:block;font-size:10px;text-transform:uppercase;
-  letter-spacing:.03em;margin-bottom:2px;}
-.expand-btn{background:none;border:1px solid var(--border);border-radius:5px;cursor:pointer;
-  font-size:11px;padding:3px 9px;color:var(--accent);}
-</style>
-</head>
+ :root{--bg:#eef2f9;--surface:#fff;--surface2:#f5f8fd;--border:#c8d4e8;--accent:#1a4fad;--accent2:#1d6fdb;
+   --text:#1e293b;--muted:#5b6675;--mono:'IBM Plex Mono',Consolas,monospace;
+   --c-match:#C6EFCE;--c-partial:#FFF2CC;--c-thr:#FCE4D6;--c-miss:#FFC7CE;--c-uni:#E4DFEC;--c-na:#F2F2F2;}
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,"Segoe UI",sans-serif;font-size:14px}
+ .mono{font-family:var(--mono)}
+ /* header like TPCR: logo left corner, title, logo right corner, light grey bar */
+ header{display:flex;align-items:center;gap:16px;background:linear-gradient(180deg,#f6f8fb,#e9eef6);
+   border-bottom:2px solid #cfd8e6;padding:10px 18px}
+ .brandbox{width:52px;height:40px;display:flex;align-items:center;justify-content:center;background:#fff;
+   border:1px solid var(--border);border-radius:6px;overflow:hidden;flex:0 0 auto}
+ .brandbox img{max-width:100%;max-height:100%;object-fit:contain}
+ .header-title{flex:1}
+ .header-title h1{margin:0;font-size:20px;color:#12203a}
+ .header-title .subtitle{margin:2px 0 0;color:var(--muted);font-size:12px}
+ .fallback-alten{font-weight:800;color:#111;font-size:13px}.fallback-alten span{color:#e2001a}
+ .fallback-rr{font-weight:800;color:#00205b;font-size:14px;letter-spacing:1px}
+ .wrap{max-width:1600px;margin:0 auto;padding:18px 20px}
+ .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-bottom:16px}
+ .card h2{margin:0 0 4px;font-size:15px}.card p.hint{margin:0 0 12px;color:var(--muted);font-size:12px}
+ .pills{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+ .pill{background:var(--surface2);border:1px solid var(--border);border-radius:16px;padding:3px 12px;font-size:12px;color:var(--muted)}
+ .pill b{color:var(--accent)}
+ .doctypes{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;margin-top:6px}
+ .dt{display:inline-flex;align-items:center;gap:7px;font-size:14px;cursor:pointer;color:var(--text)}
+ .dt input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+ .dt.soon{color:#9aa6b6;cursor:not-allowed}
+ .dt.soon s{color:#9aa6b6}
+ .dt .soon-tag{color:#c05252;font-size:11px;font-style:italic}
+ .dt.soon input{cursor:not-allowed}
+ .drop{border:2px dashed var(--border);border-radius:10px;background:var(--surface2);padding:22px;text-align:center;cursor:pointer}
+ .drop.hi{border-color:var(--accent2);background:#e8f0fe}.drop input{display:none}
+ .filelist{margin:12px 0 0;padding:0;list-style:none}
+ .filelist li{display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:#fff}
+ .filelist li .nm{flex:1;font-size:13px}
+ .filelist li .rm{color:#dc2626;cursor:pointer;border:none;background:none;font-size:16px}
+ .row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px}
+ button.primary{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:14px;cursor:pointer}
+ button.primary:disabled{background:#9db4d8;cursor:not-allowed}
+ button.ghost{background:#fff;border:1px solid var(--border);border-radius:8px;padding:9px 16px;cursor:pointer}
+ #progressWrap{margin-top:12px;display:none}
+ #progressBar{height:8px;background:var(--accent2);border-radius:5px;width:0;transition:width .3s}
+ #progressMsg{font-size:12px;color:var(--muted);margin-top:5px;display:block}
+ .err{background:#fee2e2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:10px 12px;font-size:13px;margin-top:12px}
+ .warn{background:#fef3c7;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:8px 12px;font-size:12px;margin-top:10px}
+ #results{display:none}
+ .engines{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+ .ecard{border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:#fff;min-width:210px;flex:1}
+ .ecard h3{margin:0 0 8px;font-size:13px}
+ .bar{display:flex;height:12px;border-radius:6px;overflow:hidden;border:1px solid #e2e5e2}.bar span{display:block}
+ .counts{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:8px;font-size:12px;color:#42505f}.counts b{font-variant-numeric:tabular-nums}
+ .matrix{border-collapse:collapse;font-size:12px;margin-top:4px}
+ .matrix th,.matrix td{border:1px solid var(--border);padding:6px 9px;text-align:center}
+ .matrix th{background:var(--surface2);font-weight:600}
+ .matrix td.self{background:#eef2f9;color:#9aa6b6}
+ .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
+ .toolbar input[type=search]{padding:8px 11px;border:1px solid var(--border);border-radius:7px;min-width:250px;font-size:13px}
+ .chip{border:1px solid var(--border);background:#fff;border-radius:20px;padding:5px 11px;font-size:12px;cursor:pointer;user-select:none;display:inline-flex;align-items:center;gap:7px}
+ .chip .sw{width:12px;height:12px;border-radius:3px;border:1px solid #0002}.chip.off{opacity:.35}
+ .dlnote{font-size:11px;color:var(--muted)}
+ .grid{border:1px solid var(--border);border-radius:8px;overflow:auto;background:#fff;max-height:70vh}
+ table.heat{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px}
+ table.heat th,table.heat td{padding:8px 10px;border-bottom:1px solid #eceef2;border-right:1px solid #eceef2;vertical-align:top;text-align:left}
+ table.heat thead th{position:sticky;top:0;background:#eef2f9;color:#22314f;z-index:3;font-weight:600;font-size:12px;border-bottom:1px solid #cfd8e6}
+ table.heat tbody th.area{position:sticky;left:0;background:#fbfcfe;z-index:2;font-weight:600;min-width:150px;max-width:180px}
+ td.crit{min-width:250px;max-width:330px;color:#26313f}
+ td.cell{min-width:200px;max-width:300px;position:relative}
+ td.cell .disp{display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;background:#0000000f;margin-left:4px}
+ .st-MATCH{background:var(--c-match)}.st-PARTIAL{background:var(--c-partial)}.st-THRESHOLD{background:var(--c-thr)}
+ .st-MISSING{background:var(--c-miss)}.st-UNIQUE{background:var(--c-uni)}.st-NA{background:var(--c-na);color:#9aa6b6}
+ tr.arowtop th.area{border-top:2px solid #d3dcea}tr.arowtop td{border-top:2px solid #eef0f4}
+ .flag{position:absolute;top:4px;right:5px;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;background:#0000000f;color:#4b5563}
+ footer{color:var(--muted);font-size:11px;text-align:center;padding:16px}
+</style></head>
 <body>
-
 <header>
-  <div class="logo-rr">RR</div>
-  <div class="logo-alten">ALTEN</div>
-  <div class="header-divider"></div>
+  <div class="brandbox" title="ALTEN">
+    <img src="https://www.alten.com/wp-content/uploads/2019/01/favicon-alten.png" alt="ALTEN"
+         onerror="this.outerHTML='<div class=&quot;fallback-alten&quot;>AL<span>T</span>EN</div>'">
+  </div>
   <div class="header-title">
-    <h1>PO Email Attachment Downloader</h1>
-    <p>Single-click: download, convert, extract, and display — no manual steps after Process Emails.</p>
+    <h1>CAIRO-Assist</h1>
+    <p class="subtitle">Criteria Analysis &amp; Inspection Reconciliation &mdash; all-document comparison &middot; Internal Use Only</p>
+  </div>
+  <div class="brandbox" title="Rolls-Royce">
+    <img src="https://www.rolls-royce.com/~/media/Images/R/Rolls-Royce/logo/rebrand-svg-logo.svg" alt="Rolls-Royce"
+         onerror="this.outerHTML='<div class=&quot;fallback-rr&quot;>RR</div>'">
   </div>
 </header>
 
-<main>
-
-  <div class="steps">
-    <div class="step-pill active">Step 1 — Select Mailbox &amp; Folder</div>
-    <div class="step-pill" id="step2pill">Step 2 — Set Target Folder</div>
-    <div class="step-pill" id="step3pill">Step 3 — Process Emails</div>
-  </div>
-
-  <!-- ── STEP 1: Mailbox & folder ── -->
-  <div class="card">
-    <div class="card-title">📬 Step 1 — Mailbox &amp; Folder</div>
-    <div class="form-row">
-      <div class="form-group">
-        <label>Account (Mailbox)</label>
-        <select id="selAccount" onchange="filterFolders()">
-          <option value="">— Load folders first —</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Folder (e.g. Inbox)</label>
-        <select id="selFolder" onchange="updateFolderBadge(); checkReady()">
-          <option value="">— Select account first —</option>
-        </select>
-      </div>
-    </div>
-    <button class="btn btn-primary btn-sm" onclick="loadFolders()">🔄 Load Outlook Folders</button>
-    <span id="folderStatus" style="font-size:12px;color:var(--muted);margin-left:10px;"></span>
-    <div id="selectedFolderBadge" style="display:none;margin-top:10px;padding:8px 12px;
-         background:#dbeafe;border:1.5px solid #93c5fd;border-radius:7px;font-size:13px;">
-      📬 Selected: <b id="selectedFolderLabel">—</b>
+<div class="wrap">
+  <div class="card" id="docTypeCard">
+    <h2 style="color:var(--accent)">HeatMap</h2>
+    <p class="hint">Tick <b>Manuals</b> to compare maintenance-manual inspection criteria (Accept/Reject) across
+       MHTML snapshots. The other document types are coming soon and will use the same heat-map engine.</p>
+    <div class="doctypes">
+      <label class="dt"><input type="checkbox" id="dt-manuals" checked onchange="checkReady()"> <b>Manuals</b></label>
+      <label class="dt soon"><input type="checkbox" disabled> <s>TV</s> <span class="soon-tag">(coming soon)</span></label>
+      <label class="dt soon"><input type="checkbox" disabled> <s>Concession</s> <span class="soon-tag">(coming soon)</span></label>
+      <label class="dt soon"><input type="checkbox" disabled> <s>RST &amp; TRM</s> <span class="soon-tag">(coming soon)</span></label>
     </div>
   </div>
 
-  <!-- ── STEP 2: Target folder ── -->
-  <div class="card">
-    <div class="card-title">📁 Step 2 — Target Root Folder</div>
-    <p style="font-size:12px;color:var(--muted);margin-bottom:10px;">
-      PO folders will be created here automatically — one folder per PO number (e.g. <code>4XXXXXXXXX</code>).
-    </p>
-    <div class="path-row">
-      <input type="text" id="targetPath" placeholder="e.g. \\portfolioeng_nlr\EFS\PO_Downloads" oninput="checkReady()">
-      <button class="btn-browse" onclick="browseFolder()">📂 Browse…</button>
+  <div class="card" id="inputCard">
+    <div class="pills">
+      <span class="pill">Step <b>1</b> &middot; Add MHTML files</span>
+      <span class="pill">Step <b>2</b> &middot; Run all-pairs comparison</span>
+      <span class="pill">Step <b>3</b> &middot; Filter &amp; download</span>
     </div>
+    <h2>Select MHTML snapshots (2 or more)</h2>
+    <p class="hint">Every document is compared against <b>every other</b> document &mdash; there is no baseline.
+       Each file must have the same maintenance task open in Pinpoint.</p>
+    <label class="drop" id="drop">
+      <input type="file" id="fileInput" accept=".mhtml,.mht" multiple>
+      <div><b>Click to choose files</b> or drag &amp; drop here</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:4px">.mhtml / .mht &middot; up to 120&nbsp;MB total</div>
+    </label>
+    <ul class="filelist" id="filelist"></ul>
+    <div class="row">
+      <button class="primary" id="runBtn" onclick="runTool()" disabled>&#9654; Run comparison</button>
+      <button class="ghost" onclick="clearAll()">Clear</button>
+      <span class="dlnote" id="dtNote"></span>
+    </div>
+    <div id="progressWrap"><div id="progressBar"></div><span id="progressMsg">Starting&hellip;</span></div>
+    <div id="errBox"></div>
   </div>
 
-  <!-- ── STEP 3: Maximo dump (cross-check source) ── -->
-  <div class="card">
-    <div class="card-title">🗂️ Step 3 — Maximo Dump (cross-check)</div>
-    <p style="font-size:12px;color:var(--muted);margin-bottom:10px;">
-      Optional. After the reports are extracted, each one is looked up in this file by
-      PO number and its values are compared against the Maximo columns. Rows where
-      everything matches are written to <code>Maximo_Matched_Tracker.xlsx</code>
-      using the Maximo columns, and <b>every</b> report — matched or not — is
-      written to <code>Maximo_Comparison.xlsx</code> with the report value, the
-      Maximo value and the verdict side by side.
-      Leave blank to skip the cross-check.
-    </p>
-    <div class="path-row">
-      <input type="text" id="maximoPath" placeholder="e.g. \\portfolioeng_nlr\EFS\Maximo_Dump.xlsx"
-             oninput="clearMaximoInfo()">
-      <button class="btn-browse" onclick="browseMaximo()">📄 Browse…</button>
-      <button class="btn-browse" onclick="checkMaximo()">✔️ Validate</button>
-    </div>
-    <div id="maximoInfo" style="display:none;margin-top:10px;padding:8px 12px;
-         border-radius:7px;font-size:12px;"></div>
-  </div>
-
-  <!-- ── STEP 4: Options + single-click Run ── -->
-  <div class="card">
-    <div class="card-title">⚙️ Step 4 — Process Emails (single click)</div>
-    <p style="font-size:12px;color:var(--muted);margin-bottom:10px;">
-      Downloads emails and attachments, creates PO folders, saves the email as .msg,
-      converts every PDF attachment to Excel with Kofax, detects the vendor, extracts
-      the fields, cross-checks them against the Maximo dump, and displays the results
-      below — automatically, in one run.
-    </p>
-    <div style="margin-bottom:10px;">
-      <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:6px;">
-        📎 Attachment types to download:
-      </div>
-      <div class="check-row">
-        <label><input type="checkbox" id="chkPdf" checked> PDF (.pdf)</label>
-        <label><input type="checkbox" id="chkExcel" checked> Excel (.xlsx / .xls)</label>
-        <label><input type="checkbox" id="chkWord"> Word (.docx / .doc)</label>
-        <label><input type="checkbox" id="chkAll"> All file types</label>
-      </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:4px;">
-        ℹ Only PDF attachments go through Kofax + extraction. Other saved types are kept as-is.
+  <div class="card" id="results">
+    <div class="row" style="justify-content:space-between;margin-top:0">
+      <div><h2 id="rTitle" style="margin-bottom:2px">Results</h2>
+        <div class="mono" id="rTask" style="color:var(--muted);font-size:12px"></div></div>
+      <div style="text-align:right">
+        <button class="primary" id="dlBtn">&#8681; Download Excel (filtered)</button>
+        <div class="dlnote" id="dlNote"></div>
       </div>
     </div>
-    <div class="check-row">
-      <label><input type="checkbox" id="chkSkipNoPo" checked>
-        Skip emails without a PO number (4XXXXXXXXX) in subject</label>
-            <label><input type="checkbox" id="chkDateFilter">
-                Filter emails by received date range</label>
-                        <label><input type="checkbox" id="chkBackgroundMode">
-                                Background mode (do not bring Excel/Kofax to foreground)</label>
-            <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="chkIncludeRead" checked> Include read</label>
-            <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="chkIncludeUnread" checked> Include unread</label>
-            <label><input type="checkbox" id="chkVendorFilter" onchange="toggleVendorFilter()">
-                Filter emails by vendor (sender domain)</label>
-      <label><input type="checkbox" id="chkSaveMsg" checked disabled>
-        Save email as .msg (always on)</label>
-      <label><input type="checkbox" id="chkKeepConverted" checked>
-        Keep converted Excel files (in a <code>_converted</code> folder next to the PDF)</label>
-    </div>
+    <div id="warnBox"></div>
 
-    <div id="vendorFilterRow" style="display:none;margin-top:10px;padding:10px 12px;
-         background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">
-        Only process mail whose sender address ends with the ticked vendor's domain.
-        Sub-domains count, so <code>@gbr.collins.com</code> satisfies <code>collins.com</code>.
-        Tick nothing and the filter is ignored.
-        <button class="btn btn-sm" style="margin-left:8px;" onclick="setAllVendors(true)">Select all</button>
-        <button class="btn btn-sm" onclick="setAllVendors(false)">Clear</button>
-      </div>
-      <div id="vendorChecks" class="check-row"
-           style="display:flex;flex-wrap:wrap;gap:10px 18px;"></div>
-    </div>
+    <div class="engines" id="engines" style="margin-top:12px"></div>
 
-    <div id="dateFilterRow" class="form-row" style="display:none; margin-top:10px;">
-      <div class="form-group">
-        <label>Start date</label>
-        <input type="date" id="startDate" disabled onchange="checkReady()">
-      </div>
-      <div class="form-group">
-        <label>End date</label>
-        <input type="date" id="endDate" disabled onchange="checkReady()">
-      </div>
-    </div>
+    <details style="margin-bottom:14px" open>
+      <summary style="cursor:pointer;font-weight:600;font-size:13px">All-pairs agreement matrix</summary>
+      <div id="matrixWrap" style="overflow:auto;margin-top:8px"></div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">Each cell = % of criteria shared by both documents that match exactly.</div>
+    </details>
 
-    <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
-      <button class="btn btn-primary" id="runBtn" disabled onclick="startJob()">
-        ▶ Process Emails
-      </button>
-      <button class="btn btn-primary btn-sm" id="testKofaxBtn" onclick="testKofax()"
-              style="background:var(--surface2);color:var(--accent);border:1.5px solid var(--accent);">
-        🧪 Test Kofax on one PDF
-      </button>
-      <span id="runStatus" style="font-size:12px;color:var(--muted);"></span>
+    <div class="toolbar">
+      <input type="search" id="q" placeholder="Search area, criterion or value (e.g. dimension 18)">
+      <span id="chips"></span>
     </div>
-    <div style="font-size:11px;color:var(--amber);margin-top:6px;">
-      ⚠ Kofax conversion drives the keyboard automatically. Do not use the mouse or keyboard
-      while a run or test is in progress.
-    </div>
-
-    <div class="phase-banner" id="phaseBanner"></div>
-    <div id="progressWrap">
-      <div class="prog-bar-bg"><div class="prog-bar" id="progBar"></div></div>
-      <span id="progMsg">Starting…</span>
-    </div>
-    <div id="logBox"></div>
-
-    <div id="liveResultsWrap" style="display:none;margin-top:16px;">
-      <div style="font-size:13px;font-weight:700;color:#10B981;margin-bottom:10px;">📊 Extracted Report Details</div>
-      <div id="liveResultsGrid"></div>
-    </div>
-
-    <div id="summaryGrid">
-      <div class="sum-card"><div class="sum-val" id="sProcessed">—</div><div class="sum-lbl">Emails processed</div></div>
-      <div class="sum-card"><div class="sum-val" id="sFiles">—</div><div class="sum-lbl">Files saved</div></div>
-      <div class="sum-card"><div class="sum-val" id="sTrackerRows">—</div><div class="sum-lbl">Reports extracted</div></div>
-      <div class="sum-card"><div class="sum-val" id="sErrors">—</div><div class="sum-lbl">Errors</div></div>
-      <div class="sum-card"><div class="sum-val" id="sMaximoOk" style="color:#166534;">—</div><div class="sum-lbl">Maximo matched</div></div>
-      <div class="sum-card"><div class="sum-val" id="sMaximoNo" style="color:#b45309;">—</div><div class="sum-lbl">Maximo not matched</div></div>
-    </div>
-    <div id="maximoTrackerNote" style="display:none;margin-top:10px;padding:8px 12px;
-         background:#dcfce7;border:1.5px solid #86efac;border-radius:7px;
-         font-size:12px;color:#166534;"></div>
+    <div class="grid"><table class="heat"><thead><tr id="hrow"></tr></thead><tbody id="tbody"></tbody></table></div>
   </div>
+</div>
 
-  <!-- ── Shared Tracker status banner ── -->
-  <div id="trackerBanner" class="card" style="border-left:4px solid var(--amber);padding:12px 18px;">
-    <div style="font-size:12px;font-weight:700;color:var(--amber);margin-bottom:4px;">
-      🔗 Shared Processed-Email Tracker (dedup + activity log)
-    </div>
-    <div id="trackerPath" style="font-family:Consolas,monospace;font-size:12px;color:var(--muted);">
-      Loading…
-    </div>
-    <div id="trackerStatus" style="font-size:12px;margin-top:4px;"></div>
-  </div>
-
-  <!-- ── Tabs ── -->
-  <div class="tabs">
-    <button class="tab active" id="tabBtnExtracted" onclick="showTab('extracted',this)">
-      🧾 Extracted Report Details
-    </button>
-    <button class="tab" id="tabBtnHistory" onclick="showTab('history',this)">
-      📋 Download History
-    </button>
-    <button class="tab" id="tabBtnActivity" onclick="showTab('activity',this)">
-      📜 Activity Log
-    </button>
-  </div>
-
-  <!-- Extracted Report Details tab -->
-  <div id="tabExtracted" class="card">
-    <div class="filter-row">
-      <input type="text" id="extSearch" placeholder="🔍 Search PO, vendor, report, subject, file…"
-             oninput="renderExtractions()">
-      <select id="extVendorFilter" onchange="renderExtractions()"><option value="">All vendors</option></select>
-      <select id="extReportFilter" onchange="renderExtractions()"><option value="">All report types</option></select>
-      <select id="extPoFilter" onchange="renderExtractions()"><option value="">All PO numbers</option></select>
-      <button class="btn btn-primary btn-sm" onclick="loadExtractions()">🔄 Refresh</button>
-      <span id="extCount" style="font-size:12px;color:var(--muted);"></span>
-    </div>
-    <table>
-      <thead>
-        <tr>
-          <th onclick="sortExtractions('po')">PO Number</th>
-          <th onclick="sortExtractions('vendor')">Vendor</th>
-          <th onclick="sortExtractions('score')" title="Field completeness — how many of this vendor's fields were found">Score</th>
-          <th onclick="sortExtractions('quality')" title="Report quality against the scoring rubric (RFR + basic details)">Quality</th>
-          <th onclick="sortExtractions('report')">Report</th>
-          <th onclick="sortExtractions('file')">File</th>
-          <th onclick="sortExtractions('subject')">Email Subject</th>
-          <th onclick="sortExtractions('received')">Received</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody id="extractedBody">
-        <tr><td colspan="9" style="text-align:center;color:var(--muted);padding:18px;">
-          Click Refresh, or run "Process Emails" to populate this tab.
-        </td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- History tab -->
-  <div id="tabHistory" class="card" style="display:none;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <span style="font-size:13px;font-weight:600;color:var(--muted);">
-        All emails processed (cross-user — shared tracker). These will <b>never</b> be re-downloaded.
-      </span>
-      <button class="btn btn-primary btn-sm" onclick="loadHistory()">🔄 Refresh</button>
-    </div>
-    <table>
-      <thead><tr>
-        <th>PO Number</th><th>Subject</th><th>Sender</th><th>Downloaded By</th>
-        <th>Machine</th><th>Target Folder</th><th>Files</th><th>Processed At</th>
-      </tr></thead>
-      <tbody id="historyBody">
-        <tr><td colspan="8" style="color:var(--muted);text-align:center;padding:18px;">Click Refresh to load history.</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- Activity Log tab -->
-  <div id="tabActivity" class="card" style="display:none;">
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-      <span style="font-size:13px;font-weight:600;color:var(--muted);">
-        Per-file activity log — every save, conversion, extraction, skip, and error.
-        Also saved as <code>activity_log.csv</code> in the shared tracker folder.
-      </span>
-      <button class="btn btn-primary btn-sm" onclick="loadActivity()">🔄 Refresh</button>
-    </div>
-    <table>
-      <thead><tr>
-        <th>Time</th><th>Event</th><th>PO</th><th>Subject</th><th>File / Note</th><th>Done By</th><th>Machine</th>
-      </tr></thead>
-      <tbody id="activityBody">
-        <tr><td colspan="7" style="color:var(--muted);text-align:center;padding:18px;">Click Refresh to load activity log.</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-</main>
-
-<footer>© 2026 Alten-Rolls-Royce. All rights reserved. Confidential – Internal Use Only.</footer>
+<footer>&copy; 2026 Alten-Rolls-Royce. All rights reserved. Confidential &ndash; Internal Use Only.</footer>
 
 <script>
-let allFolders = [], pollInterval = null, logOffset = 0, extOffset = 0, isRunning = false;
-const PHASE_CFG = {
-  DOWNLOAD:{cls:'dl',label:'📥  Phase 1 of 4 — Downloading emails & saving PDFs…'},
-  CONVERT: {cls:'cv',label:'⚙️   Phase 2 of 4 — Converting PDFs to Excel via Kofax…'},
-  EXTRACT: {cls:'ex',label:'🔍  Phase 3 of 4 — Extracting data from Excel files…'},
-  MAXIMO:  {cls:'ex',label:'🗂️  Phase 4 of 4 — Cross-checking against the Maximo dump…'},
-};
-let extractionsData = [], extSort = {col: 'at', dir: -1};
+var chosen=[], MODEL=null;
+var STLABEL={MATCH:'Match',PARTIAL:'Partial',THRESHOLD:'Threshold diff',MISSING:'Missing',UNIQUE:'Unique'};
+var STCOLOR={MATCH:'var(--c-match)',PARTIAL:'var(--c-partial)',THRESHOLD:'var(--c-thr)',MISSING:'var(--c-miss)',UNIQUE:'var(--c-uni)',NA:'var(--c-na)'};
+var ORDER=['MATCH','PARTIAL','THRESHOLD','MISSING','UNIQUE'];
+var active={MATCH:1,PARTIAL:1,THRESHOLD:1,MISSING:1,UNIQUE:1};
 
-// ── Load Outlook folders ──
-async function loadFolders() {
-  const s = document.getElementById('folderStatus');
-  s.textContent = 'Loading Outlook folders…';
-  try {
-    const r = await fetch('/api/folders'); const d = await r.json();
-    if (!d.ok) throw new Error(d.error);
-    allFolders = d.folders;
-    const accounts = [...new Set(allFolders.map(f => f.account))];
-    const sel = document.getElementById('selAccount');
-    sel.innerHTML = '<option value="">— Select account —</option>';
-    accounts.forEach(a => { const o=document.createElement('option'); o.value=a; o.textContent=a; sel.appendChild(o); });
-    const rs = accounts.find(a => a.toLowerCase().includes('rotables'));
-    if (rs) sel.value = rs;
-    s.textContent = `✅ Loaded ${allFolders.length} folder(s) from ${accounts.length} account(s).`;
-    filterFolders();
-  } catch(e) { s.textContent = '❌ ' + e.message; console.error(e); }
+var drop=document.getElementById('drop'), fi=document.getElementById('fileInput');
+fi.addEventListener('change',function(e){addFiles(e.target.files);});
+['dragenter','dragover'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add('hi');});});
+['dragleave','drop'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove('hi');});});
+drop.addEventListener('drop',function(e){addFiles(e.dataTransfer.files);});
+
+function addFiles(list){
+  for(var i=0;i<list.length;i++){var f=list[i];
+    if(!/\.(mhtml|mht)$/i.test(f.name))continue;
+    if(!chosen.some(function(c){return c.name===f.name&&c.size===f.size;}))chosen.push(f);}
+  renderFiles();
+}
+function removeFile(i){chosen.splice(i,1);renderFiles();}
+function clearAll(){chosen=[];fi.value='';renderFiles();document.getElementById('results').style.display='none';document.getElementById('errBox').innerHTML='';}
+function manualsOn(){return document.getElementById('dt-manuals').checked;}
+function checkReady(){
+  var on=manualsOn();
+  document.getElementById('inputCard').style.opacity = on ? '1' : '.5';
+  document.getElementById('fileInput').disabled = !on;
+  var note=document.getElementById('dtNote');
+  document.getElementById('runBtn').disabled = !(on && chosen.length>=2);
+  if(note) note.textContent = on ? '' : 'Tick "Manuals" above to enable the comparison.';
+}
+function renderFiles(){
+  var ul=document.getElementById('filelist');ul.innerHTML='';
+  chosen.forEach(function(f,i){var li=document.createElement('li');
+    li.innerHTML='<span class="nm mono">'+f.name+'</span><button class="rm" onclick="removeFile('+i+')" title="Remove">&times;</button>';
+    ul.appendChild(li);});
+  checkReady();
 }
 
-function filterFolders() {
-  const account = document.getElementById('selAccount').value;
-  const sel = document.getElementById('selFolder');
-  const filtered = allFolders.filter(f => f.account === account);
-  sel.innerHTML = '<option value="">— Select folder —</option>';
-  filtered.forEach(f => {
-    const o = document.createElement('option');
-    o.value = JSON.stringify({folder: f.folder, entry_id: f.entry_id||'', store_id: f.store_id||''});
-    o.textContent = (f.depth > 1 ? '    '.repeat(f.depth-1) + '└ ' : '') + f.folder;
-    sel.appendChild(o);
+function runTool(){
+  if(!manualsOn()){showErr('Please tick "Manuals" to run the comparison.');return;}
+  document.getElementById('errBox').innerHTML='';
+  var pw=document.getElementById('progressWrap'),pb=document.getElementById('progressBar'),pm=document.getElementById('progressMsg');
+  pw.style.display='block';pb.style.width='25%';pm.textContent='Uploading and comparing '+chosen.length+' files\u2026';
+  document.getElementById('runBtn').disabled=true;
+  var fd=new FormData();chosen.forEach(function(f){fd.append('files',f);});
+  fetch('/compare',{method:'POST',body:fd}).then(function(r){return r.json();})
+  .then(function(j){pb.style.width='100%';pm.textContent='Done';document.getElementById('runBtn').disabled=false;
+    if(!j.ok){showErr(j.error||'Unknown error');pw.style.display='none';return;}
+    MODEL=j.model;renderResults();setTimeout(function(){pw.style.display='none';},600);})
+  .catch(function(e){showErr('Request failed: '+e);pw.style.display='none';document.getElementById('runBtn').disabled=false;});
+}
+function showErr(m){document.getElementById('errBox').innerHTML='<div class="err">'+m+'</div>';}
+function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
+function dispSplit(t){var i=t.lastIndexOf('\u2192');return i>0?[t.slice(0,i).trim(),t.slice(i+1).trim()]:[t,''];}
+
+function renderResults(){
+  document.getElementById('results').style.display='block';
+  document.getElementById('rTitle').textContent=MODEL.task_title||'Comparison results';
+  document.getElementById('rTask').textContent=(MODEL.task_no?('TASK '+MODEL.task_no+'  \u00b7  '):'')
+    +MODEL.names.length+' documents \u00b7 '+MODEL.rows.length+' criteria \u00b7 '+MODEL.generated;
+  var wb=document.getElementById('warnBox');wb.innerHTML='';
+  (MODEL.warnings||[]).forEach(function(w){wb.innerHTML+='<div class="warn">'+w+'</div>';});
+
+  // per-doc cards
+  var eb=document.getElementById('engines');eb.innerHTML='';
+  MODEL.names.forEach(function(nm,gi){var c=MODEL.summary[gi];
+    var tot=0;ORDER.forEach(function(k){tot+=c[k];});if(!tot)tot=1;
+    function seg(k){return '<span style="width:'+(100*c[k]/tot)+'%;background:'+STCOLOR[k]+'"></span>';}
+    var counts=[['MATCH','match'],['PARTIAL','partial'],['THRESHOLD','threshold'],['MISSING','missing'],['UNIQUE','unique']]
+      .map(function(p){return '<span><b>'+c[p[0]]+'</b> '+p[1]+'</span>';}).join('');
+    var el=document.createElement('div');el.className='ecard';
+    el.innerHTML='<h3>'+esc(nm)+'</h3><div class="bar">'+ORDER.map(seg).join('')+'</div><div class="counts">'+counts+'</div>';
+    eb.appendChild(el);});
+
+  // pairwise matrix
+  var mw=document.getElementById('matrixWrap');
+  var h='<table class="matrix"><tr><th></th>'+MODEL.names.map(function(n){return '<th>'+esc(n)+'</th>';}).join('')+'</tr>';
+  MODEL.pairs.forEach(function(rowv,i){
+    h+='<tr><th>'+esc(MODEL.names[i])+'</th>';
+    rowv.forEach(function(v,j){
+      if(i===j){h+='<td class="self">\u2014</td>';}
+      else{var bg=v===null?'#fff':(v>=90?'var(--c-match)':(v>=70?'var(--c-partial)':'var(--c-miss)'));
+        h+='<td style="background:'+bg+'">'+(v===null?'\u2014':v+'%')+'</td>';}
+    });h+='</tr>';
+  });h+='</table>';mw.innerHTML=h;
+
+  // chips
+  var chips=document.getElementById('chips');chips.innerHTML='';
+  ORDER.forEach(function(k){var b=document.createElement('span');b.className='chip'+(active[k]?'':' off');
+    b.innerHTML='<span class="sw" style="background:'+STCOLOR[k]+'"></span>'+STLABEL[k];
+    b.onclick=function(){active[k]=!active[k];b.classList.toggle('off');renderRows();};chips.appendChild(b);});
+
+  // header
+  document.getElementById('hrow').innerHTML='<th class="area">Inspection Area</th><th>Criterion</th>'
+    +MODEL.names.map(function(n){return '<th>'+esc(n)+'</th>';}).join('');
+  document.getElementById('q').oninput=renderRows;
+  document.getElementById('dlBtn').onclick=downloadExcel;
+  renderRows();
+}
+
+function activeStatuses(){return ORDER.filter(function(k){return active[k];});}
+
+function renderRows(){
+  var q=document.getElementById('q').value.toLowerCase().trim(), sset=activeStatuses();
+  var tb=document.getElementById('tbody');tb.innerHTML='';var last=null,shown=0;
+  MODEL.rows.forEach(function(row){
+    var cstat=row.cells.map(function(c){return c.status;});
+    if(!cstat.some(function(s){return sset.indexOf(s)>=0;}))return;
+    if(q){var hay=(row.area+' '+row.condition+' '+row.criterion+' '+row.cells.map(function(c){return c.text;}).join(' ')).toLowerCase();
+      if(hay.indexOf(q)<0)return;}
+    var top=row.area!==last;var tr=document.createElement('tr');if(top)tr.className='arowtop';
+    var area='<th class="area">'+(top?esc(row.area):'')+'</th>';
+    var crit='<td class="crit"><span class="mono">'+esc(row.criterion)+'</span>'
+      +(row.condition?'<div style="color:#8a97a6;font-size:11px;margin-top:2px">'+esc(row.condition)+'</div>':'')+'</td>';
+    var cells=row.cells.map(function(c){var sp=dispSplit(c.text);
+      var flag=(c.status!=='MATCH'&&c.status!=='NA')?'<span class="flag">'+(STLABEL[c.status]||'')+'</span>':'';
+      return '<td class="cell st-'+c.status+'" title="'+esc(c.text)+'">'+flag
+        +'<span class="mono">'+esc(sp[0])+'</span>'+(sp[1]?'<span class="disp">'+esc(sp[1])+'</span>':'')+'</td>';}).join('');
+    tr.innerHTML=area+crit+cells;tb.appendChild(tr);last=row.area;shown++;
   });
-  const inboxOpt = [...sel.options].find(o => { try { return JSON.parse(o.value).folder.toLowerCase()==='inbox'; } catch { return false; } });
-  if (inboxOpt) sel.value = inboxOpt.value;
-  updateFolderBadge(); checkReady();
+  document.getElementById('dlNote').textContent=shown+' of '+MODEL.rows.length+' rows shown \u2014 this is what downloads';
 }
 
-function updateFolderBadge() {
-  const account = document.getElementById('selAccount').value;
-  const folderRaw = document.getElementById('selFolder').value;
-  const badge = document.getElementById('selectedFolderBadge'), label = document.getElementById('selectedFolderLabel');
-  let folder = ''; try { folder = JSON.parse(folderRaw).folder; } catch { folder = folderRaw; }
-  if (account && folder) { badge.style.display='block'; label.textContent = account + '  ›  ' + folder; }
-  else badge.style.display = 'none';
+function downloadExcel(){
+  var payload={token:MODEL.token,statuses:activeStatuses(),query:document.getElementById('q').value.trim()};
+  var btn=document.getElementById('dlBtn');var old=btn.innerHTML;btn.innerHTML='Preparing\u2026';btn.disabled=true;
+  fetch('/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+  .then(function(r){if(!r.ok)return r.json().then(function(j){throw new Error(j.error||'error');});return r.blob();})
+  .then(function(blob){var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;
+    a.download='CAIRO-Assist_'+(MODEL.task_no||'task')+'.xlsx';document.body.appendChild(a);a.click();
+    a.remove();URL.revokeObjectURL(url);btn.innerHTML=old;btn.disabled=false;})
+  .catch(function(e){alert('Download failed: '+e.message);btn.innerHTML=old;btn.disabled=false;});
 }
-
-async function browseFolder() {
-  try {
-    const r = await fetch('/api/browse', {method:'POST'}); const d = await r.json();
-    if (d.ok && d.path) { document.getElementById('targetPath').value = d.path; checkReady(); }
-  } catch(e) { alert('Browse failed: ' + e.message); }
-}
-
-// ── Maximo dump: browse, validate, and show what was found ──────────────────
-function clearMaximoInfo() {
-  document.getElementById('maximoInfo').style.display = 'none';
-}
-
-function showMaximoInfo(html, kind) {
-  const box = document.getElementById('maximoInfo');
-  const style = {
-    ok:   'background:#dcfce7;border:1.5px solid #86efac;color:#166534;',
-    warn: 'background:#fef9c3;border:1.5px solid #fde047;color:#854d0e;',
-    err:  'background:#fee2e2;border:1.5px solid #fca5a5;color:#991b1b;'
-  }[kind] || '';
-  box.style.cssText = 'margin-top:10px;padding:8px 12px;border-radius:7px;font-size:12px;' + style;
-  box.innerHTML = html;
-  box.style.display = 'block';
-}
-
-async function browseMaximo() {
-  try {
-    const r = await fetch('/api/browse_file', {method:'POST'});
-    const d = await r.json();
-    if (d.ok && d.path) {
-      document.getElementById('maximoPath').value = d.path;
-      checkMaximo();
-    }
-  } catch(e) { alert('Browse failed: ' + e.message); }
-}
-
-async function checkMaximo() {
-  const path = document.getElementById('maximoPath').value.trim();
-  if (!path) { showMaximoInfo('Choose a Maximo file first.', 'warn'); return; }
-  showMaximoInfo('Reading file…', 'warn');
-  try {
-    const r = await fetch('/api/maximo_preview', {
-      method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({path})
-    });
-    const d = await r.json();
-    if (!d.ok) { showMaximoInfo('✗ ' + esc(d.error || 'Could not read the file.'), 'err'); return; }
-    let html = `✔️ <b>${d.rows}</b> row(s), <b>${d.pos}</b> distinct PO number(s) `
-             + `keyed on <code>${esc(d.po_column)}</code>.`;
-    if (d.present.length)
-      html += `<br>Comparing: ${d.present.map(c => '<code>'+esc(c)+'</code>').join(', ')}`;
-    if (d.missing.length)
-      html += `<br>⚠️ Not in this file (those checks will be skipped): `
-            + d.missing.map(c => '<code>'+esc(c)+'</code>').join(', ');
-    showMaximoInfo(html, d.missing.length ? 'warn' : 'ok');
-  } catch(e) {
-    showMaximoInfo('✗ ' + esc(e.message), 'err');
-  }
-}
-
-function checkReady() {
-  const account = document.getElementById('selAccount').value;
-  const folderRaw = document.getElementById('selFolder').value;
-  let folder = ''; try { folder = JSON.parse(folderRaw).folder; } catch { folder = folderRaw; }
-  const target = document.getElementById('targetPath').value.trim();
-  document.getElementById('runBtn').disabled = !(account && folder && target && !isRunning);
-  document.getElementById('testKofaxBtn').disabled = isRunning;
-  if (account && folder) document.getElementById('step2pill').classList.add('active');
-  if (target) document.getElementById('step3pill').classList.add('active');
-}
-
-async function startJob() {
-  const account = document.getElementById('selAccount').value;
-  let folder='', entry_id='', store_id='';
-  try { const fv = JSON.parse(document.getElementById('selFolder').value);
-        folder=fv.folder||''; entry_id=fv.entry_id||''; store_id=fv.store_id||''; }
-  catch(e) { folder = document.getElementById('selFolder').value; }
-  const target = document.getElementById('targetPath').value.trim();
-  const chkAll = document.getElementById('chkAll').checked;
-  let ext_types = [];
-  if (!chkAll) {
-    if (document.getElementById('chkPdf').checked) ext_types.push('.pdf');
-    if (document.getElementById('chkExcel').checked) ext_types.push('.xlsx', '.xls');
-    if (document.getElementById('chkWord').checked) ext_types.push('.docx', '.doc');
-    if (ext_types.length === 0) ext_types = ['.pdf'];
-  }
-  const skipNoPo = document.getElementById('chkSkipNoPo').checked;
-    const useDateFilter = document.getElementById('chkDateFilter').checked;
-    const startDate = useDateFilter ? document.getElementById('startDate').value : '';
-    const endDate = useDateFilter ? document.getElementById('endDate').value : '';
-    const backgroundMode = document.getElementById('chkBackgroundMode') && document.getElementById('chkBackgroundMode').checked;
-    const includeRead = document.getElementById('chkIncludeRead') ? document.getElementById('chkIncludeRead').checked : true;
-    const includeUnread = document.getElementById('chkIncludeUnread') ? document.getElementById('chkIncludeUnread').checked : true;
-  const keepConverted = document.getElementById('chkKeepConverted').checked;
-  const maximoPath = (document.getElementById('maximoPath') || {}).value ? document.getElementById('maximoPath').value.trim() : '';
-
-  resetRunUI('Running…');
-  try {
-        const r = await fetch('/api/start', {
-            method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({account, folder, target, ext_types, skip_no_po: skipNoPo,
-                                                        entry_id, store_id, keep_converted: keepConverted,
-                                                        start_date: startDate, end_date: endDate,
-                                                        background_mode: backgroundMode,
-                                                        include_read: includeRead, include_unread: includeUnread,
-                                                        maximo_path: maximoPath,
-                                                        vendors: selectedVendors()
-                                                    })
-        });
-    const d = await r.json();
-    if (!d.ok) { alert('Error: ' + d.error); isRunning=false; checkReady(); return; }
-    pollInterval = setInterval(pollJob, 900);
-  } catch(e) { alert('Error: ' + e.message); isRunning=false; checkReady(); }
-}
-
-async function testKofax() {
-  if (isRunning) { alert('A job is already running.'); return; }
-  resetRunUI('Testing Kofax conversion…');
-  try {
-        const r = await fetch('/api/test_kofax', {
-            method:'POST', headers:{'Content-Type':'application/json'},
-            body: JSON.stringify({
-                keep_converted: document.getElementById('chkKeepConverted').checked,
-                background_mode: document.getElementById('chkBackgroundMode') && document.getElementById('chkBackgroundMode').checked
-            })
-        });
-    const d = await r.json();
-    if (!d.ok) { alert('Error: ' + d.error); isRunning=false; checkReady(); return; }
-    pollInterval = setInterval(pollJob, 900);
-  } catch(e) { alert('Error: ' + e.message); isRunning=false; checkReady(); }
-}
-
-function resetRunUI(statusText) {
-  document.getElementById('logBox').style.display = 'block';
-  document.getElementById('logBox').innerHTML = '';
-  document.getElementById('progressWrap').style.display = 'block';
-  document.getElementById('summaryGrid').style.display = 'none';
-  document.getElementById('runStatus').textContent = statusText;
-  logOffset = 0; extOffset = 0; isRunning = true;
-  document.getElementById('liveResultsGrid').innerHTML = '';
-  document.getElementById('liveResultsWrap').style.display = 'none';
-  checkReady(); animateBar();
-}
-
-async function pollJob() {
-  try {
-    const r = await fetch(`/api/poll?offset=${logOffset}&ext_offset=${extOffset}`);
-    const d = await r.json();
-    // Phase banner
-    const banner = document.getElementById('phaseBanner');
-    if (d.phase && PHASE_CFG[d.phase]) {
-      const pc = PHASE_CFG[d.phase];
-      banner.className = 'phase-banner ' + pc.cls;
-      banner.textContent = pc.label;
-      banner.style.display = 'block';
-    } else if (!d.running) { banner.style.display = 'none'; }
-    // Log
-    d.log.forEach(entry => { logOffset++; appendLog(entry.t, entry.m, entry.l); });
-    // Live extraction cards (streamed during Phase 3)
-    if (d.extractions && d.extractions.length > 0) {
-      document.getElementById('liveResultsWrap').style.display = 'block';
-      d.extractions.forEach(row => { extOffset++; appendResultCard(row); });
-    }
-    if (!d.running) {
-      clearInterval(pollInterval); isRunning = false;
-      banner.style.display = 'none';
-      document.getElementById('runStatus').textContent = '✅ All 3 phases complete!';
-      document.getElementById('progBar').style.width = '100%';
-      document.getElementById('progMsg').textContent = 'Done — all phases complete.';
-      if (d.summary) showSummary(d.summary);
-      checkReady(); loadHistory(); loadExtractions();
-    }
-  } catch(e) { appendLog('--', 'Poll error: ' + e.message, 'error'); }
-}
-
-function appendResultCard(row) {
-  const grid = document.getElementById('liveResultsGrid');
-  const vals = row.values || {};
-  const fields = Object.entries(vals).map(([k,v]) =>
-    '<div class="rfield"><div class="rfield-lbl">'+esc(k)+'</div>' +
-    '<div class="rfield-val">'+esc(v||'—')+'</div></div>').join('');
-  const card = document.createElement('div');
-  card.className = 'result-card';
-  card.innerHTML =
-    '<div class="result-card-hdr">' +
-    '<div>' +
-    '<span class="rbadge" style="background:rgba(16,185,129,.15);color:#10B981;border:1px solid rgba(16,185,129,.3);">✅ '+esc(row.vendor)+'</span>&nbsp;' +
-    '<span class="rbadge" style="background:rgba(245,158,11,.12);color:#b45309;border:1px solid rgba(245,158,11,.24);">Score '+esc((row.score||0) + '%')+'</span>&nbsp;' +
-    '<span class="rbadge" style="background:rgba(0,174,239,.1);color:#00AEEF;border:1px solid rgba(0,174,239,.3);">'+esc(row.report)+'</span>' +
-    '</div>' +
-    '<div style="font-size:11px;color:#64748b;">PO <b style="color:#e2e8f0;">'+esc(row.po)+'</b> · '+esc(row.file)+' · extracted '+esc(row.at)+'</div>' +
-    '</div>' +
-    '<div style="font-size:11px;color:#475569;margin-bottom:2px;">'+esc(row.subject)+'</div>' +
-    '<div style="font-size:11px;color:#64748b;margin-bottom:6px;">📧 Email received: <b style="color:#94a3b8;">'+esc(row.received||'—')+'</b></div>' +
-    (row.pdf_path ? '<div style="font-size:12px;margin-bottom:8px;"><a href="/api/open_pdf?path='+encodeURIComponent(row.pdf_path)+'" target="_blank">Open source PDF</a></div>' : '') +
-    '<div class="rgrid">'+fields+'</div>';
-  grid.appendChild(card);
-}
-
-function appendLog(ts, msg, level) {
-  const box = document.getElementById('logBox');
-  const cls = level==='ok'?'log-ok':level==='warn'?'log-warn':level==='error'?'log-err':'log-info';
-  const span = document.createElement('div'); span.className = cls; span.textContent = `[${ts}] ${msg}`;
-  box.appendChild(span); box.scrollTop = box.scrollHeight;
-}
-
-function animateBar() {
-  if (!isRunning) return;
-  const bar = document.getElementById('progBar'); let w = 0;
-  const iv = setInterval(() => {
-    if (!isRunning) { clearInterval(iv); return; }
-    w = (w + 1.5) % 90; bar.style.width = w + '%';
-    document.getElementById('progMsg').textContent = 'Processing…';
-  }, 120);
-}
-
-function showSummary(s) {
-  document.getElementById('summaryGrid').style.display = 'grid';
-  document.getElementById('sProcessed').textContent = s.processed;
-  document.getElementById('sFiles').textContent = s.files_saved ? s.files_saved.length : 0;
-  document.getElementById('sTrackerRows').textContent = s.tracker_rows||0;
-  document.getElementById('sErrors').textContent = s.errors||0;
-  document.getElementById('sMaximoOk').textContent = s.maximo_matched||0;
-  document.getElementById('sMaximoNo').textContent =
-      (s.maximo_mismatch||0) + (s.maximo_no_po||0);
-  const note = document.getElementById('maximoTrackerNote');
-  if (s.maximo_tracker) {
-    note.innerHTML = `🗂️ <b>${s.maximo_matched||0}</b> verified row(s) written to `
-                   + `<code>${esc(s.maximo_tracker)}</code>`
-                   + `<br>📊 <b>${s.maximo_compared||0}</b> row(s) — matched <i>and</i> not matched — written to `
-                   + `<code>${esc(s.maximo_comparison||'')}</code>, with the report value, `
-                   + `the Maximo value and the verdict side by side.`
-                   + ((s.maximo_no_po||0) ? `<br>⚠️ ${s.maximo_no_po} PO number(s) were not found in the Maximo dump.` : '')
-                   + ((s.maximo_mismatch||0) ? `<br>⚠️ ${s.maximo_mismatch} report(s) did not match on every checked column — see the comparison file.` : '');
-    note.style.display = 'block';
-  } else {
-    note.style.display = 'none';
-  }
-}
-
-// ── Tabs ──
-function showTab(name, btn) {
-  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  btn.classList.add('active');
-  document.getElementById('tabExtracted').style.display = name==='extracted' ? '' : 'none';
-  document.getElementById('tabHistory').style.display  = name==='history'  ? '' : 'none';
-  document.getElementById('tabActivity').style.display = name==='activity' ? '' : 'none';
-  if (name==='extracted') loadExtractions();
-  if (name==='history')  loadHistory();
-  if (name==='activity') loadActivity();
-}
-
-// ── Extracted Report Details ──
-async function loadExtractions() {
-  try {
-    const r = await fetch('/api/extractions'); const d = await r.json();
-    extractionsData = d.rows || [];
-    const vSel = document.getElementById('extVendorFilter'), rSel = document.getElementById('extReportFilter'),
-          pSel = document.getElementById('extPoFilter');
-    const curV = vSel.value, curR = rSel.value, curP = pSel.value;
-    const vendors = [...new Set(extractionsData.map(x=>x.vendor).filter(Boolean))].sort();
-    const reports = [...new Set(extractionsData.map(x=>x.report).filter(Boolean))].sort();
-    const pos = [...new Set(extractionsData.map(x=>x.po).filter(Boolean))].sort();
-    vSel.innerHTML = '<option value="">All vendors</option>' + vendors.map(v=>`<option>${esc(v)}</option>`).join('');
-    rSel.innerHTML = '<option value="">All report types</option>' + reports.map(v=>`<option>${esc(v)}</option>`).join('');
-    pSel.innerHTML = '<option value="">All PO numbers</option>' + pos.map(v=>`<option>${esc(v)}</option>`).join('');
-    vSel.value = curV; rSel.value = curR; pSel.value = curP;
-    renderExtractions();
-  } catch(e) { console.error(e); }
-}
-
-function sortExtractions(col) {
-  extSort.dir = (extSort.col === col) ? -extSort.dir : 1;
-  extSort.col = col;
-  renderExtractions();
-}
-
-function renderExtractions() {
-  const q = document.getElementById('extSearch').value.trim().toLowerCase();
-  const vf = document.getElementById('extVendorFilter').value;
-  const rf = document.getElementById('extReportFilter').value;
-  const pf = document.getElementById('extPoFilter').value;
-
-  let rows = extractionsData.filter(x => {
-    if (vf && x.vendor !== vf) return false;
-    if (rf && x.report !== rf) return false;
-    if (pf && x.po !== pf) return false;
-    if (!q) return true;
-    const hay = [x.po, x.vendor, x.report, x.subject, x.file].join(' ').toLowerCase();
-    return hay.includes(q);
-  });
-
-  rows.sort((a,b) => {
-    const av = a[extSort.col] ?? '';
-    const bv = b[extSort.col] ?? '';
-    if (extSort.col === 'score' || extSort.col === 'quality') {
-      return (Number(av) - Number(bv)) * extSort.dir;
-    }
-    const as = av.toString().toLowerCase();
-    const bs = bv.toString().toLowerCase();
-    return as < bs ? -extSort.dir : as > bs ? extSort.dir : 0;
-  });
-
-  document.getElementById('extCount').textContent = `${rows.length} of ${extractionsData.length} report(s)`;
-  const tbody = document.getElementById('extractedBody');
-  if (!rows.length) {
-    tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:18px;">No extracted reports match.</td></tr>';
-    return;
-  }
-  tbody.innerHTML = rows.map((row, i) => `
-    <tr>
-      <td><span class="badge badge-po">${esc(row.po||'—')}</span></td>
-      <td><span class="badge badge-vendor">${esc(row.vendor||'—')}</span></td>
-      <td><span class="badge badge-score" style="background:rgba(245,158,11,.12);color:#b45309;border:1px solid rgba(245,158,11,.24);">${esc((row.score||0) + '%')}</span></td>
-      <td>${qualityBadge(row.quality)}</td>
-      <td>${esc(row.report||'—')}</td>
-      <td style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(row.file||'')}">` +
-        `<div>${esc(row.file||'—')}</div>` +
-        `${row.pdf_path ? `<div style="margin-top:4px;font-size:11px;"><a href="/api/open_pdf?path=${encodeURIComponent(row.pdf_path)}" target="_blank">Open PDF</a></div>` : ''}` +
-      `</td>
-      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(row.subject||'')}">${esc(row.subject||'—')}</td>
-      <td style="font-size:12px;color:var(--muted);">${esc(row.received||row.at||'')}</td>
-      <td><button class="expand-btn" onclick="toggleDetail(this,${i})">Details ▾</button></td>
-    </tr>
-    <tr class="detail-row" id="detail-${i}" style="display:none;"><td colspan="10">
-      <div class="detail-grid">
-        ${Object.entries(row.values||{}).map(([k,v])=>`
-          <div class="detail-field"><b>${esc(k)}</b>${esc(v)||'<span style="color:var(--muted);">(empty)</span>'}</div>
-        `).join('')}
-      </div>
-    </td></tr>
-  `).join('');
-  window._extRowsSorted = rows;
-}
-
-// ── Step 3 vendor (sender-domain) filter ────────────────────────────────────
-let vendorDomainList = [];
-
-async function loadVendorDomains() {
-  try {
-    const r = await fetch('/api/vendor_domains');
-    const d = await r.json();
-    if (!d.ok) return;
-    vendorDomainList = d.vendors || [];
-    const box = document.getElementById('vendorChecks');
-    if (!box) return;
-    box.innerHTML = vendorDomainList.map((v, i) => `
-      <label style="display:flex;align-items:center;gap:6px;font-size:12px;">
-        <input type="checkbox" class="vendor-chk" data-vendor="${esc(v.name)}">
-        ${esc(v.name)}
-        <code style="font-size:11px;color:var(--muted);">@${esc((v.domains||[]).join(', @'))}</code>
-      </label>`).join('');
-  } catch(e) { /* leave the list empty; the filter simply stays unused */ }
-}
-
-function toggleVendorFilter() {
-  const on = document.getElementById('chkVendorFilter').checked;
-  document.getElementById('vendorFilterRow').style.display = on ? 'block' : 'none';
-}
-
-function setAllVendors(state) {
-  document.querySelectorAll('.vendor-chk').forEach(c => { c.checked = state; });
-}
-
-function selectedVendors() {
-  if (!document.getElementById('chkVendorFilter') ||
-      !document.getElementById('chkVendorFilter').checked) return [];
-  return Array.from(document.querySelectorAll('.vendor-chk'))
-              .filter(c => c.checked)
-              .map(c => c.getAttribute('data-vendor'));
-}
-
-function qualityBadge(pct) {
-  const v = Number(pct || 0);
-  // Same bands as the Excel sheet: green >= 80, amber >= 50, red below.
-  const c = v >= 80 ? ['rgba(16,185,129,.12)', '#166534', 'rgba(16,185,129,.3)']
-          : v >= 50 ? ['rgba(245,158,11,.12)', '#854d0e', 'rgba(245,158,11,.3)']
-                    : ['rgba(239,68,68,.12)',  '#991b1b', 'rgba(239,68,68,.3)'];
-  return `<span class="badge" style="background:${c[0]};color:${c[1]};border:1px solid ${c[2]};">${v}%</span>`;
-}
-
-function toggleDetail(btn, i) {
-  const row = document.getElementById('detail-' + i);
-  const open = row.style.display !== 'none';
-  row.style.display = open ? 'none' : '';
-  btn.textContent = open ? 'Details ▾' : 'Details ▴';
-}
-
-// ── History & Activity ──
-async function loadHistory() {
-  try {
-    const r = await fetch('/api/history'); const d = await r.json();
-    const tbody = document.getElementById('historyBody');
-    if (!d.rows || !d.rows.length) { tbody.innerHTML='<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:16px;">No emails processed yet.</td></tr>'; return; }
-    tbody.innerHTML = d.rows.map(row=>`
-      <tr>
-        <td><span class="badge badge-po">${row.po||'—'}</span></td>
-        <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(row.subject||'')}">${esc(row.subject||'—')}</td>
-        <td style="color:var(--muted);font-size:12px;">${esc(row.sender||'—')}</td>
-        <td style="font-weight:700;color:var(--accent);">${esc(row.by||'—')}</td>
-        <td style="color:var(--muted);font-size:12px;">${esc(row.machine||'—')}</td>
-        <td style="font-size:11px;color:var(--muted);font-family:Consolas,monospace;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(row.folder||'')}">${esc(row.folder||'—')}</td>
-        <td style="text-align:center;">${row.files||0}</td>
-        <td style="color:var(--muted);font-size:12px;">${row.at||''}</td>
-      </tr>`).join('');
-  } catch(e) { console.error(e); }
-}
-
-const EVENT_COLORS = {
-  'COMPLETED':'#059669','SAVED-MSG':'#1a4fad','SAVED-ATT':'#059669','SKIP-DUP':'#d97706',
-  'SKIP-NOPO':'#d97706','SKIP-NOATT':'#94a3b8','ERROR-ATT':'#dc2626','ERROR-CONVERT':'#dc2626',
-  'CONVERTED-TO-EXCEL':'#7c3aed','EXTRACTED':'#059669','EXTRACT-NO-MATCH':'#d97706',
-};
-
-async function loadActivity() {
-  try {
-    const r = await fetch('/api/activity?limit=300'); const d = await r.json();
-    const tbody = document.getElementById('activityBody');
-    if (!d.rows || !d.rows.length) { tbody.innerHTML='<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">No activity yet.</td></tr>'; return; }
-    tbody.innerHTML = d.rows.map(row=>{
-      const col = EVENT_COLORS[row.event] || '#475569';
-      return `<tr>
-        <td style="color:var(--muted);font-size:11px;white-space:nowrap;">${row.ts||''}</td>
-        <td><span style="background:${col}22;color:${col};padding:2px 7px;border-radius:8px;font-size:11px;font-weight:700;">${row.event||''}</span></td>
-        <td><span class="badge badge-po">${row.po||'—'}</span></td>
-        <td style="max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;" title="${esc(row.subject||'')}">${esc(row.subject||'—')}</td>
-        <td style="font-size:11px;color:var(--muted);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${esc(row.file||'')}">${esc(row.file||'—')}</td>
-        <td style="font-weight:700;color:var(--accent);font-size:12px;">${esc(row.by||'—')}</td>
-        <td style="color:var(--muted);font-size:12px;">${esc(row.machine||'—')}</td>
-      </tr>`;
-    }).join('');
-  } catch(e) { console.error(e); }
-}
-
-function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-
-async function loadTrackerInfo() {
-  try {
-    const r = await fetch('/api/tracker_info'); const d = await r.json();
-    document.getElementById('trackerPath').innerHTML =
-      'DB: ' + d.db_file + '   |   Log: ' + d.log_csv +
-      '<br>Excel tracker: ' + d.tracker_xlsx + (d.tracker_xlsx_exists ? '' : '  <span style="color:var(--amber);">(not created yet — first extraction will create it)</span>');
-    const ok = d.db_exists;
-    document.getElementById('trackerStatus').innerHTML = ok
-      ? '<span style="color:var(--green);">✅ Shared tracker reachable — running as <b>' + esc(d.current_user) + '</b></span>'
-      : '<span style="color:var(--red);">❌ Shared tracker NOT found at above path. Update SHARED_TRACKER_DIR in py.</span>';
-    document.getElementById('trackerBanner').style.borderColor = ok ? 'var(--green)' : 'var(--red)';
-  } catch(e) { console.error(e); }
-}
-
-document.addEventListener('DOMContentLoaded', () => {
-  const chkAll = document.getElementById('chkAll');
-  if (chkAll) chkAll.addEventListener('change', () => {
-    const disabled = chkAll.checked;
-    ['chkPdf','chkExcel','chkWord'].forEach(id => {
-      const el = document.getElementById(id);
-      if (el) { el.disabled = disabled; if (disabled) el.checked = true; }
-    });
-  });
-
-  const chkDateFilter = document.getElementById('chkDateFilter');
-  const dateFilterRow = document.getElementById('dateFilterRow');
-  const startDate = document.getElementById('startDate');
-  const endDate = document.getElementById('endDate');
-  if (chkDateFilter) {
-    chkDateFilter.addEventListener('change', () => {
-      const on = chkDateFilter.checked;
-      dateFilterRow.style.display = on ? 'grid' : 'none';
-      startDate.disabled = !on;
-      endDate.disabled = !on;
-    });
-  }
-});
-
-window.onload = () => { loadFolders(); loadExtractions(); loadTrackerInfo(); loadVendorDomains(); };
 </script>
-</body>
-</html>
-"""
+</body></html>"""
 
-
-# ── Entry point ─────────────────────────────────────────────────────────
+# ================================================================= MAIN
 def open_browser():
     time.sleep(1.2)
-    webbrowser.open(f"http://127.0.0.1:{PORT}")
+    webbrowser.open('http://127.0.0.1:%d' % PORT)
 
-
-if __name__ == "__main__":
-    # Fail loudly at startup if the scoring checklists have drifted apart,
-    # rather than silently reporting a confirmed item as missing.
-    _validate_scoring_config()
-    init_db()
-    print(f"Starting PO Email Downloader on http://127.0.0.1:{PORT}")
+if __name__ == '__main__':
     threading.Thread(target=open_browser, daemon=True).start()
-    app.run(host="127.0.0.1", port=PORT, debug=False, use_reloader=False)
+    app.run(host='127.0.0.1', port=PORT, debug=False, use_reloader=False)
