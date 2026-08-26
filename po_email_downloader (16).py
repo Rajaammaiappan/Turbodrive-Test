@@ -118,48 +118,96 @@ def load_main_html_from_bytes(raw):
                     best = h
     return subject, best
 
+def norm_disp(s):
+    dl = s.lower()
+    if dl.startswith('accept'):
+        return 'Accept'
+    if dl.startswith('reject'):
+        return 'Reject'
+    if 'repair' in dl or 'refer to' in dl or 'remove' in dl or 'blend' in dl:
+        return 'Repair'
+    return s[:40]
+
 def parse_bytes(raw, fallback_name):
     subject, html = load_main_html_from_bytes(raw)
     soup = BeautifulSoup(html, 'lxml')
     vp = soup.select_one('.viewPage') or soup
 
+    # ---- task title / number (two manual formats) ----
     task_title = None
-    hf = soup.select_one('.pgHeaderFooter')
+    hf = soup.select_one('.pgHeaderFooter')                     # Trent 1000 style
     if hf:
         for c in hf.find_all(['td', 'th']):
             t = clean(c.get_text(' '))
             if t and 'Manual' not in t and 'Export' not in t and len(t) < 60:
                 task_title = t
                 break
+    if not task_title:                                          # XWB style: first real heading
+        for hh in vp.find_all(['h1', 'h2', 'h3']):
+            t = clean(hh.get_text(' '))
+            if t and t.lower() not in ('description', 'procedure', 'examinations, tests, and checks') and len(t) < 110:
+                task_title = t
+                break
     task_no = None
     m = re.search(r'\b(\d{2}-\d{2}-\d{2}-\d{3}-\d{3})\b', vp.get_text(' '))
     if m:
         task_no = m.group(1)
+    if not task_no:
+        m2 = re.search(r'\((\d{2}-\d{2}-\d{2}),', vp.get_text(' '))   # e.g. (72-41-52, 01-250)
+        if m2:
+            task_no = m2.group(1)
 
+    # ---- walk content, format-detect each criteria table ----
     records = []
-    cur_subtask = None
+    cur_subtask = None      # "Examine the ..."  (Trent 1000 area)
+    cur_colon = None        # most recent short heading ending ':'  (XWB area OR T1000 condition)
     for el in vp.descendants:
-        if getattr(el, 'name', None) is None:
+        name = getattr(el, 'name', None)
+        if name is None:
             continue
-        cls = el.get('class') or []
-        if el.name in ('h1', 'h2', 'h3', 'h4', 'div', 'span', 'p'):
+        if name in ('h1', 'h2', 'h3', 'h4', 'div', 'span', 'p') and el.find('table') is None:
             txt = clean(el.get_text(' '))
-            if re.match(r'^(Initially )?Examine the ', txt) and len(txt) < 90 and el.find('table') is None:
+            if not txt:
+                continue
+            if re.match(r'^(Initially )?Examine the ', txt) and len(txt) < 90:
                 cur_subtask = txt
-        if el.name == 'table' and 'src-table' in cls:
-            cond = None
-            prev = el.find_previous(string=lambda s: s and clean(s).endswith(':') and len(clean(s)) < 60)
-            if prev:
-                cond = clean(prev)
-            for tr in el.find_all('tr'):
-                cells = [clean(c.get_text(' ')) for c in tr.find_all(['td', 'th'])]
-                if len(cells) >= 2:
-                    crit, disp = cells[0], cells[-1]
-                    dl = disp.lower()
-                    disp_norm = 'Accept' if dl.startswith('accept') else ('Reject' if dl.startswith('reject') else disp)
-                    if crit and disp:
-                        records.append({'subtask': cur_subtask or '(root)', 'condition': cond or '',
-                                        'criterion': crit, 'disposition': disp_norm})
+            elif txt.endswith(':') and len(txt) < 80:
+                cur_colon = txt[:-1].strip()
+        if name == 'table' and 'src-table' in (el.get('class') or []):
+            rows = el.find_all('tr')
+            if not rows:
+                continue
+            head = [clean(c.get_text(' ')).upper() for c in rows[0].find_all(['td', 'th'])]
+            is_xwb = (len(head) >= 3 and head[0].startswith('DAMAGE')
+                      and any('LIMIT' in h for h in head) and any('ACTION' in h for h in head))
+            if is_xwb:
+                # 3-column: DAMAGE (condition) | LIMIT (criterion) | ACTION (disposition)
+                area = cur_colon or cur_subtask or '(root)'
+                last_dmg = ''
+                for tr in rows[1:]:
+                    cells = [clean(c.get_text(' ')) for c in tr.find_all(['td', 'th'])]
+                    if len(cells) < 3:
+                        continue
+                    dmg, limit, action = cells[0], cells[1], cells[-1]
+                    if dmg:
+                        last_dmg = dmg
+                    if limit and action:
+                        records.append({'subtask': area, 'condition': dmg or last_dmg,
+                                        'criterion': limit, 'disposition': norm_disp(action)})
+            else:
+                # 2-column Trent 1000: criterion | Accept/Reject
+                area = cur_subtask or '(root)'
+                prev = el.find_previous(string=lambda s: s and clean(s).endswith(':') and len(clean(s)) < 60)
+                cond = clean(prev)[:-1].strip() if prev else ''
+                for tr in rows:
+                    cells = [clean(c.get_text(' ')) for c in tr.find_all(['td', 'th'])]
+                    if len(cells) >= 2:
+                        crit, disp = cells[0], cells[-1]
+                        if crit.upper() in ('DAMAGE', 'LIMIT', 'ACTION'):
+                            continue
+                        if crit and disp:
+                            records.append({'subtask': area, 'condition': cond,
+                                            'criterion': crit, 'disposition': norm_disp(disp)})
     return {'subject': subject or fallback_name, 'task_no': task_no,
             'task_title': task_title, 'records': records}
 
@@ -173,15 +221,19 @@ def norm_area(s):
     s = re.sub(r'[^a-z0-9 ]', ' ', s)
     return re.sub(r'\s+', ' ', s).strip()
 
+def _dec(s):
+    # unify decimal separators: "1,00" (comma) == "1.00" (period)
+    return re.sub(r'(?<=\d)\s*,\s*(?=\d)', '.', s)
+
 def norm_crit(s):
-    s = s.lower()
+    s = _dec(s.lower())
     s = re.sub(r'\(.*?\)', '', s)
     s = re.sub(r'refer to.*', '', s)
-    s = re.sub(r'[^a-z0-9., ]', ' ', s)
-    return re.sub(r'\s+', ' ', s).strip(' .,')
+    s = re.sub(r'[^a-z0-9. ]', ' ', s)
+    return re.sub(r'\s+', ' ', s).strip(' .')
 
 def numbers(s):
-    return re.findall(r'\d+[.,]?\d*', s)
+    return re.findall(r'\d+\.?\d*', _dec(s))
 
 def related(a, b):
     """Do these two criteria describe the SAME check (ignoring threshold/wording)?"""
@@ -198,83 +250,77 @@ def build_model(parsed):
     names = [(p['subject'] or 'file')[:45] for p in parsed]
     ndoc = len(parsed)
 
-    # records grouped by (doc, area)
-    per_doc_area = [dict() for _ in range(ndoc)]
-    area_order, seen = [], set()
-    for di, p in enumerate(parsed):
-        for r in p['records']:
-            a = norm_area(r['subtask'])
-            per_doc_area[di].setdefault(a, []).append(r)
-            if a not in seen:
-                seen.add(a); area_order.append(a)
+    # ---- GLOBAL clustering: align criteria across ALL areas/documents by text.
+    # Area names differ between engine types (Trent 1000 vs XWB), so criteria are
+    # matched by wording (+disposition/threshold) across the whole task, not per area.
+    clusters = []   # each: {rep:rec, members:{di:rec}}
+    for di in range(ndoc):
+        for r in parsed[di]['records']:
+            best, bcl = 0.0, None
+            for cl in clusters:
+                if di in cl['members']:
+                    continue
+                na, nb = norm_crit(cl['rep']['criterion']), norm_crit(r['criterion'])
+                if not na or not nb:
+                    continue
+                sc = 1.0 if na == nb else difflib.SequenceMatcher(None, na, nb).ratio()
+                if sc > 0.6 and sc > best:
+                    best, bcl = sc, cl
+            if bcl is not None:
+                bcl['members'][di] = r
+            else:
+                clusters.append({'rep': r, 'members': {di: r}})
 
     rows = []
-    # pairwise agreement accumulators
-    co = [[0] * ndoc for _ in range(ndoc)]      # co-present count
-    ag = [[0] * ndoc for _ in range(ndoc)]      # agreement count
+    co = [[0] * ndoc for _ in range(ndoc)]
+    ag = [[0] * ndoc for _ in range(ndoc)]
+    for cl in clusters:
+        present = cl['members']
+        keys = {di: crit_key(r) for di, r in present.items()}
+        consensus = Counter(keys.values()).most_common(1)[0][0]
+        cons_txt, cons_disp, cons_nums = consensus
+        only_one = len(present) == 1
 
-    for area in area_order:
-        # gather this area's records per doc
-        area_recs = [per_doc_area[di].get(area, []) for di in range(ndoc)]
-        pretty = next((rs[0]['subtask'] for rs in area_recs if rs), area)
-
-        # ---- cluster criteria across docs (one member per doc per cluster)
-        clusters = []   # each: {members:{di:rec}}
+        cells = []
         for di in range(ndoc):
-            for r in area_recs[di]:
-                placed = False
-                for cl in clusters:
-                    if di in cl['members']:
-                        continue
-                    if related(cl['rep'], r):
-                        cl['members'][di] = r
-                        placed = True
-                        break
-                if not placed:
-                    clusters.append({'rep': r, 'members': {di: r}})
-
-        for cl in clusters:
-            present = cl['members']
-            keys = {di: crit_key(r) for di, r in present.items()}
-            consensus = Counter(keys.values()).most_common(1)[0][0]
-            cons_txt, cons_disp, cons_nums = consensus
-            only_one = len(present) == 1
-
-            cells = []
-            for di in range(ndoc):
-                if di in present:
-                    r = present[di]; k = keys[di]
-                    if only_one:
-                        st = 'UNIQUE'
-                    elif k == consensus:
-                        st = 'MATCH'
-                    elif k[0] == cons_txt and k[1] == cons_disp and k[2] != cons_nums:
-                        st = 'THRESHOLD'
-                    else:
-                        st = 'PARTIAL'
-                    cells.append({'text': r['criterion'] + '  \u2192 ' + r['disposition'], 'status': st})
+            if di in present:
+                r = present[di]; k = keys[di]
+                if only_one:
+                    st = 'UNIQUE'
+                elif k == consensus:
+                    st = 'MATCH'
+                elif k[0] == cons_txt and k[1] == cons_disp and k[2] != cons_nums:
+                    st = 'THRESHOLD'
                 else:
-                    cells.append({'text': '\u2014', 'status': 'NA' if only_one else 'MISSING'})
+                    st = 'PARTIAL'
+                cells.append({'text': r['criterion'] + '  \u2192 ' + r['disposition'], 'status': st})
+            else:
+                cells.append({'text': '\u2014', 'status': 'NA' if only_one else 'MISSING'})
 
-            # pairwise stats over docs that BOTH have this criterion
-            pres_idx = list(present.keys())
-            for x in range(len(pres_idx)):
-                for y in range(x + 1, len(pres_idx)):
-                    i, j = pres_idx[x], pres_idx[y]
-                    co[i][j] += 1; co[j][i] += 1
-                    if keys[i] == keys[j]:
-                        ag[i][j] += 1; ag[j][i] += 1
+        pres_idx = list(present.keys())
+        for x in range(len(pres_idx)):
+            for y in range(x + 1, len(pres_idx)):
+                i, j = pres_idx[x], pres_idx[y]
+                co[i][j] += 1; co[j][i] += 1
+                if keys[i] == keys[j]:
+                    ag[i][j] += 1; ag[j][i] += 1
 
-            cond = Counter([r['condition'] for r in present.values()]).most_common(1)[0][0]
-            rep_txt = next((r['criterion'] for di, r in present.items() if keys[di] == consensus),
-                           list(present.values())[0]['criterion'])
-            rows.append({'area': pretty, 'condition': cond, 'criterion': rep_txt, 'cells': cells})
+        first = present[pres_idx[0]]
+        pretty = Counter([r['subtask'] for r in present.values()]).most_common(1)[0][0]
+        cond = Counter([r['condition'] for r in present.values()]).most_common(1)[0][0]
+        rep_txt = next((r['criterion'] for di, r in present.items() if keys[di] == consensus),
+                       first['criterion'])
+        rows.append({'area': pretty, 'condition': cond, 'criterion': rep_txt, 'cells': cells})
 
-    # per-doc summary
+    # keep the heat-map tidy: group rows by inspection area for display
+    order = {}
+    for r in rows:
+        order.setdefault(r['area'], len(order))
+    rows.sort(key=lambda r: order[r['area']])
+
     summary = []
     for di in range(ndoc):
-        c = {s: 0 for s in STATUS_ORDER}
-        c['present'] = 0
+        c = {s: 0 for s in STATUS_ORDER}; c['present'] = 0
         for r in rows:
             st = r['cells'][di]['status']
             if st in c:
@@ -283,16 +329,12 @@ def build_model(parsed):
                 c['present'] += 1
         summary.append(c)
 
-    # pairwise agreement percentage matrix
     pairs = []
     for i in range(ndoc):
-        row = []
+        rowp = []
         for j in range(ndoc):
-            if i == j:
-                row.append(None)
-            else:
-                row.append(round(100.0 * ag[i][j] / co[i][j]) if co[i][j] else None)
-        pairs.append(row)
+            rowp.append(None if i == j else (round(100.0 * ag[i][j] / co[i][j]) if co[i][j] else None))
+        pairs.append(rowp)
 
     return {'names': names, 'task_no': parsed[0]['task_no'], 'task_title': parsed[0]['task_title'],
             'rows': rows, 'summary': summary, 'pairs': pairs, 'co': co,
