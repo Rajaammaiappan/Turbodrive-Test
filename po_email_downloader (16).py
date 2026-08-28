@@ -291,43 +291,66 @@ def ui_log(msg: str) -> None:
 
 def wait_for_manual_signin(engine, cfg) -> None:
     """
-    Pause the run for a fixed period so the user can sign in by hand.
+    Open a warm-up tab, pause while the user signs in, then reload the portal.
 
-    The tool has already opened the portal. It now waits `manual_login_wait_
-    seconds` (60 by default) while the user signs in and approves the
-    Authenticator prompt, then continues automatically.
+    Two problems this solves:
 
-    A fixed wait was chosen over detecting the sign-in state: Microsoft varies
-    the wording of its MFA pages, so the old text-matching check misfired and
-    the download began on a session that was not ready.
+    * Going straight to the BDC link fails Microsoft's MFA with "Sorry, we're
+      having trouble verifying your account". Signing in to an ordinary
+      corporate site first (Engine Room) completes the SSO cleanly, and BDC
+      then inherits that session. So a second tab is opened on
+      `sso_warmup_url` and left in front for the user to sign in on.
 
-    The countdown is logged every few seconds so the wait is visible rather
-    than looking like a hang, and Stop is honoured throughout.
+    * Detecting when sign-in has finished is unreliable, because Microsoft
+      varies the wording of its MFA pages. So the tool simply waits
+      `manual_login_wait_seconds` and then carries on.
+
+    Afterwards the tool's own tab is brought back to the front and the portal
+    URL is loaded again - the page fetched before sign-in is normally the
+    Microsoft error page, so it has to be re-fetched on the valid session.
     """
     wait_s = float(cfg.get("manual_login_wait_seconds", 60))
     settle = float(cfg.get("post_login_settle_seconds", 5))
+    warmup_url = cfg.get("sso_warmup_url", "")
 
-    ui_log(f"Sign in now - you have {int(wait_s)} seconds. "
-           "Complete the Authenticator approval in the browser window; "
-           "the download starts automatically when the time is up.")
+    # ---- 1. Warm-up tab -------------------------------------------------
+    warm_tid = ""
+    if warmup_url:
+        warm_tid = engine.open_warmup_tab(warmup_url)
+        if warm_tid:
+            ui_log("A second tab has opened for sign-in. Use THAT tab - "
+                   "signing in there also authorises the portal.")
 
+    ui_log(f"Sign in now - you have {int(wait_s)} seconds. Complete the "
+           "Authenticator approval; the download starts automatically when "
+           "the time is up.")
+
+    # ---- 2. Countdown ---------------------------------------------------
     deadline = time.time() + wait_s
-    next_notice = wait_s - 10                # first countdown line
-
+    next_notice = wait_s - 10
     while True:
         remaining = deadline - time.time()
         if remaining <= 0:
             break
         if JOB["stop"].is_set():
+            engine.close_target(warm_tid)
             raise RuntimeError("Stopped while waiting for sign-in.")
-        # Count down in 10s steps, then every second for the last 5.
         if remaining <= next_notice:
             ui_log(f"Starting in {int(remaining)} seconds...")
             next_notice = (remaining - 10) if remaining > 15 else (remaining - 5)
         time.sleep(0.5)
 
-    ui_log("Continuing with the download...")
+    # ---- 3. Back to our own tab, on a valid session ---------------------
+    if warm_tid and cfg.get("close_warmup_tab", True):
+        engine.close_target(warm_tid)
+        ui_log("Sign-in tab closed.")
+    engine.focus_main_tab()
     time.sleep(settle)                       # let any last redirect finish
+
+    if cfg.get("reload_after_signin", True):
+        engine.reload_last_site()
+
+    ui_log("Continuing with the download...")
     try:
         engine.wait_for_page_ready()
     except Exception:                        # noqa: BLE001
