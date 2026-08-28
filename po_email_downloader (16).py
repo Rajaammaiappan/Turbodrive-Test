@@ -1,934 +1,1996 @@
-# -*- coding: utf-8 -*-
 """
-CAIRO-Assist  -  Inspection Criteria Comparator  (RR / ALTEN internal tool)
-===========================================================================
-Upload two OR MORE Rolls-Royce AeroManager / Pinpoint MHTML snapshots of the
-SAME maintenance task. Every document is compared against every other document
-(no baseline - the comparison is symmetric). The tool shows a light-coloured
-heat-map plus an all-pairs agreement matrix, and exports an Excel workbook that
-matches whatever you have filtered on screen.
 
-Environment (confirmed available - no internet pip needed):
-    Python 3.9.12 (Anaconda)   Flask 1.1.2 / Werkzeug 2.0.3
-    beautifulsoup4 4.11.1  lxml 4.9.1  openpyxl 3.0.10
-Run:
-    "C:\\ProgramData\\Anaconda3\\python.exe" cairo_assist.py
-    (or double-click the .bat launcher)
+flask_app.py
+
+=========================================================================
+
+JETPULL - Flask web UI  (RR / ALTEN internal tool)
+
+
+
+Universal document downloader with portal presets:
+
+  [x] BDC (BlueData Connect)  - URL logic HARDCODED below (live)
+
+  [ ] Maximo / B2B / One Stop Portal - placeholders, logic to follow
+
+  [ ] nothing ticked          - universal mode: user types any URL
+
+
+
+BDC routing (hardcoded, per TV number):
+
+  5xxxxx -> .../technicalVariances/Raising/LegacyTV        (always)
+
+  6xxxxx -> .../technicalVariances/Raising/TV, and if the number isEvent
+
+            not found there -> .../technicalVariances/Raising/RepeaterTV
+
+  other  -> tries LegacyTV, TV, RepeaterTV in that order
+
+
+
+Output layout: <download folder>/<TV number>/<files>
+
+  Zip downloads are unpacked into the TV folder and the .zip removed.
+
+
+
+Usage logging (NOT shown in the tool): every processed number is
+
+appended to a SQLite DB (schema mirrors processed_emails.db) so yearly
+
+savings can be calculated straight from the file:
+
+    columns: portal, tv_number, url_used, downloaded_by, machine,
+
+             target_folder, file_count, file_names, status, message,
+
+             duration_seconds, processed_at
+
+
+
+Runs on Flask 1.1.2 / Python 3.9 (corporate Anaconda) - port 5001.
+
+=========================================================================
+
 """
-import os, re, io, email, json, difflib, threading, webbrowser, time, traceback, uuid
-import sqlite3, getpass, socket, csv
-from collections import Counter
+
+import getpass
+
+import re
+
+import socket
+
+import sqlite3
+
+import tempfile
+
+import threading
+
+import time
+
+import webbrowser
+
+import pandas as pd
+
 from datetime import datetime
 
-from flask import Flask, request, jsonify, send_file, Response
-from werkzeug.utils import secure_filename
+from pathlib import Path
 
-from bs4 import BeautifulSoup
-from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
+
+from flask import Flask, jsonify, render_template_string, request
+
+
+from cdp_automator import (
+    AutomationEngine,
+    extract_zips,
+    load_config,
+    read_search_numbers_from_excel,
+    safe_resolve,
+    write_report_to_excel,
+)
 
 app = Flask(__name__)
+
 PORT = 5001
-app.config['MAX_CONTENT_LENGTH'] = 120 * 1024 * 1024   # 120 MB total upload
 
-STORE = {}   # last comparison model, keyed by token
 
-# ============================================================================
-#  USAGE LOG DATABASE  --  EDIT THIS ONE LINE to set where the log is saved.
-#  Every time the tool is used, a row is written to this SQLite (.db) file.
-#  It is created automatically if it does not exist. Examples:
-#     LOG_DB_PATH = r"\\portfolioeng_nlr\EFS\CAIRO-Assist\usage_log.db"
-#     LOG_DB_PATH = r"C:\Users\u8531675\OneDrive - Rolls-Royce\CAIRO-Assist_usage_log.db"
-#  Default = a file named 'cairo_assist_log.db' next to this script.
-# ============================================================================
-LOG_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cairo_assist_log.db")
+# ------------------------------------------------------------------ #
 
-def _db_connect():
-    d = os.path.dirname(LOG_DB_PATH)
-    if d and not os.path.isdir(d):
-        os.makedirs(d, exist_ok=True)
-    con = sqlite3.connect(LOG_DB_PATH, timeout=10)
-    con.execute("""CREATE TABLE IF NOT EXISTS usage_log(
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        timestamp TEXT, doc_type TEXT, action TEXT, user TEXT, machine TEXT,
-        task_no TEXT, task_title TEXT, documents TEXT, doc_count INTEGER,
-        rows INTEGER, note TEXT)""")
+#  HARDCODED SETTINGS
+
+# ------------------------------------------------------------------ #
+
+# BlueData Connect base - the section (LegacyTV / TV / RepeaterTV) is
+
+# chosen per TV number by bdc_paths_for() below.
+
+BDC_BASE = "https://bluedata.connect.rolls-royce.com/technicalVariances/Raising"
+
+
+# Usage database. Lives next to the tool by default, so if you deploy
+
+# this folder on a shared drive, EVERY user's runs land in the same DB.
+
+# Change this constant to a fixed network path if you prefer, e.g.
+
+# r"\\portfolioeng_nlr\EFS\BDC_Downloader\bdc_usage_log.db"
+
+USAGE_DB_PATH = str(safe_resolve(Path(__file__).parent) / "bdc_usage_log.db")
+
+
+# Logos - two ways (local file wins if both are set):
+
+#   a) Save images into the ./static folder as alten_logo.png / rr_logo.png
+
+#   b) Or paste DIRECT image URLs below (must point at the image itself,
+
+#      e.g. https://.../alten.png - NOT a Bing/Google image-search page).
+
+# Email typed automatically into the SSO login page when the form's
+
+# Username field is left empty. Change it here, not in the UI.
+
+# Login is manual - the tool never stores or types passwords. This
+
+# constant is retained (empty) only for backward compatibility.
+
+DEFAULT_LOGIN_EMAIL = ""
+
+
+ALTEN_LOGO_URL = (
+    "https://companieslogo.com/img/orig/ATE.PA_BIG-569b3a98.png?t=1750661371"
+)
+
+RR_LOGO_URL = "https://www.rolls-royce.com/~/media/Images/R/Rolls-Royce/logo/rr-logo-svg.svg?h=96&iar=0&w=59"
+
+
+def bdc_paths_for(number: str):
+    """Which BlueData sections to try, in order, for this TV number."""
+
+    n = number.strip()
+
+    if n.startswith("5"):
+
+        return ["LegacyTV"]  # 5xxxxx: always LegacyTV
+
+    if n.startswith("6"):
+
+        return ["TV", "RepeaterTV"]  # 6xxxxx: TV, else RepeaterTV
+
+    return ["LegacyTV", "TV", "RepeaterTV"]  # anything else: try all
+
+
+# ------------------------------------------------------------------ #
+
+#  Usage DB (silent - never displayed in the tool)
+
+# ------------------------------------------------------------------ #
+
+
+def _db() -> sqlite3.Connection:
+
+    con = sqlite3.connect(USAGE_DB_PATH, timeout=15)
+
+    con.execute("""
+
+        CREATE TABLE IF NOT EXISTS usage_log (
+
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            portal           TEXT,
+
+            tv_number        TEXT,
+
+            url_used         TEXT,
+
+            downloaded_by    TEXT,
+
+            machine          TEXT,
+
+            target_folder    TEXT,
+
+            file_count       INTEGER DEFAULT 0,
+
+            file_names       TEXT,
+
+            status           TEXT,
+
+            message          TEXT,
+
+            duration_seconds REAL,
+
+            processed_at     TEXT
+
+        )""")
+
     return con
 
-def current_user():
-    for key in ('USERNAME', 'USER'):
-        v = os.environ.get(key)
-        if v:
-            return v
+
+def log_usage(
+    portal,
+    tv_number,
+    url_used,
+    target_folder,
+    file_count,
+    file_names,
+    status,
+    message,
+    duration,
+):
+    """Append one row per processed number. Failures never stop the run."""
+
     try:
-        return getpass.getuser()
-    except Exception:
-        return 'unknown'
 
-def current_machine():
-    return os.environ.get('COMPUTERNAME') or socket.gethostname() or 'unknown'
+        con = _db()
 
-def log_event(doc_type, action, task_no='', task_title='', documents=None,
-              doc_count=0, rows=0, note=''):
-    """Write one audit row. Never raises - logging must not break the tool."""
-    try:
-        docs = ' | '.join(documents or [])
-        con = _db_connect()
-        con.execute("""INSERT INTO usage_log
-            (timestamp, doc_type, action, user, machine, task_no, task_title,
-             documents, doc_count, rows, note)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-            (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), doc_type, action,
-             current_user(), current_machine(), task_no or '', task_title or '',
-             docs, doc_count, rows, note))
-        con.commit(); con.close()
-    except Exception as e:
-        # last-resort: print to console so the tool keeps working
-        print('[usage-log] could not write log: %s' % e)
+        con.execute(
+            "INSERT INTO usage_log (portal, tv_number, url_used, "
+            "downloaded_by, machine, target_folder, file_count, file_names, "
+            "status, message, duration_seconds, processed_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                portal,
+                tv_number,
+                url_used,
+                getpass.getuser(),
+                socket.gethostname(),
+                target_folder,
+                file_count,
+                "; ".join(file_names),
+                status,
+                message,
+                round(duration, 1),
+                f"{datetime.now():%Y-%m-%d %H:%M:%S}",
+            ),
+        )
 
-# ------------------------------------------------------- light colour palette
-COLORS = {
-    'MATCH':     'C6EFCE',   # light green
-    'PARTIAL':   'FFF2CC',   # light yellow
-    'THRESHOLD': 'FCE4D6',   # light orange
-    'MISSING':   'FFC7CE',   # light red / pink
-    'UNIQUE':    'E4DFEC',   # light purple
-    'NA':        'F2F2F2',   # light grey (criterion not applicable here)
+        con.commit()
+
+        con.close()
+
+    except Exception as exc:  # noqa: BLE001
+
+        ui_log(f"(usage log skipped: {exc})")
+
+
+# ------------------------------------------------------------------ #
+
+#  Single-job state
+
+# ------------------------------------------------------------------ #
+
+JOB = {
+    "running": False,
+    "logs": [],
+    "stop": threading.Event(),
+    "report": None,
+    "summary": "",
+    "results": [],
+    "done": None,
+    "progress": None,
 }
-STATUS_ORDER = ['MATCH', 'PARTIAL', 'THRESHOLD', 'MISSING', 'UNIQUE']
 
-# ================================================================= PARSING
-def clean(s):
-    return re.sub(r'\s+', ' ', s.replace('\xa0', ' ')).strip()
+LOCK = threading.Lock()
 
-def load_main_html_from_bytes(raw):
-    msg = email.message_from_bytes(raw)
-    subject = None
-    for k, v in msg.items():
-        if k.lower() == 'subject':
-            subject = v
-    best = ""
-    for part in msg.walk():
-        if part.get_content_type() == 'text/html':
-            payload = part.get_payload(decode=True)
-            if payload:
-                h = payload.decode('utf-8', 'ignore')
-                if len(h) > len(best):
-                    best = h
-    return subject, best
 
-def norm_disp(s):
-    dl = s.lower()
-    if dl.startswith('accept'):
-        return 'Accept'
-    if dl.startswith('reject'):
-        return 'Reject'
-    if 'repair' in dl or 'refer to' in dl or 'remove' in dl or 'blend' in dl:
-        return 'Repair'
-    return s[:40]
+def ui_log(msg: str) -> None:
 
-def parse_bytes(raw, fallback_name):
-    subject, html = load_main_html_from_bytes(raw)
-    soup = BeautifulSoup(html, 'lxml')
-    vp = soup.select_one('.viewPage') or soup
+    with LOCK:
 
-    # ---- task title / number (two manual formats) ----
-    task_title = None
-    hf = soup.select_one('.pgHeaderFooter')                     # Trent 1000 style
-    if hf:
-        for c in hf.find_all(['td', 'th']):
-            t = clean(c.get_text(' '))
-            if t and 'Manual' not in t and 'Export' not in t and len(t) < 60:
-                task_title = t
-                break
-    if not task_title:                                          # XWB style: first real heading
-        for hh in vp.find_all(['h1', 'h2', 'h3']):
-            t = clean(hh.get_text(' '))
-            if t and t.lower() not in ('description', 'procedure', 'examinations, tests, and checks') and len(t) < 110:
-                task_title = t
-                break
-    task_no = None
-    m = re.search(r'\b(\d{2}-\d{2}-\d{2}-\d{3}-\d{3})\b', vp.get_text(' '))
-    if m:
-        task_no = m.group(1)
-    if not task_no:
-        m2 = re.search(r'\((\d{2}-\d{2}-\d{2}),', vp.get_text(' '))   # e.g. (72-41-52, 01-250)
-        if m2:
-            task_no = m2.group(1)
+        JOB["logs"].append(f"{datetime.now():%H:%M:%S}  {msg}")
 
-    # ---- walk content, format-detect each criteria table ----
-    records = []
-    cur_subtask = None      # "Examine the ..."  (Trent 1000 area)
-    cur_colon = None        # most recent short heading ending ':'  (XWB area OR T1000 condition)
-    for el in vp.descendants:
-        name = getattr(el, 'name', None)
-        if name is None:
+
+# ------------------------------------------------------------------ #
+
+#  Sign-in: manual gate, or the old automatic SSO attempt
+
+# ------------------------------------------------------------------ #
+
+
+def wait_for_manual_signin(engine, cfg) -> None:
+    """
+    Pause the run for a fixed period so the user can sign in by hand.
+
+    The tool has already opened the portal. It now waits `manual_login_wait_
+    seconds` (60 by default) while the user signs in and approves the
+    Authenticator prompt, then continues automatically.
+
+    A fixed wait was chosen over detecting the sign-in state: Microsoft varies
+    the wording of its MFA pages, so the old text-matching check misfired and
+    the download began on a session that was not ready.
+
+    The countdown is logged every few seconds so the wait is visible rather
+    than looking like a hang, and Stop is honoured throughout.
+    """
+    wait_s = float(cfg.get("manual_login_wait_seconds", 60))
+    settle = float(cfg.get("post_login_settle_seconds", 5))
+
+    ui_log(f"Sign in now - you have {int(wait_s)} seconds. "
+           "Complete the Authenticator approval in the browser window; "
+           "the download starts automatically when the time is up.")
+
+    deadline = time.time() + wait_s
+    next_notice = wait_s - 10                # first countdown line
+
+    while True:
+        remaining = deadline - time.time()
+        if remaining <= 0:
+            break
+        if JOB["stop"].is_set():
+            raise RuntimeError("Stopped while waiting for sign-in.")
+        # Count down in 10s steps, then every second for the last 5.
+        if remaining <= next_notice:
+            ui_log(f"Starting in {int(remaining)} seconds...")
+            next_notice = (remaining - 10) if remaining > 15 else (remaining - 5)
+        time.sleep(0.5)
+
+    ui_log("Continuing with the download...")
+    time.sleep(settle)                       # let any last redirect finish
+    try:
+        engine.wait_for_page_ready()
+    except Exception:                        # noqa: BLE001
+        pass
+
+
+
+def do_signin(engine, credentials, cfg) -> None:
+    """
+
+    Sign in, either manually (default) or by the older automatic SSO flow.
+
+
+
+    Set "manual_login": false in config.json to go back to the automatic
+
+    attempt - the code for it is untouched in cdp_automator.login().
+
+    """
+
+    if cfg.get("manual_login", True):
+
+        wait_for_manual_signin(engine, cfg)
+
+    else:
+
+        engine.login(*credentials)
+
+
+# ------------------------------------------------------------------ #
+
+#  One item = one TV number
+
+# ------------------------------------------------------------------ #
+
+
+def process_number(
+    engine,
+    portal,
+    base_url,
+    number,
+    base_folder,
+    parent_history_df,
+    logged_in_flag,
+    credentials,
+):
+    """
+
+    Process one number: navigate (BDC: try candidate sections), search,
+
+    open, download into <base_folder>/<number>, unzip archives.
+
+    Returns the report row (also written to the usage DB).
+
+    """
+
+    started = time.time()
+
+    tv_folder = str(Path(base_folder) / re.sub(r'[\\/:*?"<>|]', "_", number))
+
+    row = {
+        "search_number": number,
+        "files": [],
+        "timestamp": f"{datetime.now():%Y-%m-%d %H:%M:%S}",
+    }
+
+    url_used = ""
+
+    # ---- B2B / Maximo branch -------------------------------------
+
+    if portal == "B2B":
+
+        from maximo_b2b import MaximoWorkflow, MAXIMO_URL
+
+        url_used = MAXIMO_URL
+
+        wf = MaximoWorkflow(engine, load_config(), base_folder, parent_history_df)
+
+        # login once (SSO handled by engine.login when the page appears)
+
+        if not logged_in_flag["done"]:
+
+            try:
+
+                engine.open_site(MAXIMO_URL)
+
+                do_signin(engine, credentials, load_config())
+
+                logged_in_flag["done"] = True
+
+            except Exception as exc:  # noqa: BLE001
+
+                row.update(status="FAILED", reason="ERROR", message=str(exc))
+
+                log_usage(
+                    "B2B",
+                    number,
+                    url_used,
+                    base_folder,
+                    0,
+                    [],
+                    "FAILED",
+                    str(exc),
+                    time.time() - started,
+                )
+
+                return row
+
+        res = wf.run(number, base_folder)
+
+        status = "SUCCESS" if res.get("status") == "SUCCESS" else "FAILED"
+
+        reason = (
+            ""
+            if status == "SUCCESS"
+            else ("FILE_NOT_AVAILABLE" if res.get("status") == "NO_FILES" else "ERROR")
+        )
+
+        row.update(
+            status=status,
+            reason=reason,
+            files=res.get("files", []),
+            message=res.get("message", ""),
+        )
+
+        ui_log(f"{number}: {row['message']}")
+
+        log_usage(
+            "B2B",
+            number,
+            url_used,
+            "; ".join(res.get("folders", [])) or base_folder,
+            len(row["files"]),
+            row["files"],
+            status,
+            row["message"],
+            time.time() - started,
+        )
+
+        return row
+
+    candidates = (
+        [f"{BDC_BASE}/{p}" for p in bdc_paths_for(number)]
+        if portal == "BDC"
+        else [base_url]
+    )
+
+    engine.set_download_dir(tv_folder)
+
+    last_err = None
+
+    for cand in candidates:
+
+        try:
+
+            url_used = cand
+
+            engine.open_site(cand)
+
+            if not logged_in_flag["done"]:
+
+                do_signin(engine, credentials, load_config())
+
+                logged_in_flag["done"] = True
+
+            engine.search_record(number)
+
+            engine.open_result(number)
+
+            files = engine.download_files()
+
+            files = extract_zips(files, tv_folder, engine.log)
+
+            names = [Path(f).name for f in files]
+
+            row.update(
+                status="SUCCESS",
+                files=names,
+                message=f"{len(names)} file(s) in {tv_folder}",
+            )
+
+            ui_log(f"{number}: {len(names)} file(s) saved to {tv_folder}")
+
+            break
+
+        except Exception as exc:  # noqa: BLE001
+
+            last_err = exc
+
+            if cand != candidates[-1]:
+
+                ui_log(
+                    f"{number}: not found via {cand.rsplit('/',1)[-1]} - "
+                    f"trying next section..."
+                )
+
             continue
-        if name in ('h1', 'h2', 'h3', 'h4', 'div', 'span', 'p') and el.find('table') is None:
-            txt = clean(el.get_text(' '))
-            if not txt:
-                continue
-            if re.match(r'^(Initially )?Examine the ', txt) and len(txt) < 90:
-                cur_subtask = txt
-            elif txt.endswith(':') and len(txt) < 80:
-                cur_colon = txt[:-1].strip()
-        if name == 'table' and 'src-table' in (el.get('class') or []):
-            rows = el.find_all('tr')
-            if not rows:
-                continue
-            head = [clean(c.get_text(' ')).upper() for c in rows[0].find_all(['td', 'th'])]
-            is_xwb = (len(head) >= 3 and head[0].startswith('DAMAGE')
-                      and any('LIMIT' in h for h in head) and any('ACTION' in h for h in head))
-            if is_xwb:
-                # 3-column: DAMAGE (condition) | LIMIT (criterion) | ACTION (disposition)
-                area = cur_colon or cur_subtask or '(root)'
-                last_dmg = ''
-                for tr in rows[1:]:
-                    cells = [clean(c.get_text(' ')) for c in tr.find_all(['td', 'th'])]
-                    if len(cells) < 3:
-                        continue
-                    dmg, limit, action = cells[0], cells[1], cells[-1]
-                    if dmg:
-                        last_dmg = dmg
-                    if limit and action:
-                        records.append({'subtask': area, 'condition': dmg or last_dmg,
-                                        'criterion': limit, 'disposition': norm_disp(action)})
-            else:
-                # 2-column Trent 1000: criterion | Accept/Reject
-                area = cur_subtask or '(root)'
-                prev = el.find_previous(string=lambda s: s and clean(s).endswith(':') and len(clean(s)) < 60)
-                cond = clean(prev)[:-1].strip() if prev else ''
-                for tr in rows:
-                    cells = [clean(c.get_text(' ')) for c in tr.find_all(['td', 'th'])]
-                    if len(cells) >= 2:
-                        crit, disp = cells[0], cells[-1]
-                        if crit.upper() in ('DAMAGE', 'LIMIT', 'ACTION'):
-                            continue
-                        if crit and disp:
-                            records.append({'subtask': area, 'condition': cond,
-                                            'criterion': crit, 'disposition': norm_disp(disp)})
-    return {'subject': subject or fallback_name, 'task_no': task_no,
-            'task_title': task_title, 'records': records}
 
-# ================================================================= MATCHING
-def norm_area(s):
-    s = s.lower()
-    s = re.sub(r'\bhp turbine\b', '', s)
-    s = re.sub(r'\bblades\b', 'blade', s)
-    s = re.sub(r'\brotor blade\b', 'blade', s)
-    s = re.sub(r'\binitially\b', '', s)
-    s = re.sub(r'[^a-z0-9 ]', ' ', s)
-    return re.sub(r'\s+', ' ', s).strip()
+    else:
 
-def _dec(s):
-    # unify decimal separators: "1,00" (comma) == "1.00" (period)
-    return re.sub(r'(?<=\d)\s*,\s*(?=\d)', '.', s)
+        msg = str(last_err)
 
-def norm_crit(s):
-    s = _dec(s.lower())
-    s = re.sub(r'\(.*?\)', '', s)
-    s = re.sub(r'refer to.*', '', s)
-    s = re.sub(r'[^a-z0-9. ]', ' ', s)
-    return re.sub(r'\s+', ' ', s).strip(' .')
+        low = msg.lower()
 
-def numbers(s):
-    return re.findall(r'\d+\.?\d*', _dec(s))
+        if "no result found" in low or "no search box" in low:
 
-def related(a, b):
-    """Do these two criteria describe the SAME check (ignoring threshold/wording)?"""
-    na, nb = norm_crit(a['criterion']), norm_crit(b['criterion'])
-    if na == nb:
-        return True
-    return difflib.SequenceMatcher(None, na, nb).ratio() > 0.6
+            reason = "NUMBER_NOT_FOUND"
 
-def crit_key(r):
-    return (norm_crit(r['criterion']), r['disposition'], tuple(numbers(r['criterion'])))
+            human = "Number not found in portal"
 
-# ================================================================= ALL-PAIRS MODEL
-def build_model(parsed):
-    names = [(p['subject'] or 'file')[:45] for p in parsed]
-    ndoc = len(parsed)
+        elif "no download" in low or "no files" in low or "no file links" in low:
 
-    # ---- GLOBAL clustering: align criteria across ALL areas/documents by text.
-    # Area names differ between engine types (Trent 1000 vs XWB), so criteria are
-    # matched by wording (+disposition/threshold) across the whole task, not per area.
-    clusters = []   # each: {rep:rec, members:{di:rec}}
-    for di in range(ndoc):
-        for r in parsed[di]['records']:
-            best, bcl = 0.0, None
-            for cl in clusters:
-                if di in cl['members']:
+            reason = "FILE_NOT_AVAILABLE"
+
+            human = "No downloadable file available for this number"
+
+        else:
+
+            reason = "ERROR"
+
+            human = msg
+
+        row.update(status="FAILED", reason=reason, message=human)
+
+        ui_log(f"FAILED {number}: {human}")
+
+    log_usage(
+        portal,
+        number,
+        url_used,
+        tv_folder,
+        len(row["files"]),
+        row["files"],
+        row.get("status", "FAILED"),
+        row.get("message", ""),
+        time.time() - started,
+    )
+
+    return row
+
+
+def _already_downloaded(base_folder, portal, number):
+    """
+
+    Resume helper: return existing files for this number, or [].
+
+    BDC/Universal put files in <base>/<number>/ ; B2B nests under
+
+    <base>/<number>/... so we look recursively there.
+
+    """
+
+    folder = Path(base_folder) / re.sub(r'[\\/:*?"<>|]', "_", number)
+
+    if not folder.exists():
+
+        return []
+
+    files = [str(p) for p in folder.rglob("*") if p.is_file()]
+
+    return files
+
+
+def _save_report(report_rows, folder, partial=False):
+    """Write the Excel report. Called periodically (partial) and at the end."""
+
+    if not report_rows:
+
+        return None
+
+    try:
+
+        name = (
+            "download_report_PARTIAL.xlsx"
+            if partial
+            else f"download_report_{datetime.now():%Y%m%d_%H%M%S}.xlsx"
+        )
+
+        path = str(Path(folder) / name)
+
+        write_report_to_excel(report_rows, path)
+
+        if partial:
+
+            ui_log(f"(checkpoint saved: {len(report_rows)} rows -> {name})")
+
+        with LOCK:
+
+            JOB["report"] = path
+
+        return path
+
+    except Exception as exc:  # noqa: BLE001
+
+        ui_log(f"Could not write report: {exc}")
+
+        return None
+
+
+def read_parent_history_excel(path):
+
+    raw = pd.read_excel(path, header=None)
+
+    header_row = None
+
+    for idx, row in raw.iterrows():
+
+        values = {str(v).strip().lower() for v in row.tolist()}
+
+        if "event item serial number" in values and "event date time" in values:
+
+            header_row = idx
+
+            break
+
+    if header_row is None:
+
+        raise ValueError(
+            "Could not find required columns "
+            "'Event Item Serial Number' and "
+            "'Event Date Time'."
+        )
+
+    df = pd.read_excel(
+        path,
+        header=header_row,
+    )
+
+    cols = {str(col).strip().lower(): col for col in df.columns}
+
+    serial_col = cols.get("event item serial number")
+
+    date_col = cols.get("event date time")
+
+    action_col = cols.get("action code")
+
+    if not serial_col or not date_col or not action_col:
+
+        raise ValueError(
+            "Required columns not found: "
+            "'Event Item Serial Number', "
+            "'Event Date Time' and/or "
+            "'Action Code'"
+        )
+
+    df = df.rename(
+        columns={
+            serial_col: "event_serial",
+            date_col: "event_date",
+            action_col: "action_code",
+        }
+    )
+
+    df = df[
+        df["action_code"].fillna("").astype(str).str.strip().str.upper().eq("REMOVAL")
+    ]
+
+    df["event_serial"] = df["event_serial"].fillna("").astype(str).str.strip()
+
+    df = df[df["event_serial"] != ""]
+
+    return df
+
+
+def run_job(
+    portal,
+    url,
+    username,
+    password,
+    numbers,
+    folder,
+    headless,
+    browser,
+    skip_existing=False,
+    parent_history_df=None,
+    checkpoint_every=25,
+):
+
+    report_rows = []
+
+    engine = None
+
+    logged_in = {"done": False}
+
+    original_order = list(numbers)  # keep the user's typed order for output
+
+    try:
+
+        engine = AutomationEngine(
+            config=load_config(),
+            download_dir=folder,
+            status_callback=ui_log,
+            headless=headless,
+            browser=browser,
+        )
+
+        engine.start_browser()
+
+        # Group by PRIMARY link so all numbers sharing a link run back-to-back
+
+        # instead of ping-ponging (e.g. 5,5,5,6,5,6 -> all 5s, then all 6s).
+
+        # Order within each group is preserved. The per-number fallback
+
+        # (6-series /TV -> /RepeaterTV) still happens inside process_number.
+
+        if portal == "BDC":
+
+            def primary(n):
+
+                secs = bdc_paths_for(n)
+
+                return secs[0] if secs else "LegacyTV"
+
+            # stable sort keeps typed order inside each link group
+
+            group_order, seen = [], set()
+
+            for n in numbers:
+
+                key = primary(n)
+
+                if key not in seen:
+
+                    seen.add(key)
+                    group_order.append(key)
+
+            ordered = sorted(numbers, key=lambda n: group_order.index(primary(n)))
+
+            if ordered != numbers:
+
+                ui_log(
+                    "Grouped by portal link to avoid switching back and "
+                    "forth: "
+                    + ", ".join(
+                        f"{k}({sum(1 for n in numbers if primary(n)==k)})"
+                        for k in group_order
+                    )
+                )
+
+            numbers = ordered
+
+        for idx, number in enumerate(numbers, start=1):
+
+            if JOB["stop"].is_set():
+
+                ui_log(f"Stopped by user before item {idx}/{len(numbers)}.")
+
+                break
+
+            ui_log(f"===== Item {idx}/{len(numbers)}: {number} " f"[{portal}] =====")
+
+            # Live progress (drives the progress bar for large batches).
+
+            with LOCK:
+
+                JOB["progress"] = {
+                    "done": idx - 1,
+                    "total": len(numbers),
+                    "current": number,
+                }
+
+            # RESUME support: skip numbers already downloaded in a previous
+
+            # run (their folder exists and contains at least one file).
+
+            if skip_existing:
+
+                existing = _already_downloaded(folder, portal, number)
+
+                if existing:
+
+                    ui_log(
+                        f"{number}: already downloaded "
+                        f"({len(existing)} file(s)) - skipping."
+                    )
+
+                    report_rows.append(
+                        {
+                            "search_number": number,
+                            "status": "SKIPPED",
+                            "reason": "ALREADY_DOWNLOADED",
+                            "files": [Path(f).name for f in existing],
+                            "message": "Skipped - files already present",
+                            "timestamp": f"{datetime.now():%Y-%m-%d %H:%M:%S}",
+                        }
+                    )
+
                     continue
-                na, nb = norm_crit(cl['rep']['criterion']), norm_crit(r['criterion'])
-                if not na or not nb:
-                    continue
-                sc = 1.0 if na == nb else difflib.SequenceMatcher(None, na, nb).ratio()
-                if sc > 0.6 and sc > best:
-                    best, bcl = sc, cl
-            if bcl is not None:
-                bcl['members'][di] = r
-            else:
-                clusters.append({'rep': r, 'members': {di: r}})
 
-    rows = []
-    co = [[0] * ndoc for _ in range(ndoc)]
-    ag = [[0] * ndoc for _ in range(ndoc)]
-    for cl in clusters:
-        present = cl['members']
-        keys = {di: crit_key(r) for di, r in present.items()}
-        consensus = Counter(keys.values()).most_common(1)[0][0]
-        cons_txt, cons_disp, cons_nums = consensus
-        only_one = len(present) == 1
+            # Universal mode keeps the login-once + go-back flow;
 
-        cells = []
-        for di in range(ndoc):
-            if di in present:
-                r = present[di]; k = keys[di]
-                if only_one:
-                    st = 'UNIQUE'
-                elif k == consensus:
-                    st = 'MATCH'
-                elif k[0] == cons_txt and k[1] == cons_disp and k[2] != cons_nums:
-                    st = 'THRESHOLD'
-                else:
-                    st = 'PARTIAL'
-                cells.append({'text': r['criterion'] + '  \u2192 ' + r['disposition'], 'status': st})
-            else:
-                cells.append({'text': '\u2014', 'status': 'NA' if only_one else 'MISSING'})
+            # BDC navigates between sections inside the same session.
 
-        pres_idx = list(present.keys())
-        for x in range(len(pres_idx)):
-            for y in range(x + 1, len(pres_idx)):
-                i, j = pres_idx[x], pres_idx[y]
-                co[i][j] += 1; co[j][i] += 1
-                if keys[i] == keys[j]:
-                    ag[i][j] += 1; ag[j][i] += 1
+            if portal != "BDC" and idx > 1:
 
-        first = present[pres_idx[0]]
-        pretty = Counter([r['subtask'] for r in present.values()]).most_common(1)[0][0]
-        cond = Counter([r['condition'] for r in present.values()]).most_common(1)[0][0]
-        rep_txt = next((r['criterion'] for di, r in present.items() if keys[di] == consensus),
-                       first['criterion'])
-        rows.append({'area': pretty, 'condition': cond, 'criterion': rep_txt, 'cells': cells})
+                try:
 
-    # keep the heat-map tidy: group rows by inspection area for display
-    order = {}
-    for r in rows:
-        order.setdefault(r['area'], len(order))
-    rows.sort(key=lambda r: order[r['area']])
+                    engine.return_to_search()
 
-    summary = []
-    for di in range(ndoc):
-        c = {s: 0 for s in STATUS_ORDER}; c['present'] = 0
-        for r in rows:
-            st = r['cells'][di]['status']
-            if st in c:
-                c[st] += 1
-            if st in ('MATCH', 'PARTIAL', 'THRESHOLD', 'UNIQUE'):
-                c['present'] += 1
-        summary.append(c)
+                except Exception:
 
-    pairs = []
-    for i in range(ndoc):
-        rowp = []
-        for j in range(ndoc):
-            rowp.append(None if i == j else (round(100.0 * ag[i][j] / co[i][j]) if co[i][j] else None))
-        pairs.append(rowp)
+                    engine.open_site(url)
 
-    return {'names': names, 'task_no': parsed[0]['task_no'], 'task_title': parsed[0]['task_title'],
-            'rows': rows, 'summary': summary, 'pairs': pairs, 'co': co,
-            'generated': datetime.now().strftime('%d %b %Y  %H:%M')}
+            report_rows.append(
+                process_number(
+                    engine,
+                    portal,
+                    url,
+                    number,
+                    folder,
+                    parent_history_df,
+                    logged_in,
+                    (username, password),
+                )
+            )
 
-# ================================================================= FILTER (shared by UI + download)
-def filter_rows(rows, statuses, query):
-    sset = set(statuses) if statuses else set(STATUS_ORDER)
-    q = (query or '').lower().strip()
-    out = []
-    for r in rows:
-        cstat = [c['status'] for c in r['cells']]
-        if not any(s in sset for s in cstat):
-            continue
-        if q:
-            hay = (r['area'] + ' ' + r['condition'] + ' ' + r['criterion'] + ' ' +
-                   ' '.join(c['text'] for c in r['cells'])).lower()
-            if q not in hay:
-                continue
-        out.append(r)
-    return out
+            # CHECKPOINT: on long batches, save the report periodically so a
 
-# ================================================================= EXCEL
-def write_excel(model, rows):
-    wb = Workbook()
-    thin = Side(style='thin', color='C8CED8')
-    border = Border(left=thin, right=thin, top=thin, bottom=thin)
-    wrap = Alignment(wrap_text=True, vertical='top')
-    center = Alignment(horizontal='center', vertical='center', wrap_text=True)
-    hdr_fill = PatternFill('solid', fgColor='305496')          # header still readable, text white
-    hdr_font = Font(name='Arial', bold=True, color='FFFFFF', size=10)
+            # crash or closed window never loses hours of work.
 
-    ws = wb.active
-    ws.title = 'Heatmap'
-    titles = ['Inspection Area', 'Condition', 'Criterion'] + model['names']
-    for j, t in enumerate(titles, 1):
-        c = ws.cell(1, j, t); c.fill = hdr_fill; c.font = hdr_font; c.alignment = center; c.border = border
-    for j, w in enumerate([26, 16, 46] + [40] * len(model['names']), 1):
-        ws.column_dimensions[get_column_letter(j)].width = w
-    r, last = 2, None
-    if not rows:
-        ws.cell(2, 1, 'No rows matched the current filter.').font = Font(name='Arial', italic=True, size=10)
-    for row in rows:
-        ws.cell(r, 1, row['area'] if row['area'] != last else '').alignment = wrap
-        last = row['area']
-        ws.cell(r, 2, row['condition']).alignment = wrap
-        ws.cell(r, 3, row['criterion']).alignment = wrap
-        for k, cell in enumerate(row['cells']):
-            xc = ws.cell(r, 4 + k, cell['text'])
-            xc.fill = PatternFill('solid', fgColor=COLORS[cell['status']])
-            xc.alignment = wrap; xc.font = Font(name='Arial', size=9); xc.border = border
-        for j in range(1, 4):
-            ws.cell(r, j).font = Font(name='Arial', size=9); ws.cell(r, j).border = border
-        r += 1
-    ws.freeze_panes = 'D2'
-    if r > 2:
-        ws.auto_filter.ref = "A1:%s%d" % (get_column_letter(len(titles)), r - 1)
+            if checkpoint_every and idx % checkpoint_every == 0:
 
-    # Summary
-    ss = wb.create_sheet('Summary')
-    ss.cell(1, 1, 'Task').font = Font(name='Arial', bold=True)
-    ss.cell(1, 2, "%s  (%s)" % (model['task_title'] or '', model['task_no'] or '')).font = Font(name='Arial')
-    ss.cell(2, 1, 'Rows exported').font = Font(name='Arial', bold=True)
-    ss.cell(2, 2, len(rows)).font = Font(name='Arial')
-    heads = ['Document', 'Match', 'Partial', 'Threshold diff', 'Missing', 'Unique', 'Criteria present']
-    for j, h in enumerate(heads, 1):
-        c = ss.cell(4, j, h); c.fill = hdr_fill; c.font = hdr_font; c.alignment = center; c.border = border
-    for i, (nm, cnt) in enumerate(zip(model['names'], model['summary'])):
-        rr = 5 + i
-        ss.cell(rr, 1, nm).font = Font(name='Arial', size=10)
-        for j, key in enumerate(['MATCH', 'PARTIAL', 'THRESHOLD', 'MISSING', 'UNIQUE', 'present'], 2):
-            cc = ss.cell(rr, j, cnt[key]); cc.alignment = center; cc.border = border; cc.font = Font(name='Arial', size=10)
-    for j, w in enumerate([40, 9, 9, 14, 9, 9, 16], 1):
-        ss.column_dimensions[get_column_letter(j)].width = w
-    # legend
-    lr = 7 + len(model['names'])
-    ss.cell(lr, 1, 'Legend').font = Font(name='Arial', bold=True)
-    for i, (st, lab) in enumerate([('MATCH', 'Match - all documents agree'),
-                                   ('PARTIAL', 'Partial - wording differs, same intent'),
-                                   ('THRESHOLD', 'Threshold diff - numeric limit differs'),
-                                   ('MISSING', 'Missing - criterion absent in this document'),
-                                   ('UNIQUE', 'Unique - criterion only in this document'),
-                                   ('NA', 'Not applicable')]):
-        cc = ss.cell(lr + 1 + i, 1, lab)
-        cc.fill = PatternFill('solid', fgColor=COLORS[st]); cc.font = Font(name='Arial', size=10)
+                _save_report(report_rows, folder, partial=True)
 
-    # Pairwise agreement matrix
-    pm = wb.create_sheet('Pairwise')
-    pm.cell(1, 1, 'All-pairs agreement (%) - share of shared criteria that match exactly').font = Font(name='Arial', bold=True)
-    for j, nm in enumerate(model['names'], 2):
-        c = pm.cell(3, j, nm); c.fill = hdr_fill; c.font = hdr_font; c.alignment = center; c.border = border
-    for i, nm in enumerate(model['names']):
-        rr = 4 + i
-        c = pm.cell(rr, 1, nm); c.fill = hdr_fill; c.font = hdr_font; c.alignment = Alignment(wrap_text=True); c.border = border
-        for j in range(len(model['names'])):
-            v = model['pairs'][i][j]
-            cc = pm.cell(rr, 2 + j, '\u2014' if v is None else v)
-            cc.alignment = center; cc.border = border; cc.font = Font(name='Arial', size=10)
-            if v is not None:
-                shade = 'C6EFCE' if v >= 90 else ('FFF2CC' if v >= 70 else 'FFC7CE')
-                cc.fill = PatternFill('solid', fgColor=shade)
-    pm.column_dimensions['A'].width = 34
-    for j in range(len(model['names'])):
-        pm.column_dimensions[get_column_letter(2 + j)].width = 18
+    except Exception as exc:  # noqa: BLE001
 
-    # Details (full text, unfiltered)
-    ds = wb.create_sheet('Details (all)')
-    for j, t in enumerate(titles, 1):
-        c = ds.cell(1, j, t); c.fill = hdr_fill; c.font = hdr_font; c.alignment = center; c.border = border
-    for j, w in enumerate([26, 16, 46] + [40] * len(model['names']), 1):
-        ds.column_dimensions[get_column_letter(j)].width = w
-    for i, row in enumerate(model['rows'], 2):
-        ds.cell(i, 1, row['area']).alignment = wrap
-        ds.cell(i, 2, row['condition']).alignment = wrap
-        ds.cell(i, 3, row['criterion']).alignment = wrap
-        for k, cell in enumerate(row['cells']):
-            ds.cell(i, 4 + k, cell['text']).alignment = wrap
-    ds.freeze_panes = 'D2'
+        ui_log(f"FATAL: {exc}")
 
-    bio = io.BytesIO(); wb.save(bio); bio.seek(0)
-    return bio
+    finally:
 
-# ================================================================= ROUTES
-@app.route('/')
+        if engine:
+
+            engine.quit()
+
+    # Restore the user's typed order for the report and on-screen table
+
+    # (execution was grouped by link for speed, but output should match
+
+    # what they entered). Stable for duplicates.
+
+    pos = {n: i for i, n in enumerate(original_order)}
+
+    report_rows.sort(key=lambda r: pos.get(r.get("search_number", ""), 1e9))
+
+    if report_rows:
+
+        path = _save_report(report_rows, folder, partial=False)
+
+        if path:
+
+            ui_log(f"Report written: {path}")
+
+    # Safety net: the same file arriving for several different numbers means
+
+    # the tool opened the wrong record or grabbed a page-template link.
+
+    # Flag it loudly rather than reporting a clean-looking but wrong run.
+
+    seen_files = {}
+
+    for r in report_rows:
+
+        for fn in r.get("files", []):
+
+            seen_files.setdefault(fn, []).append(r.get("search_number", ""))
+
+    repeated = {f: nums for f, nums in seen_files.items() if len(set(nums)) > 1}
+
+    if repeated:
+
+        ui_log(
+            "*** WARNING: the same file was downloaded for several "
+            "different numbers - this usually means a wrong record was "
+            "opened or a page-template link was picked up: "
+            + "; ".join(
+                f"{f} -> {', '.join(sorted(set(n)))[:60]}"
+                for f, n in list(repeated.items())[:5]
+            )
+        )
+
+        for r in report_rows:
+
+            if any(fn in repeated for fn in r.get("files", [])):
+
+                r["message"] = "CHECK: possible duplicate/wrong file. " + r.get(
+                    "message", ""
+                )
+
+    ok = sum(1 for r in report_rows if r.get("status") == "SUCCESS")
+
+    skipped = sum(1 for r in report_rows if r.get("status") == "SKIPPED")
+
+    total = len(report_rows)
+
+    results = [
+        {
+            "number": r.get("search_number", ""),
+            "status": r.get("status", "FAILED"),
+            "reason": r.get("reason", ""),
+            "files": r.get("files", []),
+            "message": r.get("message", ""),
+        }
+        for r in report_rows
+    ]
+
+    with LOCK:
+
+        JOB["summary"] = f"DONE - {ok}/{total} item(s) succeeded" + (
+            f", {skipped} skipped." if skipped else "."
+        )
+
+        JOB["results"] = results
+
+        JOB["done"] = {"ok": ok, "total": total, "skipped": skipped}
+
+        JOB["running"] = False
+
+    ui_log(JOB["summary"])
+
+
+# ------------------------------------------------------------------ #
+
+#  Routes
+
+# ------------------------------------------------------------------ #
+
+
+@app.route("/")
 def index():
-    return Response(INDEX_HTML, mimetype='text/html')
 
-@app.route('/compare', methods=['POST'])
-def compare():
+    static_dir = Path(app.root_path) / "static"
+
+    return render_template_string(
+        PAGE,
+        alten_logo=(static_dir / "alten_logo.png").exists(),
+        rr_logo=(static_dir / "rr_logo.png").exists(),
+        alten_logo_url=ALTEN_LOGO_URL.strip(),
+        rr_logo_url=RR_LOGO_URL.strip(),
+    )
+
+
+@app.route("/start", methods=["POST"])
+def start():
+
+    with LOCK:
+
+        if JOB["running"]:
+
+            return jsonify(ok=False, error="A job is already running.")
+
+    if request.form.get("portal_bdc") == "on":
+
+        portal = "BDC"
+
+    elif request.form.get("portal_b2b") == "on":
+
+        portal = "B2B"
+
+    else:
+
+        portal = "Universal"
+
+    url = (request.form.get("url") or "").strip()
+
+    username = ""  # login is manual; tool never types credentials
+
+    password = ""
+
+    typed = (request.form.get("numbers") or "").strip()
+
+    folder = (request.form.get("folder") or "").strip()
+
+    headless = request.form.get("headless") == "on"
+
+    browser = request.form.get("browser") or "edge"
+
+    skip_existing = request.form.get("skip_existing") == "on"
+
+    excel = request.files.get("excel")
+
+    parent_history_excel = request.files.get("parent_history_excel")
+
+    if portal not in ("BDC", "B2B") and not url:
+
+        return jsonify(
+            ok=False,
+            error=(
+                "Enter a website URL, or tick BDC/B2B " "to use a built-in portal link."
+            ),
+        )
+
+    if not folder:
+
+        return jsonify(
+            ok=False,
+            error="Please enter a download folder path.",
+        )
+
+    if portal == "B2B" and (
+        not parent_history_excel or not parent_history_excel.filename
+    ):
+
+        return jsonify(
+            ok=False,
+            error="Please upload a Parent History Excel file.",
+        )
+
     try:
-        files = [f for f in request.files.getlist('files') if f and f.filename]
-        if len(files) < 2:
-            return jsonify({'ok': False, 'error': 'Please choose at least 2 MHTML files.'}), 400
-        orig_names = [f.filename for f in files]
-        parsed = [parse_bytes(f.read(), secure_filename(f.filename)) for f in files]
-        empties = [p['subject'] for p in parsed if not p['records']]
-        if len([p for p in parsed if p['records']]) < 2:
-            return jsonify({'ok': False, 'error': 'Fewer than 2 files contained inspection criteria. '
-                            'Make sure each snapshot has the task open in Pinpoint before saving as MHTML.'}), 400
-        model = build_model(parsed)
-        token = uuid.uuid4().hex[:12]
-        STORE[token] = model
-        STORE[token]['orig_names'] = orig_names
-        log_event('Manuals', 'compare', task_no=model['task_no'], task_title=model['task_title'],
-                  documents=orig_names, doc_count=len(orig_names), rows=len(model['rows']),
-                  note='%d criteria' % len(model['rows']))
-        payload = {k: model[k] for k in ('names', 'task_no', 'task_title', 'rows', 'summary', 'pairs', 'generated')}
-        payload['token'] = token
-        payload['warnings'] = ['"%s" had no criteria (empty or a different task).' % e for e in empties]
-        return jsonify({'ok': True, 'model': payload})
-    except Exception as e:
-        return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
-@app.route('/download', methods=['POST'])
-def download():
-    data = request.get_json(force=True, silent=True) or {}
-    model = STORE.get(data.get('token'))
-    if not model:
-        return jsonify({'ok': False, 'error': 'Result expired - run the comparison again.'}), 404
-    rows = filter_rows(model['rows'], data.get('statuses'), data.get('query'))
-    bio = write_excel(model, rows)
-    log_event('Manuals', 'download', task_no=model.get('task_no'), task_title=model.get('task_title'),
-              documents=model.get('orig_names') or model.get('names'), doc_count=len(model['names']),
-              rows=len(rows), note='filtered export (%d of %d rows)' % (len(rows), len(model['rows'])))
-    fname = 'CAIRO-Assist_%s_%s.xlsx' % (model['task_no'] or 'task', datetime.now().strftime('%Y%m%d_%H%M%S'))
-    mime = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    try:
-        return send_file(bio, as_attachment=True, attachment_filename=fname, mimetype=mime)
-    except TypeError:
-        return send_file(bio, as_attachment=True, download_name=fname, mimetype=mime)
+        Path(folder).mkdir(parents=True, exist_ok=True)
 
-@app.route('/logs')
-def logs():
-    try:
-        con = _db_connect()
-        cur = con.execute("""SELECT id,timestamp,doc_type,action,user,machine,task_no,
-                             documents,doc_count,rows,note FROM usage_log ORDER BY id DESC LIMIT 500""")
-        data = cur.fetchall(); con.close()
-    except Exception as e:
-        return Response('<h3>Could not read log DB</h3><pre>%s</pre>' % e, mimetype='text/html')
-    cols = ['id', 'timestamp', 'doc type', 'action', 'user', 'machine', 'task', 'documents', 'docs', 'rows', 'note']
-    trs = ''
-    for r in data:
-        trs += '<tr>' + ''.join('<td>%s</td>' % ('' if v is None else str(v)) for v in r) + '</tr>'
-    html = LOGS_HTML.replace('__PATH__', LOG_DB_PATH).replace('__COUNT__', str(len(data)))
-    html = html.replace('__HEAD__', ''.join('<th>%s</th>' % c for c in cols)).replace('__ROWS__', trs)
-    return Response(html, mimetype='text/html')
+    except OSError as exc:
 
-@app.route('/logs.csv')
-def logs_csv():
-    con = _db_connect()
-    cur = con.execute("""SELECT id,timestamp,doc_type,action,user,machine,task_no,task_title,
-                         documents,doc_count,rows,note FROM usage_log ORDER BY id DESC""")
-    rows = cur.fetchall(); con.close()
-    sio = io.StringIO(); w = csv.writer(sio)
-    w.writerow(['id', 'timestamp', 'doc_type', 'action', 'user', 'machine', 'task_no',
-                'task_title', 'documents', 'doc_count', 'rows', 'note'])
-    w.writerows(rows)
-    bio = io.BytesIO(sio.getvalue().encode('utf-8-sig')); bio.seek(0)
-    fname = 'CAIRO-Assist_usage_%s.csv' % datetime.now().strftime('%Y%m%d_%H%M%S')
-    try:
-        return send_file(bio, as_attachment=True, attachment_filename=fname, mimetype='text/csv')
-    except TypeError:
-        return send_file(bio, as_attachment=True, download_name=fname, mimetype='text/csv')
+        return jsonify(
+            ok=False,
+            error=f"Cannot use that folder: {exc}",
+        )
 
-# ================================================================= FRONT-END
-INDEX_HTML = r"""<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CAIRO-Assist</title>
+    numbers = []
+
+    if excel and excel.filename:
+
+        try:
+
+            tmp = Path(tempfile.gettempdir()) / f"rr_batch_{datetime.now():%H%M%S}.xlsx"
+
+            excel.save(str(tmp))
+
+            numbers = read_search_numbers_from_excel(str(tmp))
+
+        except Exception as exc:  # noqa: BLE001
+
+            return jsonify(
+                ok=False,
+                error=f"Could not read the Excel file: {exc}",
+            )
+
+    else:
+
+        numbers = [n.strip() for n in re.split(r"[,;\n]", typed) if n.strip()]
+
+    if not numbers:
+
+        return jsonify(
+            ok=False,
+            error=("Enter at least one TV/search number " "or upload an Excel file."),
+        )
+
+    parent_history_df = None
+
+    if portal == "B2B" and parent_history_excel and parent_history_excel.filename:
+
+        try:
+
+            parent_tmp = Path(tempfile.gettempdir()) / (
+                f"parent_history_" f"{datetime.now():%H%M%S}.xlsx"
+            )
+
+            parent_history_excel.save(str(parent_tmp))
+
+            parent_history_df = read_parent_history_excel(str(parent_tmp))
+
+        except Exception as exc:
+
+            return jsonify(
+                ok=False,
+                error=("Could not read the Parent History " f"Excel file: {exc}"),
+            )
+
+    with LOCK:
+
+        JOB.update(
+            running=True,
+            logs=[],
+            report=None,
+            summary="",
+            results=[],
+            done=None,
+            progress=None,
+            stop=threading.Event(),
+        )
+
+    ui_log(f"Starting [{portal}]: " f"{len(numbers)} number(s).")
+
+    threading.Thread(
+        target=run_job,
+        args=(
+            portal,
+            url,
+            username,
+            password,
+            numbers,
+            folder,
+            headless,
+            browser,
+            skip_existing,
+            parent_history_df,
+        ),
+        daemon=True,
+    ).start()
+
+    return jsonify(ok=True)
+
+
+@app.route("/pick_folder", methods=["POST"])
+def pick_folder():
+    """
+
+    Open the NATIVE Windows 'Select Folder' dialog on the server (this PC)
+
+    and return the chosen absolute path. This works because the Flask server
+
+    runs locally and has real disk access - unlike the browser, which is
+
+    sandboxed and can never see a true folder path.
+
+    """
+
+    result = {"path": ""}
+
+    def ask():
+
+        try:
+
+            import tkinter as tk
+
+            from tkinter import filedialog
+
+            root = tk.Tk()
+
+            root.withdraw()
+
+            root.attributes("-topmost", True)
+
+            chosen = filedialog.askdirectory(title="Select the output folder")
+
+            root.destroy()
+
+            result["path"] = chosen or ""
+
+        except Exception as exc:  # noqa: BLE001
+
+            result["error"] = str(exc)
+
+    # Tkinter must run on the main thread of its own; run and join briefly.
+
+    t = threading.Thread(target=ask)
+
+    t.start()
+
+    t.join(timeout=120)
+
+    if result.get("error"):
+
+        return jsonify(ok=False, error=result["error"])
+
+    return jsonify(ok=True, path=result["path"])
+
+
+@app.route("/stop", methods=["POST"])
+def stop():
+
+    JOB["stop"].set()
+
+    ui_log("Stop requested - finishing the current item...")
+
+    return jsonify(ok=True)
+
+
+
+
+@app.route("/status")
+def status():
+
+    after = request.args.get("after", type=int) or 0
+
+    with LOCK:
+
+        return jsonify(
+            running=JOB["running"],
+            logs=JOB["logs"][after:],
+            next=len(JOB["logs"]),
+            report=JOB["report"],
+            summary=JOB["summary"],
+            results=JOB["results"],
+            done=JOB["done"],
+            progress=JOB["progress"],
+        )
+
+
+# ------------------------------------------------------------------ #
+
+#  Page - ALTEN mark on the LEFT, Rolls-Royce badge on the RIGHT
+
+# ------------------------------------------------------------------ #
+
+PAGE = r"""<!DOCTYPE html>
+
+<html lang="en">
+
+<head>
+
+<meta charset="utf-8">
+
+<title>JETPULL — RR / ALTEN</title>
+
 <style>
- :root{--bg:#eef2f9;--surface:#fff;--surface2:#f5f8fd;--border:#c8d4e8;--accent:#1a4fad;--accent2:#1d6fdb;
-   --text:#1e293b;--muted:#5b6675;--mono:'IBM Plex Mono',Consolas,monospace;
-   --c-match:#C6EFCE;--c-partial:#FFF2CC;--c-thr:#FCE4D6;--c-miss:#FFC7CE;--c-uni:#E4DFEC;--c-na:#F2F2F2;}
- *{box-sizing:border-box}
- body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,"Segoe UI",sans-serif;font-size:14px}
- .mono{font-family:var(--mono)}
- /* header like TPCR: logo left corner, title, logo right corner, light grey bar */
- header{display:flex;align-items:center;gap:16px;background:linear-gradient(180deg,#f6f8fb,#e9eef6);
-   border-bottom:2px solid #cfd8e6;padding:10px 18px}
- .brandbox{width:52px;height:40px;display:flex;align-items:center;justify-content:center;background:#fff;
-   border:1px solid var(--border);border-radius:6px;overflow:hidden;flex:0 0 auto}
- .brandbox img{max-width:100%;max-height:100%;object-fit:contain}
- .header-title{flex:1}
- .header-title h1{margin:0;font-size:20px;color:#12203a}
- .header-title .subtitle{margin:2px 0 0;color:var(--muted);font-size:12px}
- .fallback-alten{font-weight:800;color:#111;font-size:13px}.fallback-alten span{color:#e2001a}
- .fallback-rr{font-weight:800;color:#00205b;font-size:14px;letter-spacing:1px}
- .wrap{max-width:1600px;margin:0 auto;padding:18px 20px}
- .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-bottom:16px}
- .card h2{margin:0 0 4px;font-size:15px}.card p.hint{margin:0 0 12px;color:var(--muted);font-size:12px}
- .pills{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
- .pill{background:var(--surface2);border:1px solid var(--border);border-radius:16px;padding:3px 12px;font-size:12px;color:var(--muted)}
- .pill b{color:var(--accent)}
- .doctypes{display:flex;flex-wrap:wrap;gap:10px 22px;align-items:center;margin-top:6px}
- .dt{display:inline-flex;align-items:center;gap:7px;font-size:14px;cursor:pointer;color:var(--text)}
- .dt input{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
- .dt.soon{color:#9aa6b6;cursor:not-allowed}
- .dt.soon s{color:#9aa6b6}
- .dt .soon-tag{color:#c05252;font-size:11px;font-style:italic}
- .dt.soon input{cursor:not-allowed}
- .drop{border:2px dashed var(--border);border-radius:10px;background:var(--surface2);padding:22px;text-align:center;cursor:pointer}
- .drop.hi{border-color:var(--accent2);background:#e8f0fe}.drop input{display:none}
- .filelist{margin:12px 0 0;padding:0;list-style:none}
- .filelist li{display:flex;align-items:center;gap:10px;padding:7px 10px;border:1px solid var(--border);border-radius:8px;margin-bottom:6px;background:#fff}
- .filelist li .nm{flex:1;font-size:13px}
- .filelist li .rm{color:#dc2626;cursor:pointer;border:none;background:none;font-size:16px}
- .row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:12px}
- button.primary{background:var(--accent);color:#fff;border:none;border-radius:8px;padding:10px 20px;font-size:14px;cursor:pointer}
- button.primary:disabled{background:#9db4d8;cursor:not-allowed}
- button.ghost{background:#fff;border:1px solid var(--border);border-radius:8px;padding:9px 16px;cursor:pointer}
- #progressWrap{margin-top:12px;display:none}
- #progressBar{height:8px;background:var(--accent2);border-radius:5px;width:0;transition:width .3s}
- #progressMsg{font-size:12px;color:var(--muted);margin-top:5px;display:block}
- .err{background:#fee2e2;border:1px solid #fecaca;color:#991b1b;border-radius:8px;padding:10px 12px;font-size:13px;margin-top:12px}
- .warn{background:#fef3c7;border:1px solid #fde68a;color:#92400e;border-radius:8px;padding:8px 12px;font-size:12px;margin-top:10px}
- #results{display:none}
- .engines{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:14px}
- .ecard{border:1px solid var(--border);border-radius:8px;padding:10px 12px;background:#fff;min-width:210px;flex:1}
- .ecard h3{margin:0 0 8px;font-size:13px}
- .bar{display:flex;height:12px;border-radius:6px;overflow:hidden;border:1px solid #e2e5e2}.bar span{display:block}
- .counts{display:flex;flex-wrap:wrap;gap:6px 12px;margin-top:8px;font-size:12px;color:#42505f}.counts b{font-variant-numeric:tabular-nums}
- .matrix{border-collapse:collapse;font-size:12px;margin-top:4px}
- .matrix th,.matrix td{border:1px solid var(--border);padding:6px 9px;text-align:center}
- .matrix th{background:var(--surface2);font-weight:600}
- .matrix td.self{background:#eef2f9;color:#9aa6b6}
- .toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px}
- .toolbar input[type=search]{padding:8px 11px;border:1px solid var(--border);border-radius:7px;min-width:250px;font-size:13px}
- .chip{border:1px solid var(--border);background:#fff;border-radius:20px;padding:5px 11px;font-size:12px;cursor:pointer;user-select:none;display:inline-flex;align-items:center;gap:7px}
- .chip .sw{width:12px;height:12px;border-radius:3px;border:1px solid #0002}.chip.off{opacity:.35}
- .dlnote{font-size:11px;color:var(--muted)}
- .grid{border:1px solid var(--border);border-radius:8px;overflow:auto;background:#fff;max-height:70vh}
- table.heat{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px}
- table.heat th,table.heat td{padding:8px 10px;border-bottom:1px solid #eceef2;border-right:1px solid #eceef2;vertical-align:top;text-align:left}
- table.heat thead th{position:sticky;top:0;background:#eef2f9;color:#22314f;z-index:3;font-weight:600;font-size:12px;border-bottom:1px solid #cfd8e6}
- table.heat tbody th.area{position:sticky;left:0;background:#fbfcfe;z-index:2;font-weight:600;min-width:150px;max-width:180px}
- td.crit{min-width:250px;max-width:330px;color:#26313f}
- td.cell{min-width:200px;max-width:300px;position:relative}
- td.cell .disp{display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;background:#0000000f;margin-left:4px}
- .st-MATCH{background:var(--c-match)}.st-PARTIAL{background:var(--c-partial)}.st-THRESHOLD{background:var(--c-thr)}
- .st-MISSING{background:var(--c-miss)}.st-UNIQUE{background:var(--c-uni)}.st-NA{background:var(--c-na);color:#9aa6b6}
- tr.arowtop th.area{border-top:2px solid #d3dcea}tr.arowtop td{border-top:2px solid #eef0f4}
- .flag{position:absolute;top:4px;right:5px;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;background:#0000000f;color:#4b5563}
- .d{color:#d11313;font-weight:700;text-decoration:underline;text-decoration-color:#d11313}
- .disp.dred{color:#d11313;font-weight:800}
- footer{color:var(--muted);font-size:11px;text-align:center;padding:16px}
-</style></head>
+
+  :root { --bg:#eef2f9; --surface:#ffffff; --border:#c8d4e8;
+
+          --accent:#1a4fad; --accent2:#1d6fdb; --text:#1e293b;
+
+          --muted:#475569; --green:#059669; --red:#dc2626; }
+
+  * { box-sizing:border-box; }
+
+  body { margin:0; background:var(--bg); color:var(--text);
+
+         font:14px/1.5 "Segoe UI", Arial, sans-serif; }
+
+  header { background:#fff; border-bottom:3px solid var(--accent);
+
+           padding:12px 22px; display:flex; align-items:center; gap:16px; }
+
+  .alten-mark { width:34px; height:46px; border:2px solid #111;
+
+                background:linear-gradient(135deg,#e42313 0 48%,#ffd500 48% 100%);
+
+                display:flex; align-items:flex-end; justify-content:center;
+
+                font:700 10px/1.6 "Segoe UI"; color:#111; }
+
+  .alten-word { font:700 17px "Segoe UI"; color:#111; letter-spacing:1px; }
+
+  .titles { flex:1; margin-left:6px; }
+
+  .titles h1 { font-size:20px; margin:0; color:#111; }
+
+  .titles p  { margin:2px 0 0; font-size:12px; color:var(--muted);
+
+               font-family:Consolas, monospace; }
+
+  .logo-left  { height:46px; }
+
+  .logo-right { height:54px; }
+
+  .rr-badge { width:44px; height:56px; background:#10069f; color:#fff;
+
+              border-radius:4px; display:flex; flex-direction:column;
+
+              align-items:center; justify-content:center;
+
+              font:700 8px "Segoe UI"; }
+
+  .rr-badge span { font:700 20px Georgia, serif; letter-spacing:-2px; }
+
+  main { max-width:900px; margin:18px auto; padding:0 16px; }
+
+  fieldset { background:var(--surface); border:1px solid var(--border);
+
+             border-radius:6px; margin:0 0 14px; padding:14px 16px; }
+
+  legend { color:var(--accent); font-weight:600; padding:0 6px; }
+
+  label { display:block; margin:8px 0 3px; color:var(--muted); font-size:13px; }
+
+  input[type=text], input[type=password], select, textarea {
+
+    width:100%; padding:7px 9px; border:1px solid var(--border);
+
+    border-radius:4px; font:13px Consolas, monospace; }
+
+  input:disabled { background:#e9eef7; color:#8aa0c4; }
+
+  .row { display:flex; gap:14px; flex-wrap:wrap; }
+
+  .row > div { flex:1; min-width:240px; }
+
+  .portals { display:flex; gap:22px; flex-wrap:wrap; }
+
+  .portals label { display:flex; align-items:center; gap:6px; margin:0;
+
+                   font-size:14px; color:var(--text); }
+
+  .portals .soon { color:#9db4d8; }
+
+  .portals .soon small { font-size:10px; }
+
+  .opts { display:flex; align-items:center; gap:18px; margin-top:10px; }
+
+  .opts label { display:inline; margin:0; }
+
+  button { border:0; border-radius:4px; padding:10px 20px; font-weight:600;
+
+           cursor:pointer; font-size:14px; }
+
+  #startBtn { background:var(--accent); color:#fff; }
+
+  #startBtn:hover { background:var(--accent2); }
+
+  #startBtn:disabled { background:#9db4d8; cursor:not-allowed; }
+
+  #stopBtn { background:var(--red); color:#fff; margin-left:10px; }
+
+  #stopBtn:disabled { background:#e3a5a5; cursor:not-allowed; }
+
+  #log { background:#0f172a; color:#e2e8f0; font:12px Consolas, monospace;
+
+         border-radius:6px; padding:12px; height:260px; overflow-y:auto;
+
+         white-space:pre-wrap; }
+
+  #summary { margin:10px 0; font-weight:600; }
+
+  #summary.ok { color:var(--green); } #summary.err { color:var(--red); }
+
+  footer { text-align:center; color:var(--muted); font-size:11px; padding:14px; }
+
+  .hint { font-size:12px; color:var(--muted); margin-top:4px; }
+
+</style>
+
+</head>
+
 <body>
+
 <header>
-  <div class="brandbox" title="ALTEN">
-    <img src="https://www.alten.com/wp-content/uploads/2019/01/favicon-alten.png" alt="ALTEN"
-         onerror="this.outerHTML='<div class=&quot;fallback-alten&quot;>AL<span>T</span>EN</div>'">
+
+  {% if alten_logo %}
+
+    <img src="/static/alten_logo.png" class="logo-left" alt="ALTEN">
+
+  {% elif alten_logo_url %}
+
+    <img src="{{ alten_logo_url }}" class="logo-left" alt="ALTEN">
+
+  {% else %}
+
+    <div class="alten-mark">&#9650;</div><span class="alten-word">ALTEN</span>
+
+  {% endif %}
+
+  <div class="titles">
+
+    <h1>JETPULL</h1>
+
   </div>
-  <div class="header-title">
-    <h1>CAIRO-Assist</h1>
-    <p class="subtitle">Criteria Analysis &amp; Inspection Reconciliation &mdash; all-document comparison &middot; Internal Use Only</p>
-  </div>
-  <div class="brandbox" title="Rolls-Royce">
-    <img src="https://www.rolls-royce.com/~/media/Images/R/Rolls-Royce/logo/rebrand-svg-logo.svg" alt="Rolls-Royce"
-         onerror="this.outerHTML='<div class=&quot;fallback-rr&quot;>RR</div>'">
-  </div>
+
+  {% if rr_logo %}
+
+    <img src="/static/rr_logo.png" class="logo-right" alt="Rolls-Royce">
+
+  {% elif rr_logo_url %}
+
+    <img src="{{ rr_logo_url }}" class="logo-right" alt="Rolls-Royce">
+
+  {% else %}
+
+    <div class="rr-badge"><span>RR</span>ROLLS-ROYCE</div>
+
+  {% endif %}
+
 </header>
 
-<div class="wrap">
-  <div class="card" id="docTypeCard">
-    <h2 style="color:var(--accent)">HeatMap</h2>
-    <p class="hint">Tick <b>Manuals</b> to compare maintenance-manual inspection criteria (Accept/Reject) across
-       MHTML snapshots. The other document types are coming soon and will use the same heat-map engine.</p>
-    <div class="doctypes">
-      <label class="dt"><input type="checkbox" id="dt-manuals" checked onchange="checkReady()"> <b>Manuals</b></label>
-      <label class="dt soon"><input type="checkbox" disabled> <s>TV</s> <span class="soon-tag">(coming soon)</span></label>
-      <label class="dt soon"><input type="checkbox" disabled> <s>Concession</s> <span class="soon-tag">(coming soon)</span></label>
-      <label class="dt soon"><input type="checkbox" disabled> <s>RST &amp; TRM</s> <span class="soon-tag">(coming soon)</span></label>
-    </div>
-  </div>
 
-  <div class="card" id="inputCard">
-    <div class="pills">
-      <span class="pill">Step <b>1</b> &middot; Add MHTML files</span>
-      <span class="pill">Step <b>2</b> &middot; Run all-pairs comparison</span>
-      <span class="pill">Step <b>3</b> &middot; Filter &amp; download</span>
-    </div>
-    <h2>Select MHTML snapshots (2 or more)</h2>
-    <p class="hint">Every document is compared against <b>every other</b> document &mdash; there is no baseline.
-       Each file must have the same maintenance task open in Pinpoint.</p>
-    <label class="drop" id="drop">
-      <input type="file" id="fileInput" accept=".mhtml,.mht" multiple>
-      <div><b>Click to choose files</b> or drag &amp; drop here</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:4px">.mhtml / .mht &middot; up to 120&nbsp;MB total</div>
-    </label>
-    <ul class="filelist" id="filelist"></ul>
-    <div class="row">
-      <button class="primary" id="runBtn" onclick="runTool()" disabled>&#9654; Run comparison</button>
-      <button class="ghost" onclick="clearAll()">Clear</button>
-      <span class="dlnote" id="dtNote"></span>
-    </div>
-    <div id="progressWrap"><div id="progressBar"></div><span id="progressMsg">Starting&hellip;</span></div>
-    <div id="errBox"></div>
-  </div>
+<main>
 
-  <div class="card" id="results">
-    <div class="row" style="justify-content:space-between;margin-top:0">
-      <div><h2 id="rTitle" style="margin-bottom:2px">Results</h2>
-        <div class="mono" id="rTask" style="color:var(--muted);font-size:12px"></div></div>
-      <div style="text-align:right">
-        <button class="primary" id="dlBtn">&#8681; Download Excel (filtered)</button>
-        <div class="dlnote" id="dlNote"></div>
+  <form id="form">
+
+    <fieldset>
+
+      <legend>Portal</legend>
+
+      <div class="portals">
+
+        <label><input type="checkbox" name="portal_bdc" id="bdc"> BDC (BlueData Connect)</label>
+
+        <label><input type="checkbox" name="portal_b2b" id="b2b_tick"> B2B (Maximo)</label>
+
+        <label class="soon"><input type="checkbox" disabled> Maximo <small>(coming soon)</small></label>
+
+        <label class="soon"><input type="checkbox" disabled> One Stop Portal <small>(coming soon)</small></label>
+
       </div>
+
+      <p class="hint">Tick BDC to use the built-in BlueData link with automatic
+
+         LegacyTV / TV / RepeaterTV routing by TV number. Leave everything
+
+         unticked to use this as a universal downloader with your own URL.</p>
+
+    </fieldset>
+
+ 
+
+    <fieldset>
+
+      <legend>Step 1 — Website &amp; login</legend>
+
+      <label>Website URL <span id="urlNote">*</span></label>
+
+      <input type="text" name="url" id="url"
+
+             placeholder="https://portal.example.rolls-royce.com">
+
+      <p class="hint">Sign-in is manual. The tool opens the portal and then
+         pauses for 60 seconds &mdash; sign in and approve the Authenticator
+         prompt in that time, and the download starts automatically. The tool
+         never stores or types your password. Change
+         <code>manual_login_wait_seconds</code> in config.json if you need
+         longer.</p>
+
+    </fieldset>
+
+ 
+
+    <fieldset>
+
+      <legend>Step 2 — TV / search numbers</legend>
+
+      <label>Type numbers (separate with commas)</label>
+
+      <textarea name="numbers" rows="2"
+
+                placeholder="512345, 612345, 698765"></textarea>
+
+      <label>…or upload Excel (numbers in column A)</label>
+
+      <input type="file" name="excel" accept=".xlsx,.xlsm">
+
+    </fieldset>
+
+ 
+
+    <fieldset id="parent_history_section" style="display:none;">
+
+      <legend>Step 2.1 — Parent History</legend>
+
+ 
+
+      <label>
+
+        Upload Parent History Excel
+
+        (Event Item Serial Number + Event Date TIme)
+
+      </label>
+
+ 
+
+      <input
+
+          type="file"
+
+          name="parent_history_excel"
+
+          accept=".xlsx,.xlsm,.xls"
+
+      >
+
+ 
+
+      <div class="hint">
+
+        For Parent History Dates.
+
+      </div>
+
+    </fieldset>
+
+ 
+
+ 
+
+    <fieldset>
+
+      <legend>Step 3 — Output &amp; options</legend>
+
+      <label>Download folder on THIS PC * (a sub-folder is created per TV number; zips are auto-unpacked)</label>
+
+      <div style="display:flex; gap:8px;">
+
+        <input type="text" name="folder" id="folder" style="flex:1"
+
+               placeholder="e.g. C:\Users\you\Downloads\TV_Downloads">
+
+        <button type="button" id="browseBtn" style="background:#64748b;color:#fff;white-space:nowrap;">Browse…</button>
+
+      </div>
+
+      <p class="hint" id="browseHint">Browse opens the standard Windows
+
+        &ldquo;Select Folder&rdquo; dialog on this PC and fills in the real
+
+        path. You can also paste a full path directly.</p>
+
+      <div class="opts">
+
+        <label><input type="checkbox" name="headless"> Headless (no browser window)</label>
+
+        <label><input type="checkbox" name="skip_existing" checked>
+
+               Skip numbers already downloaded <small>(resume large batches)</small></label>
+
+        <span class="hint">Headless sign-in: the Authenticator number appears in the log below.
+
+        Your session is remembered, so after the first sign-in later runs need no approval.</span>
+
+        <label>Browser:
+
+          <select name="browser" style="width:auto">
+
+            <option value="edge" selected>edge</option>
+
+            <option value="chrome">chrome</option>
+
+          </select>
+
+        </label>
+
+      </div>
+
+    </fieldset>
+
+ 
+
+    <button type="submit" id="startBtn">&#9654;&nbsp; Start download</button>
+
+    <button type="button" id="stopBtn" disabled>&#9632;&nbsp; Stop after current item</button>
+
+  </form>
+
+ 
+
+  <div id="progressWrap" style="display:none; margin:10px 0;">
+
+    <div style="display:flex; justify-content:space-between; font-size:12px;
+
+                color:var(--muted); margin-bottom:3px;">
+
+      <span id="progText">Starting…</span><span id="progPct">0%</span>
+
     </div>
-    <div id="warnBox"></div>
 
-    <div class="engines" id="engines" style="margin-top:12px"></div>
+    <div style="background:#dbe3f3; border-radius:6px; height:12px; overflow:hidden;">
 
-    <details style="margin-bottom:14px" open>
-      <summary style="cursor:pointer;font-weight:600;font-size:13px">All-pairs agreement matrix</summary>
-      <div id="matrixWrap" style="overflow:auto;margin-top:8px"></div>
-      <div style="font-size:11px;color:var(--muted);margin-top:4px">Each cell = % of criteria shared by both documents that match exactly.</div>
-    </details>
+      <div id="progBar" style="background:var(--accent); height:100%; width:0%;
 
-    <div class="toolbar">
-      <input type="search" id="q" placeholder="Search area, criterion or value (e.g. dimension 18)">
-      <span id="chips"></span>
+           transition:width .3s;"></div>
+
     </div>
-    <div class="grid"><table class="heat"><thead><tr id="hrow"></tr></thead><tbody id="tbody"></tbody></table></div>
+
   </div>
-</div>
 
-<footer>&copy; 2026 Alten-Rolls-Royce. All rights reserved. Confidential &ndash; Internal Use Only.
-  &nbsp;&middot;&nbsp; <a href="/logs" target="_blank" style="color:var(--accent);text-decoration:none">Usage log</a></footer>
+ 
+
+  <div id="summary"></div>
+
+  <div id="results"></div>
+
+  <div id="log">Ready.</div>
+
+</main>
+
+<footer>&copy; 2026 Alten-Rolls-Royce. All rights reserved.
+
+        Confidential &ndash; Internal Use Only.</footer>
 
 <script>
-var chosen=[], MODEL=null;
-var STLABEL={MATCH:'Match',PARTIAL:'Partial',THRESHOLD:'Threshold diff',MISSING:'Missing',UNIQUE:'Unique'};
-var STCOLOR={MATCH:'var(--c-match)',PARTIAL:'var(--c-partial)',THRESHOLD:'var(--c-thr)',MISSING:'var(--c-miss)',UNIQUE:'var(--c-uni)',NA:'var(--c-na)'};
-var ORDER=['MATCH','PARTIAL','THRESHOLD','MISSING','UNIQUE'];
-var active={MATCH:1,PARTIAL:1,THRESHOLD:1,MISSING:1,UNIQUE:1};
 
-var drop=document.getElementById('drop'), fi=document.getElementById('fileInput');
-fi.addEventListener('change',function(e){addFiles(e.target.files);});
-['dragenter','dragover'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.add('hi');});});
-['dragleave','drop'].forEach(function(ev){drop.addEventListener(ev,function(e){e.preventDefault();drop.classList.remove('hi');});});
-drop.addEventListener('drop',function(e){addFiles(e.dataTransfer.files);});
+var form = document.getElementById('form');
 
-function addFiles(list){
-  for(var i=0;i<list.length;i++){var f=list[i];
-    if(!/\.(mhtml|mht)$/i.test(f.name))continue;
-    if(!chosen.some(function(c){return c.name===f.name&&c.size===f.size;}))chosen.push(f);}
-  renderFiles();
-}
-function removeFile(i){chosen.splice(i,1);renderFiles();}
-function clearAll(){chosen=[];fi.value='';renderFiles();document.getElementById('results').style.display='none';document.getElementById('errBox').innerHTML='';}
-function manualsOn(){return document.getElementById('dt-manuals').checked;}
-function checkReady(){
-  var on=manualsOn();
-  document.getElementById('inputCard').style.opacity = on ? '1' : '.5';
-  document.getElementById('fileInput').disabled = !on;
-  var note=document.getElementById('dtNote');
-  document.getElementById('runBtn').disabled = !(on && chosen.length>=2);
-  if(note) note.textContent = on ? '' : 'Tick "Manuals" above to enable the comparison.';
-}
-function renderFiles(){
-  var ul=document.getElementById('filelist');ul.innerHTML='';
-  chosen.forEach(function(f,i){var li=document.createElement('li');
-    li.innerHTML='<span class="nm mono">'+f.name+'</span><button class="rm" onclick="removeFile('+i+')" title="Remove">&times;</button>';
-    ul.appendChild(li);});
-  checkReady();
-}
+var startBtn = document.getElementById('startBtn');
 
-function runTool(){
-  if(!manualsOn()){showErr('Please tick "Manuals" to run the comparison.');return;}
-  document.getElementById('errBox').innerHTML='';
-  var pw=document.getElementById('progressWrap'),pb=document.getElementById('progressBar'),pm=document.getElementById('progressMsg');
-  pw.style.display='block';pb.style.width='25%';pm.textContent='Uploading and comparing '+chosen.length+' files\u2026';
-  document.getElementById('runBtn').disabled=true;
-  var fd=new FormData();chosen.forEach(function(f){fd.append('files',f);});
-  fetch('/compare',{method:'POST',body:fd}).then(function(r){return r.json();})
-  .then(function(j){pb.style.width='100%';pm.textContent='Done';document.getElementById('runBtn').disabled=false;
-    if(!j.ok){showErr(j.error||'Unknown error');pw.style.display='none';return;}
-    MODEL=j.model;renderResults();setTimeout(function(){pw.style.display='none';},600);})
-  .catch(function(e){showErr('Request failed: '+e);pw.style.display='none';document.getElementById('runBtn').disabled=false;});
-}
-function showErr(m){document.getElementById('errBox').innerHTML='<div class="err">'+m+'</div>';}
-function esc(s){return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');}
-function dispSplit(t){var i=t.lastIndexOf('\u2192');return i>0?[t.slice(0,i).trim(),t.slice(i+1).trim()]:[t,''];}
+var stopBtn = document.getElementById('stopBtn');
 
-// majority value in an array; on a tie, the FIRST element (leftmost document) wins
-function majority(arr){
-  var cnt={},best=null,bn=-1;
-  arr.forEach(function(v){cnt[v]=(cnt[v]||0)+1;});
-  for(var i=0;i<arr.length;i++){var v=arr[i];if(cnt[v]>bn){bn=cnt[v];best=v;}}
-  return best;
-}
-// which words of 'cw' are part of the longest common subsequence with 'rw'
-function lcsMatched(rw,cw){
-  var n=rw.length,m=cw.length,dp=[];
-  for(var i=0;i<=n;i++){dp.push(new Array(m+1).fill(0));}
-  for(i=1;i<=n;i++)for(var j=1;j<=m;j++)
-    dp[i][j]=(rw[i-1]===cw[j-1])?dp[i-1][j-1]+1:Math.max(dp[i-1][j],dp[i][j-1]);
-  var matched=new Array(m).fill(false); i=n; j=m;
-  while(i>0&&j>0){
-    if(rw[i-1]===cw[j-1]){matched[j-1]=true;i--;j--;}
-    else if(dp[i-1][j]>=dp[i][j-1])i--; else j--;
+var logBox = document.getElementById('log');
+
+var summary = document.getElementById('summary');
+
+var resultsBox = document.getElementById('results');
+
+var bdc = document.getElementById('bdc');
+
+var urlInput = document.getElementById('url');
+
+var urlNote = document.getElementById('urlNote');
+
+var folderInput = document.getElementById('folder');
+
+var browseBtn = document.getElementById('browseBtn');
+
+var cursor = 0, timer = null;
+
+ 
+
+var b2bTick = document.getElementById('b2b_tick');
+
+ 
+
+function updatePortalUI() {
+
+  var anyPreset = bdc.checked || b2bTick.checked;
+
+  urlInput.disabled = anyPreset;
+
+ 
+
+  var parentSection =
+
+      document.getElementById(
+
+          'parent_history_section'
+
+      );
+
+ 
+
+  parentSection.style.display =
+
+      b2bTick.checked ? '' : 'none';
+
+ 
+
+  if (anyPreset) {
+
+    urlInput.value = '';
+
+    urlInput.placeholder = bdc.checked
+
+      ? 'Auto: BlueData Connect (LegacyTV / TV / RepeaterTV by number)'
+
+      : 'Auto: Maximo portal (built-in link)';
+
+    urlNote.textContent = '(handled by preset)';
+
+  } else {
+
+    urlInput.placeholder = 'https://portal.example.rolls-royce.com';
+
+    urlNote.textContent = '*';
+
   }
-  return matched;
-}
-// return HTML for 'cell' with words that differ from reference 'ref' wrapped in red
-function diffRed(ref,cell){
-  var rw=ref.split(/\s+/).filter(Boolean);
-  var cw=cell.split(/\s+/).filter(Boolean);
-  var matched=lcsMatched(rw,cw);
-  var toks=cell.split(/(\s+)/), wi=0, out='';
-  toks.forEach(function(tok){
-    if(/^\s+$/.test(tok)||tok===''){out+=tok;return;}
-    var ok=matched[wi];wi++;
-    out+= ok ? esc(tok) : '<span class="d">'+esc(tok)+'</span>';
-  });
-  return out;
+
 }
 
-function renderResults(){
-  document.getElementById('results').style.display='block';
-  document.getElementById('rTitle').textContent=MODEL.task_title||'Comparison results';
-  document.getElementById('rTask').textContent=(MODEL.task_no?('TASK '+MODEL.task_no+'  \u00b7  '):'')
-    +MODEL.names.length+' documents \u00b7 '+MODEL.rows.length+' criteria \u00b7 '+MODEL.generated;
-  var wb=document.getElementById('warnBox');wb.innerHTML='';
-  (MODEL.warnings||[]).forEach(function(w){wb.innerHTML+='<div class="warn">'+w+'</div>';});
+bdc.addEventListener('change', function () {
 
-  // per-doc cards
-  var eb=document.getElementById('engines');eb.innerHTML='';
-  MODEL.names.forEach(function(nm,gi){var c=MODEL.summary[gi];
-    var tot=0;ORDER.forEach(function(k){tot+=c[k];});if(!tot)tot=1;
-    function seg(k){return '<span style="width:'+(100*c[k]/tot)+'%;background:'+STCOLOR[k]+'"></span>';}
-    var counts=[['MATCH','match'],['PARTIAL','partial'],['THRESHOLD','threshold'],['MISSING','missing'],['UNIQUE','unique']]
-      .map(function(p){return '<span><b>'+c[p[0]]+'</b> '+p[1]+'</span>';}).join('');
-    var el=document.createElement('div');el.className='ecard';
-    el.innerHTML='<h3>'+esc(nm)+'</h3><div class="bar">'+ORDER.map(seg).join('')+'</div><div class="counts">'+counts+'</div>';
-    eb.appendChild(el);});
+  if (bdc.checked) b2bTick.checked = false;
 
-  // pairwise matrix
-  var mw=document.getElementById('matrixWrap');
-  var h='<table class="matrix"><tr><th></th>'+MODEL.names.map(function(n){return '<th>'+esc(n)+'</th>';}).join('')+'</tr>';
-  MODEL.pairs.forEach(function(rowv,i){
-    h+='<tr><th>'+esc(MODEL.names[i])+'</th>';
-    rowv.forEach(function(v,j){
-      if(i===j){h+='<td class="self">\u2014</td>';}
-      else{var bg=v===null?'#fff':(v>=90?'var(--c-match)':(v>=70?'var(--c-partial)':'var(--c-miss)'));
-        h+='<td style="background:'+bg+'">'+(v===null?'\u2014':v+'%')+'</td>';}
-    });h+='</tr>';
-  });h+='</table>';mw.innerHTML=h;
+  updatePortalUI();
 
-  // chips
-  var chips=document.getElementById('chips');chips.innerHTML='';
-  ORDER.forEach(function(k){var b=document.createElement('span');b.className='chip'+(active[k]?'':' off');
-    b.innerHTML='<span class="sw" style="background:'+STCOLOR[k]+'"></span>'+STLABEL[k];
-    b.onclick=function(){active[k]=!active[k];b.classList.toggle('off');renderRows();};chips.appendChild(b);});
+});
 
-  // header
-  document.getElementById('hrow').innerHTML='<th class="area">Inspection Area</th><th>Criterion</th>'
-    +MODEL.names.map(function(n){return '<th>'+esc(n)+'</th>';}).join('');
-  document.getElementById('q').oninput=renderRows;
-  document.getElementById('dlBtn').onclick=downloadExcel;
-  renderRows();
+b2bTick.addEventListener('change', function () {
+
+  if (b2bTick.checked) bdc.checked = false;
+
+  updatePortalUI();
+
+});
+
+// Browse: ask the LOCAL Flask server to open the native Windows folder
+
+// dialog. The server has real disk access; the browser does not. This
+
+// returns the true absolute path (e.g. C:\Users\...\TV_Downloads).
+
+browseBtn.addEventListener('click', function () {
+
+  var original = browseBtn.textContent;
+
+  browseBtn.textContent = 'Choose in dialog…';
+
+  browseBtn.disabled = true;
+
+  fetch('/pick_folder', { method: 'POST' })
+
+    .then(function (r) { return r.json(); })
+
+    .then(function (j) {
+
+      if (j.ok && j.path) { folderInput.value = j.path; folderInput.focus(); }
+
+      else if (j.error) { alert('Could not open folder dialog: ' + j.error); }
+
+    })
+
+    .catch(function (err) { alert('Folder dialog failed: ' + err); })
+
+    .finally(function () {
+
+      browseBtn.textContent = original; browseBtn.disabled = false;
+
+    });
+
+});
+
+ 
+
+function portalName() {
+
+  return bdc.checked ? 'BDC (BlueData Connect)' : (b2bTick.checked ? 'B2B (Maximo)' : 'the target website');
+
 }
 
-function activeStatuses(){return ORDER.filter(function(k){return active[k];});}
+ 
 
-function renderRows(){
-  var q=document.getElementById('q').value.toLowerCase().trim(), sset=activeStatuses();
-  var tb=document.getElementById('tbody');tb.innerHTML='';var last=null,shown=0;
-  MODEL.rows.forEach(function(row){
-    var cstat=row.cells.map(function(c){return c.status;});
-    if(!cstat.some(function(s){return sset.indexOf(s)>=0;}))return;
-    if(q){var hay=(row.area+' '+row.condition+' '+row.criterion+' '+row.cells.map(function(c){return c.text;}).join(' ')).toLowerCase();
-      if(hay.indexOf(q)<0)return;}
-    var top=row.area!==last;var tr=document.createElement('tr');if(top)tr.className='arowtop';
-    var area='<th class="area">'+(top?esc(row.area):'')+'</th>';
-    var crit='<td class="crit"><span class="mono">'+esc(row.criterion)+'</span>'
-      +(row.condition?'<div style="color:#8a97a6;font-size:11px;margin-top:2px">'+esc(row.condition)+'</div>':'')+'</td>';
-    // split each cell into main text + disposition
-    row.cells.forEach(function(c){var sp=dispSplit(c.text);c._main=sp[0];c._disp=sp[1];});
-    // reference = what the majority of present documents say (tie -> leftmost)
-    var presentMains=[], presentDisps=[];
-    row.cells.forEach(function(c){if(c.status!=='NA'&&c.status!=='MISSING'){presentMains.push(c._main);presentDisps.push(c._disp);}});
-    var refMain=presentMains.length?majority(presentMains):null;
-    var refDisp=presentDisps.length?majority(presentDisps):null;
-    var cells=row.cells.map(function(c){
-      var flag=(c.status!=='MATCH'&&c.status!=='NA')?'<span class="flag">'+(STLABEL[c.status]||'')+'</span>':'';
-      var mainHtml;
-      if(c.status==='NA'||c.status==='MISSING'||refMain===null||c._main===refMain){
-        mainHtml='<span class="mono">'+esc(c._main)+'</span>';          // agrees with the set -> plain
-      }else{
-        mainHtml='<span class="mono">'+diffRed(refMain,c._main)+'</span>'; // differs -> red on the differing words
+form.addEventListener('submit', function (e) {
+
+  e.preventDefault();
+
+  // Pre-start reminder popup, portal-aware.
+
+  var proceed = confirm(
+
+    'Please ensure you are already signed in to ' + portalName() +
+
+    ' in Edge before continuing.\n\n' +
+
+    'This tool does not store or enter passwords — complete any login/MFA ' +
+
+    'yourself. Once signed in, click OK to start.');
+
+  if (!proceed) return;
+
+ 
+
+  fetch('/start', { method: 'POST', body: new FormData(form) })
+
+    .then(function (r) { return r.json(); })
+
+    .then(function (j) {
+
+      if (!j.ok) { alert(j.error); return; }
+
+      logBox.textContent = ''; summary.textContent = '';
+
+      resultsBox.innerHTML = ''; cursor = 0;
+
+      startBtn.disabled = true; stopBtn.disabled = false;
+
+      timer = setInterval(poll, 1000);
+
+    })
+
+    .catch(function (err) { alert('Request failed: ' + err); });
+
+});
+
+ 
+
+stopBtn.addEventListener('click', function () {
+
+  fetch('/stop', { method: 'POST' });
+
+});
+
+ 
+
+function renderResults(results) {
+
+  if (!results || !results.length) { resultsBox.innerHTML = ''; return; }
+
+  var rows = results.map(function (r) {
+
+    var color, label;
+
+    if (r.status === 'SUCCESS') {
+
+      color = '#059669';
+
+      label = r.files.length + ' file(s)';
+
+    } else if (r.status === 'SKIPPED') {
+
+      color = '#64748b';
+
+      label = 'Skipped (already downloaded)';
+
+    } else if (r.reason === 'NUMBER_NOT_FOUND') {
+
+      color = '#dc2626'; label = 'Number not found';
+
+    } else if (r.reason === 'FILE_NOT_AVAILABLE') {
+
+      color = '#dc2626'; label = 'File not available';
+
+    } else {
+
+      color = '#d97706'; label = r.message || 'Error';
+
+    }
+
+    return '<tr>' +
+
+      '<td style="padding:4px 8px;font-family:Consolas,monospace;">' + r.number + '</td>' +
+
+      '<td style="padding:4px 8px;color:' + color + ';font-weight:600;">' + label + '</td>' +
+
+      '<td style="padding:4px 8px;color:#475569;font-size:12px;">' +
+
+        (r.files.join(', ') || '') + '</td></tr>';
+
+  }).join('');
+
+  resultsBox.innerHTML =
+
+    '<table style="width:100%;border-collapse:collapse;background:#fff;' +
+
+    'border:1px solid #c8d4e8;border-radius:6px;margin:8px 0;">' +
+
+    '<thead><tr style="background:#1a4fad;color:#fff;text-align:left;">' +
+
+    '<th style="padding:6px 8px;">Number</th>' +
+
+    '<th style="padding:6px 8px;">Status</th>' +
+
+    '<th style="padding:6px 8px;">Files</th></tr></thead><tbody>' +
+
+    rows + '</tbody></table>';
+
+}
+
+ 
+
+function poll() {
+
+  fetch('/status?after=' + cursor)
+
+    .then(function (r) { return r.json(); })
+
+    .then(function (j) {
+
+      if (j.logs.length) {
+
+        j.logs.forEach(function (line) {
+
+          logBox.textContent += line + '\n';
+
+        });
+
+        // Keep the log panel fast on very large batches: cap displayed lines.
+
+        var lines = logBox.textContent.split('\n');
+
+        if (lines.length > 1200) {
+
+          logBox.textContent = '… (earlier lines trimmed; full history is in '
+
+            + 'the logs folder) …\n' + lines.slice(-1000).join('\n');
+
+        }
+
+        logBox.scrollTop = logBox.scrollHeight;
+
+        cursor = j.next;
+
       }
-      var dispHtml='';
-      if(c._disp){
-        var dred=(c.status!=='NA'&&c.status!=='MISSING'&&refDisp!==null&&c._disp!==refDisp);
-        dispHtml='<span class="disp'+(dred?' dred':'')+'">'+esc(c._disp)+'</span>';
+
+      // Progress bar for large batches
+
+      if (j.progress && j.progress.total) {
+
+        var p = j.progress;
+
+        var pct = Math.round((p.done / p.total) * 100);
+
+        document.getElementById('progressWrap').style.display = '';
+
+        document.getElementById('progBar').style.width = pct + '%';
+
+        document.getElementById('progPct').textContent = pct + '%';
+
+        document.getElementById('progText').textContent =
+
+          'Item ' + (p.done + 1) + ' of ' + p.total +
+
+          (p.current ? '  —  ' + p.current : '');
+
       }
-      return '<td class="cell st-'+c.status+'" title="'+esc(c.text)+'">'+flag+mainHtml+dispHtml+'</td>';
-    }).join('');
-    tr.innerHTML=area+crit+cells;tb.appendChild(tr);last=row.area;shown++;
-  });
-  document.getElementById('dlNote').textContent=shown+' of '+MODEL.rows.length+' rows shown \u2014 this is what downloads';
+
+      if (!j.running) {
+
+        clearInterval(timer); timer = null;
+
+        startBtn.disabled = false; stopBtn.disabled = true;
+
+        document.getElementById('progBar').style.width = '100%';
+
+        document.getElementById('progPct').textContent = '100%';
+
+        renderResults(j.results);
+
+        if (j.summary) {
+
+          summary.textContent = j.summary +
+
+            (j.report ? '  Report: ' + j.report : '');
+
+          summary.className =
+
+            j.summary.indexOf('0/') === -1 ? 'ok' : 'err';
+
+        }
+
+        if (j.done) {
+
+          var ok = j.done.ok, total = j.done.total;
+
+          var skipped = j.done.skipped || 0;
+
+          var failed = total - ok - skipped;
+
+          var msg;
+
+          if (failed === 0 && skipped === 0) {
+
+            msg = 'Success! ' + ok + '/' + total + ' downloaded.';
+
+          } else {
+
+            msg = 'Completed: ' + ok + '/' + total + ' downloaded'
+
+                + (skipped ? ', ' + skipped + ' skipped (already present)' : '')
+
+                + (failed ? ', ' + failed + ' failed' : '')
+
+                + '. See the table for details.';
+
+          }
+
+          setTimeout(function () { alert(msg); }, 200);
+
+        }
+
+      }
+
+    });
+
 }
 
-function downloadExcel(){
-  var payload={token:MODEL.token,statuses:activeStatuses(),query:document.getElementById('q').value.trim()};
-  var btn=document.getElementById('dlBtn');var old=btn.innerHTML;btn.innerHTML='Preparing\u2026';btn.disabled=true;
-  fetch('/download',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
-  .then(function(r){if(!r.ok)return r.json().then(function(j){throw new Error(j.error||'error');});return r.blob();})
-  .then(function(blob){var url=URL.createObjectURL(blob);var a=document.createElement('a');a.href=url;
-    a.download='CAIRO-Assist_'+(MODEL.task_no||'task')+'.xlsx';document.body.appendChild(a);a.click();
-    a.remove();URL.revokeObjectURL(url);btn.innerHTML=old;btn.disabled=false;})
-  .catch(function(e){alert('Download failed: '+e.message);btn.innerHTML=old;btn.disabled=false;});
-}
+ 
+
+
+ 
+
 </script>
-</body></html>"""
 
-# ================================================================= MAIN
-LOGS_HTML = r"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1"><title>CAIRO-Assist - Usage log</title>
-<style>
- body{margin:0;background:#eef2f9;color:#1e293b;font-family:system-ui,"Segoe UI",sans-serif;font-size:13px}
- header{background:linear-gradient(180deg,#f6f8fb,#e9eef6);border-bottom:2px solid #cfd8e6;padding:12px 20px}
- header h1{margin:0;font-size:18px;color:#12203a}
- header p{margin:3px 0 0;color:#5b6675;font-size:12px}
- .bar{padding:12px 20px;display:flex;gap:12px;align-items:center;flex-wrap:wrap}
- .bar a{background:#1a4fad;color:#fff;text-decoration:none;border-radius:7px;padding:8px 14px;font-size:13px}
- .bar .path{font-family:Consolas,monospace;font-size:12px;color:#5b6675;background:#fff;border:1px solid #c8d4e8;border-radius:6px;padding:6px 10px}
- .wrap{padding:0 20px 24px}
- .tablebox{background:#fff;border:1px solid #c8d4e8;border-radius:8px;overflow:auto;max-height:78vh}
- table{border-collapse:collapse;width:100%;font-size:12.5px}
- th,td{padding:8px 10px;border-bottom:1px solid #eceef2;text-align:left;vertical-align:top;white-space:nowrap}
- thead th{position:sticky;top:0;background:#1f3fa0;color:#fff;font-weight:600;z-index:2}
- td:nth-child(8){white-space:normal;min-width:280px}
- tbody tr:nth-child(even){background:#f7f9fc}
-</style></head><body>
-<header><h1>CAIRO-Assist &ndash; Usage log</h1>
-<p>Backend audit of who ran the tool, on which machine, and which documents were compared.</p></header>
-<div class="bar">
-  <a href="/logs.csv">&#8681; Download CSV</a>
-  <a href="/" style="background:#fff;color:#1a4fad;border:1px solid #c8d4e8">&larr; Back to tool</a>
-  <span class="path">DB: __PATH__</span>
-  <span style="color:#5b6675">__COUNT__ most-recent entries</span>
-</div>
-<div class="wrap"><div class="tablebox">
-  <table><thead><tr>__HEAD__</tr></thead><tbody>__ROWS__</tbody></table>
-</div></div>
-</body></html>"""
+</body>
 
-def open_browser():
-    time.sleep(1.2)
-    webbrowser.open('http://127.0.0.1:%d' % PORT)
+</html>"""
 
-if __name__ == '__main__':
-    threading.Thread(target=open_browser, daemon=True).start()
-    app.run(host='127.0.0.1', port=PORT, debug=False, use_reloader=False)
+
+if __name__ == "__main__":
+
+    (Path(__file__).parent / "static").mkdir(exist_ok=True)
+
+    threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.5:{PORT}")).start()
+
+    print(f"JETPULL UI: http://127.0.0.5:{PORT}")
+
+    print(f"Usage DB: {USAGE_DB_PATH}")
+
+    app.run(host="127.0.0.5", port=PORT, debug=False, threaded=True)
