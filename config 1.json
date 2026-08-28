@@ -356,5 +356,6 @@
   "manual_login_wait_seconds": 60,
   "sso_warmup_url": "https://rollsroyce.sharepoint.com",
   "close_warmup_tab": true,
-  "reload_after_signin": true
+  "reload_after_signin": true,
+  "headless_after_signin": "minimize"
 }
