@@ -350,6 +350,23 @@ def wait_for_manual_signin(engine, cfg) -> None:
     if cfg.get("reload_after_signin", True):
         engine.reload_last_site()
 
+    # ---- 4. Get the browser out of the way ------------------------------
+    # Chromium cannot switch to headless while running, so "relaunch" restarts
+    # it headless on the same (already signed-in) profile, and "minimize" just
+    # hides the window. Minimise is the default because it cannot lose the
+    # session; relaunch needs "persistent_profile": true.
+    mode = str(cfg.get("headless_after_signin", "")).lower()
+    if mode in ("relaunch", "headless", "true", "1", "yes"):
+        try:
+            if engine.go_headless():
+                ui_log("Running headless from here - the browser window is "
+                       "gone but downloads continue.")
+        except Exception as exc:                 # noqa: BLE001
+            ui_log(f"Could not switch to headless ({exc}) - continuing with "
+                   "the visible browser.")
+    elif mode in ("minimize", "minimise", "hide"):
+        engine.hide_window()
+
     ui_log("Continuing with the download...")
     try:
         engine.wait_for_page_ready()
