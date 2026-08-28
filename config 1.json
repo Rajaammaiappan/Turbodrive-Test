@@ -1,713 +1,360 @@
 {
-
   "browser": "edge",
-
   "browser_path": "",
-
   "debug_port": 9222,
-
   "verify_ssl": true,
-
   "prefer_direct_download": true,
-
   "headless": false,
-
   "page_load_timeout": 60,
-
   "element_wait_timeout": 25,
-
   "download_wait_timeout": 180,
-
   "ajax_settle_seconds": 0.8,
-
   "retry_count": 3,
-
   "retry_delay_seconds": 20,
-
   "login": {
-
     "username_selectors": [
-
       "input#i0116",
-
       "input[name='loginfmt']",
-
       "input[autocomplete='username']",
-
       "input[type='email']",
-
       "input[name*='user' i]",
-
       "input[id*='user' i]",
-
       "input[name*='email' i]",
-
       "input[id*='email' i]",
-
       "input[name*='login' i]"
-
     ],
-
     "password_selectors": [
-
       "input#i0118",
-
       "input[type='password']"
-
     ],
-
     "submit_selectors": [
-
       "#idSIButton9",
-
       "input#idSIButton9",
-
       "button[type='submit']",
-
       "input[type='submit']",
-
       "button[id*='login' i]",
-
       "button[name*='login' i]"
-
     ],
-
     "submit_text_hints": [
-
       "log in",
-
       "login",
-
       "sign in",
-
       "signin",
-
       "submit",
-
       "continue",
-
       "next",
-
       "verify",
-
       "yes"
-
     ]
-
   },
-
   "search": {
-
     "box_selectors": [
-
       "input[type='search']",
-
       "input[placeholder*='search' i]",
-
       "input[name*='search' i]",
-
       "input[id*='search' i]",
-
       "input[aria-label*='search' i]",
-
       "input[placeholder*='part' i]",
-
       "input[placeholder*='document' i]",
-
       "input[name*='part' i]",
-
       "input[id*='part' i]",
-
       "input[name*='doc' i]",
-
       "input[id*='doc' i]",
-
       "input[type='text']"
-
     ],
-
     "button_selectors": [
-
       "button[type='submit']",
-
       "input[type='submit']",
-
       "button[id*='search' i]",
-
       "button[name*='search' i]",
-
       "button[aria-label*='search' i]",
-
       "button[title*='search' i]"
-
     ],
-
     "button_text_hints": [
-
       "search",
-
       "find",
-
       "go",
-
       "lookup"
-
     ]
-
   },
-
   "results": {
-
     "link_selectors": [
-
       "table tbody tr a",
-
       ".search-results a",
-
       "[class*='result' i] a",
-
       "mat-row a",
-
       ".ag-row a"
-
     ],
-
     "row_selectors": [
-
       "table tbody tr",
-
       "mat-row",
-
       ".ag-row",
-
       "[class*='result-row' i]",
-
       "[class*='result-item' i]",
-
       "li[class*='result' i]"
-
     ],
-
     "verify_record": true,
-
     "allow_first_result_fallback": false,
-
     "accept_already_open": false,
-
     "no_result_texts": [
-
       "no results",
-
       "no records found",
-
       "0 results",
-
       "no matching",
-
       "nothing found",
-
       "no data",
-
       "no rows",
-
       "not found"
-
     ]
-
   },
-
   "download": {
-
     "known_extensions": [
-
       ".pdf",
-
       ".zip",
-
       ".xlsx",
-
       ".xls",
-
       ".docx",
-
       ".doc",
-
       ".txt",
-
       ".csv",
-
       ".pptx",
-
       ".ppt",
-
       ".xml",
-
       ".json",
-
       ".dwg",
-
       ".step",
-
       ".stp",
-
       ".tif",
-
       ".tiff",
-
       ".png",
-
       ".jpg",
-
       ".rar",
-
       ".7z"
-
     ],
-
     "button_selectors": [
-
       "a[download]",
-
       "a[href*='download' i]",
-
       "button[id*='download' i]",
-
       "button[name*='download' i]",
-
       "button[title*='download' i]",
-
       "button[aria-label*='download' i]",
-
       "a[title*='download' i]",
-
       "a[aria-label*='download' i]",
-
       "[class*='download' i] a",
-
       "a[href*='attachment' i]",
-
       "a[href*='export' i]"
-
     ],
-
     "button_text_hints": [
-
       "download",
-
       "export",
-
       "attachment",
-
       "get file",
-
       "save"
-
     ],
-
     "scope_selectors": [],
-
     "exclude_href_patterns": [
-
       "tvrequest_hpc",
-
       "/template",
-
       "blank",
-
       "help",
-
       "guide",
-
       "instruction",
-
       "user_manual"
-
     ],
-
     "exclude_name_patterns": [
-
       "tv request",
-
       "template",
-
       "blank form",
-
       "help",
-
       "guide",
-
       "instructions",
-
       "user manual"
-
     ]
-
   },
-
   "post_login_settle_seconds": 5,
-
   "navigation": {
-
     "back_button_selectors": [
-
       "button[aria-label*='back' i]",
-
       "button[title*='back' i]",
-
       "a[title*='back' i]",
-
       "a[aria-label*='back' i]",
-
       "[class*='back-button' i]",
-
       "[class*='btn-back' i]"
-
     ],
-
     "back_text_hints": [
-
       "back",
-
       "return",
-
       "previous",
-
       "new search"
-
     ],
-
     "max_back_steps": 3
-
   },
-
   "login_form_wait_seconds": 20,
-
   "persistent_profile": false,
-
-  "search_settle_seconds": 20,
-
+  "search_settle_seconds": 1.5,
   "b2b": {
-
     "use_iframe": false,
-
     "iframe_selector": "iframe#uiframe, iframe[name='uiframe'], iframe",
-
     "step_settle_seconds": 1.0,
-
     "removal_keywords": [
-
       "removed",
-
       "removal",
-
       "remove"
-
     ],
-
     "build_keywords": [
-
       "built",
-
       "tdl"
-
     ],
-
     "steps": {
-
       "goto_menu_selectors": [
-
         "#titlebar_hamburger",
-
         "a[title*='Menu' i]",
-
         "button[title*='Menu' i]",
-
         ".titlebar-hamburger",
-
         "img[title*='Go To' i]",
-
         "#titlebar-tb_gotoButton"
-
       ],
-
       "goto_menu_hints": [
-
         "menu",
-
         "go to"
-
       ],
-
       "equipment_app_selectors": [
-
         "a[id*='ASSET_MODULE_sub_changeapp_ASSET_a']",
-
         "a[id*='ASSET_MODULE_a']",
-
         "a[title='Equipment']",
-
         "a[id*='Equipment' i]"
-
       ],
-
       "equipment_app_hints": [
-
         "equipment"
-
       ],
-
       "serial_input_selectors": [
-
         "input[id*='C:6']"
-
       ],
-
       "search_button_selectors": [
-
         "img[title='Filter Table']"
-
       ],
-
       "search_button_hints": [
-
         "search",
-
         "find",
-
         "filter"
-
       ],
-
       "result_row_selectors": [
-
         "span[mxevent='click']",
-
         "td[id*='tdrow_[C:6]'] span"
-
       ],
-
       "result_row_hints": [],
-
       "parent_tab_selectors": [
-
         "a[title*='Parent' i]",
-
         "a[mxevent='SELECTTAB']"
-
       ],
-
       "parent_tab_hints": [
-
         "parent",
-
         "parent history"
-
       ],
-
       "parent_history_row_selector": [
-
         "td[aria-label='Parent History'] tr[id*='tdrow-tr[R:']"
-
- 
-
       ],
-
       "parent_history_goto_selector": [
-
         "img[title='Detail Menu']"
-
- 
-
       ],
-
       "parent_history_goto_menu_selector": [
-
         "#NORMAL_normal1_a"
-
- 
-
       ],
-
       "parent_history_equipment_selector": [
-
         "#NORMAL_normal1_sub_normal1_asset_a"
-
- 
-
       ],
-
       "return_button_selectors": [
-
         "#mainrec_pg_retBut",
-
         "button[title='Return ALT+R']",
-
         "button[id$='_retBut']"
-
       ],
-
       "return_button_hints": [
-
         "Return"
-
       ],
-
       "off_date_selectors": [
-
         "input[id*='offdate' i]",
-
         "td[id*='offdate' i]"
-
       ],
-
-      "view_attachments_selectors": [ "span[mxevent='click']" ],
-
-      "view_attachments_hints": [ "Attachments" ],
-
-      "attachment_link_selector": "a[href^='javascript:openEncodedURL']",
-
-      "attachment_ok_selector": [
-
-        "button[title='OK']"
-
-      ],
-
-      "events_app_selectors": [
-
-        "span[id$='_tnode']"
-
-      ],
-
-      "events_app_hints": [
-
-        "events management"
-
-      ],
-
-      "event_serial_input_selectors": [
-
-        "input[id*='C:4']"
-
-      ],
-
-      "event_title_filter_selectors": [
-
-        "input[id*='C:6']"
-
-      ],
-
-      "event_date_filter_selector": [
-
-        "input[id*='C:2']"
-
-      ],
-
-      "event_clear_filter_selector": [
-
-        "a[title='Clear Filter Fields']"
-
-      ],
-
-      "event_row_selector": [
-
-        "tr[id*='tdrow-tr']"
-
-      ],
-
-      "event_row_click_selector": [
-
+      "view_attachments_selectors": [
         "span[mxevent='click']"
-
       ],
-
+      "view_attachments_hints": [
+        "Attachments"
+      ],
+      "attachment_link_selector": "a[href^='javascript:openEncodedURL']",
+      "attachment_ok_selector": [
+        "button[title='OK']"
+      ],
+      "events_app_selectors": [
+        "span[id$='_tnode']"
+      ],
+      "events_app_hints": [
+        "events management"
+      ],
+      "event_serial_input_selectors": [
+        "input[id*='C:4']"
+      ],
+      "event_title_filter_selectors": [
+        "input[id*='C:6']"
+      ],
+      "event_date_filter_selector": [
+        "input[id*='C:2']"
+      ],
+      "event_clear_filter_selector": [
+        "a[title='Clear Filter Fields']"
+      ],
+      "event_row_selector": [
+        "tr[id*='tdrow-tr']"
+      ],
+      "event_row_click_selector": [
+        "span[mxevent='click']"
+      ],
       "event_next_page_selectors": [
-
         "button[title*='Next Page' i]",
-
         "a[title*='Next Page' i]",
-
         "img[title*='Next' i]"
-
       ],
-
       "events_return_selectors": [
-
         "a[role='tab'][title='List']"
-
       ],
-
       "events_return_hints": [
-
         "list"
-
       ],
-
       "equipment_group_hints": [
-
         "aircraft and equipment"
-
       ],
-
       "events_group_hints": [
-
         "global",
-
         "configuration management"
-
       ],
-
       "site_input_selectors": [
-
         "input[id*='C:10']"
-
       ],
-
       "attachment_counter_selectors": [
-
         "label.tcount",
-
         "label.text.tht.tcount"
-
       ],
-
       "attachment_next_page_selectors": [
-
         "a[title*='Next Page']"
-
       ]
-
     },
-
     "parent_serial_col_index": 6,
-
     "parent_offdate_col_index": 2,
-
     "event_title_col_index": -1,
-
     "event_date_col_index": -1,
-
     "event_link_col_index": 0,
-
     "max_event_pages": 30,
-
     "build_requires_date": false,
-
     "site_value": "CIVIL",
-
     "equipment_app_url_value": "asset",
-
     "events_app_url_value": "plusaevmng",
-
     "skip_refresh": true,
-
     "clear_site_filter": false,
-
     "max_attatchment_pages": 20
-
   },
-
   "manual_login": true,
-
-  "manual_login_timeout_seconds": 600
-
+  "manual_login_wait_seconds": 60,
+  "sso_warmup_url": "https://rollsroyce.sharepoint.com",
+  "close_warmup_tab": true,
+  "reload_after_signin": true
 }
