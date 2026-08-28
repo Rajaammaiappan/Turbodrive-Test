@@ -1,0 +1,124 @@
+Edit 1 — initialise two attributes (around line 295, in __init__)
+
+Find:
+
+python
+        self.browser_ws: Optional[CDPSession] = None   # browser-level target
+        self.page: Optional[CDPSession] = None         # page-level target
+
+Replace with:
+
+python
+        self.browser_ws: Optional[CDPSession] = None   # browser-level target
+        self.page: Optional[CDPSession] = None         # page-level target
+        self._main_target_id: str = ""                 # our own tab
+        self._last_url: str = ""                       # for reload_last_site()
+Edit 2 — remember the main tab's id (around line 449, in the target-attach loop)
+
+Find:
+
+python
+                for t in targets:
+                    if t.get("type") == "page":
+                        page_ws = t["webSocketDebuggerUrl"]
+                        break
+
+Replace with:
+
+python
+                for t in targets:
+                    if t.get("type") == "page":
+                        page_ws = t["webSocketDebuggerUrl"]
+                        # Remember which tab is ours so we can bring it back
+                        # to the front after opening a warm-up tab.
+                        self._main_target_id = t.get("id")
+                        break
+Edit 3 — four new methods
+
+Insert this whole block immediately above the existing banner:
+
+python
+    # -------------------------------------------------------------- #
+    #  Step 2: login (optional) - SSO / MFA aware
+    # -------------------------------------------------------------- #
+
+That banner sits just after self.status("Page loaded.") at the end of open_site. Paste in between:
+
+python
+    # -------------------------------------------------------------- #
+    #  SSO warm-up tab
+    # -------------------------------------------------------------- #
+    def open_warmup_tab(self, url: str) -> str:
+        """
+        Open `url` in a SECOND tab and leave it in front.
+
+        Going straight to the BDC link can fail Microsoft's MFA with "Sorry,
+        we're having trouble verifying your account" - the authorize request
+        comes from a context Conditional Access will not complete. Signing in
+        to an ordinary corporate site first (Engine Room) establishes the
+        session cleanly, and BDC then inherits it.
+
+        Returns the new tab's target id, or "" if it could not be opened.
+        """
+        if not url:
+            return ""
+        if not re.match(r"^https?://", url, re.I):
+            url = "https://" + url
+        try:
+            res = self.browser_ws.call("Target.createTarget",
+                                       {"url": url, "newWindow": False})
+            tid = (res or {}).get("targetId", "")
+            self.status(f"Opened sign-in tab: {url}")
+            return tid
+        except Exception as exc:                 # noqa: BLE001
+            self.status(f"Could not open the sign-in tab ({exc}). "
+                        "Sign in on the main tab instead.", logging.WARNING)
+            return ""
+
+    def close_target(self, target_id: str) -> None:
+        """Close a tab opened by open_warmup_tab. Never raises."""
+        if not target_id:
+            return
+        try:
+            self.browser_ws.call("Target.closeTarget", {"targetId": target_id})
+        except Exception as exc:                 # noqa: BLE001
+            self.log.debug("Could not close tab %s: %s", target_id, exc)
+
+    def focus_main_tab(self) -> None:
+        """Bring the tool's own tab back to the front. Never raises."""
+        tid = getattr(self, "_main_target_id", "")
+        if not tid:
+            return
+        try:
+            self.browser_ws.call("Target.activateTarget", {"targetId": tid})
+        except Exception as exc:                 # noqa: BLE001
+            self.log.debug("Could not focus the main tab: %s", exc)
+
+    def reload_last_site(self) -> None:
+        """
+        Re-open the last URL passed to open_site.
+
+        Called after a manual sign-in: the page loaded before sign-in is
+        usually the Microsoft error or a redirect, so it has to be fetched
+        again now that the session is valid.
+        """
+        url = getattr(self, "_last_url", "")
+        if not url:
+            return
+        self.status("Reloading the portal now that you are signed in...")
+        try:
+            self.page.call("Page.navigate", {"url": url},
+                           timeout=self.cfg.get("page_load_timeout", 60))
+            self.wait_for_page_ready()
+        except Exception as exc:                 # noqa: BLE001
+            self.status(f"Reload failed ({exc}); continuing anyway.",
+                        logging.WARNING)
+
+Notes:
+
+All four are new methods on the same class — indent them to 4 spaces, level with open_site.
+re and logging are already imported at the top, so nothing to add there.
+self._last_url is already set by open_site (line 568), so reload_last_site picks it up automatically.
+Edit 1 is only a safety net — it stops focus_main_tab and reload_last_site throwing if they're ever called before a page has loaded. They also use getattr with a default, so they'd survive without it, but the explicit initialisation is clearer.
+
+Don't forget search_settle_seconds in config.json — that's the 20-second pause per TV number, and it's the change you'll notice most.
