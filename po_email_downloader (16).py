@@ -388,35 +388,41 @@ def apply_aliases(parsed, aliases):
         for n in names:
             canon[n] = c
     if not canon:
-        return parsed, set()
+        return parsed, {}
     newp = []
     for p in parsed:
         recs = [dict(r, subtask=canon.get(r['subtask'], r['subtask'])) for r in p['records']]
         newp.append(dict(p, records=recs))
-    return newp, set(canon.values())
+    return newp, canon
 
 
 def build_model(parsed, aliases=None):
-    parsed, merged_areas = apply_aliases(parsed, aliases)
+    parsed, canon = apply_aliases(parsed, aliases)
+    merged_areas = set(canon.values())
     names = [(p['subject'] or 'file')[:45] for p in parsed]
     ndoc = len(parsed)
 
-    # ---- GLOBAL clustering: align criteria across ALL areas/documents by text.
-    # Area names differ between engine types (Trent 1000 vs XWB), so criteria are
-    # matched by wording. If two criteria sit in a user-confirmed same area, boost the
-    # match so "Item 1 ..." and "Item 2 ..." merge into a single row.
+    def gkey(rec):
+        # a user-confirmed group is a hard boundary: only items in the SAME group
+        # (or both ungrouped) may share a row.
+        return rec['subtask'] if rec['subtask'] in merged_areas else None
+
+    # ---- GLOBAL clustering by criterion wording, within group boundaries.
     clusters = []   # each: {rep:rec, members:{di:rec}}
     for di in range(ndoc):
         for r in parsed[di]['records']:
+            rk = gkey(r)
             best, bcl = 0.0, None
             for cl in clusters:
                 if di in cl['members']:
+                    continue
+                if gkey(cl['rep']) != rk:            # different group -> never merge
                     continue
                 na, nb = norm_crit(cl['rep']['criterion']), norm_crit(r['criterion'])
                 if not na or not nb:
                     continue
                 sc = 1.0 if na == nb else difflib.SequenceMatcher(None, na, nb).ratio()
-                if r['subtask'] == cl['rep']['subtask'] and r['subtask'] in merged_areas:
+                if rk is not None:                    # inside a confirmed group, be more willing to merge
                     sc = min(1.0, sc + 0.2)
                 if sc > 0.6 and sc > best:
                     best, bcl = sc, cl
@@ -803,13 +809,15 @@ INDEX_HTML = r"""<!doctype html>
  .st-MISSING{background:var(--c-miss)}.st-UNIQUE{background:var(--c-uni)}.st-NA{background:var(--c-na);color:#9aa6b6}
  tr.arowtop th.area{border-top:2px solid #d3dcea}tr.arowtop td{border-top:2px solid #eef0f4}
  .flag{position:absolute;top:4px;right:5px;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;background:#0000000f;color:#4b5563}
- .msug{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:6px;background:#fff;display:flex;gap:10px;align-items:flex-start}
- .msug input{margin-top:3px;width:16px;height:16px;accent-color:var(--accent)}
- .msug .names{flex:1;font-size:12.5px}
- .msug .nm{display:block;margin:1px 0}
- .msug .fb{display:inline-block;font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:0 6px;margin-right:6px;color:var(--muted)}
- .msug .sc{font-size:11px;color:#2a7d2a;font-weight:700;white-space:nowrap}
- .msug .wd{color:#d11313;font-weight:700}
+ .msug-block{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px;background:#fff}
+ .msug-head{font-size:11px;color:var(--muted);margin-bottom:6px}
+ .msug-row{display:flex;gap:8px;align-items:center;font-size:12.5px;padding:3px 0}
+ .grpsel{font-size:12px;padding:2px 4px;border:1px solid var(--border);border-radius:6px}
+ .fb{display:inline-block;font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:0 6px;color:var(--muted)}
+ .wd{color:#d11313;font-weight:700}
+ .gtag{display:inline-block;min-width:24px;text-align:center;font-size:10px;font-weight:800;color:#fff;border-radius:6px;padding:1px 5px}
+ .gtag.skip{background:#cbd3df;color:#5b6675}
+ .g1{background:#1d6fdb}.g2{background:#2a9d4a}.g3{background:#d9822b}.g4{background:#8e44ad}.g5{background:#c0392b}.g6{background:#16a3a3}
  .mergedtag{display:inline-block;font-size:9px;font-weight:700;color:var(--accent);border:1px solid #9cc0e2;border-radius:8px;padding:0 5px;margin-left:6px;vertical-align:middle}
  .d{color:#d11313;font-weight:700;text-decoration:underline;text-decoration-color:#d11313}
  .disp.dred{color:#d11313;font-weight:800}
@@ -1039,48 +1047,75 @@ function renderResults(){
     +MODEL.names.map(function(n){return '<th>'+esc(n)+'</th>';}).join('');
   document.getElementById('q').oninput=renderRows;
   document.getElementById('dlBtn').onclick=downloadExcel;
+  SUG_GRP={};                 // reset group assignments for this fresh result
   renderSuggestions();
   renderRows();
 }
 
+var SUG_GRP={};   // SUG_GRP[blockIndex] = {count:n, of:[groupId per member]}  (0 = skip)
 function hlWords(name, shared){
   return name.split(/(\s+)/).map(function(tok){
     var w=tok.toLowerCase().replace(/[^a-z0-9]/g,'');
     if(tok.trim()&&shared.indexOf(w)<0&&!/^(examine|the|and|for|of|a|an|area|part)$/.test(w))
-      return '<span class="wd">'+esc(tok)+'</span>';   // the differing bit (e.g. the item number) in red
+      return '<span class="wd">'+esc(tok)+'</span>';   // differing bit (e.g. item number) in red
     return esc(tok);
   }).join('');
 }
+function ensureGrp(i,n){ if(!SUG_GRP[i]) SUG_GRP[i]={count:1, of:new Array(n).fill(1)}; }
+
 function renderSuggestions(){
   var sug=MODEL.suggestions||[];
-  var det=document.getElementById('matchDetails');
-  document.getElementById('matchCount').textContent = sug.length? '('+sug.length+' found)' : '(none)';
+  document.getElementById('matchCount').textContent = sug.length? '('+sug.length+' set'+(sug.length>1?'s':'')+' found)' : '(none)';
   var box=document.getElementById('matchList'); box.innerHTML='';
   if(!sug.length){ box.innerHTML='<div style="font-size:12px;color:var(--muted)">No differently-numbered items detected across the files.</div>';
     document.getElementById('applyMatchBtn').style.display='none'; return; }
   document.getElementById('applyMatchBtn').style.display='';
   sug.forEach(function(s,i){
-    var names=s.members.map(function(mm){return '<span class="nm"><span class="fb">'+esc(MODEL.names[mm.file])+'</span>'+hlWords(mm.name,s.shared)+'</span>';}).join('');
-    var d=document.createElement('label'); d.className='msug';
-    d.innerHTML='<input type="checkbox" data-i="'+i+'"><div class="names">'+names+'</div><span class="sc">'+Math.round(s.score*100)+'%</span>';
-    box.appendChild(d);
+    ensureGrp(i, s.members.length);
+    var g=SUG_GRP[i];
+    var head='<div class="msug-head">Similar items ('+Math.round(s.score*100)+'% word match) &mdash; put items in the same group to merge them into one row; choose Skip to leave one out.</div>';
+    var rowsH=s.members.map(function(mm,mi){
+      var cur=g.of[mi];
+      var opts='<option value="0"'+(cur===0?' selected':'')+'>Skip</option>';
+      for(var k=1;k<=g.count;k++) opts+='<option value="'+k+'"'+(cur===k?' selected':'')+'>Group '+k+'</option>';
+      opts+='<option value="new">+ New group</option>';
+      var tag=cur? '<span class="gtag g'+(((cur-1)%6)+1)+'">G'+cur+'</span>' : '<span class="gtag skip">&mdash;</span>';
+      return '<div class="msug-row">'+tag+'<select class="grpsel" data-i="'+i+'" data-mi="'+mi+'">'+opts+'</select>'
+        +'<span class="fb">'+esc(MODEL.names[mm.file])+'</span><span>'+hlWords(mm.name,s.shared)+'</span></div>';
+    }).join('');
+    var block=document.createElement('div'); block.className='msug-block'; block.innerHTML=head+rowsH;
+    box.appendChild(block);
+  });
+  box.querySelectorAll('.grpsel').forEach(function(sel){
+    sel.onchange=function(){
+      var i=+sel.dataset.i, mi=+sel.dataset.mi, v=sel.value;
+      if(v==='new'){ SUG_GRP[i].count++; SUG_GRP[i].of[mi]=SUG_GRP[i].count; }
+      else SUG_GRP[i].of[mi]=+v;
+      renderSuggestions();     // refresh tags/options; SUG_GRP is preserved
+    };
   });
 }
+
 function applyMatches(){
-  var picks=[]; 
-  document.querySelectorAll('#matchList input[type=checkbox]').forEach(function(cb){
-    if(cb.checked){ var s=MODEL.suggestions[+cb.dataset.i]; if(s) picks.push(s.names); }
+  var aliases=(MODEL.aliases||[]).slice();
+  (MODEL.suggestions||[]).forEach(function(s,i){
+    var g=SUG_GRP[i]; if(!g) return;
+    var buckets={};
+    s.members.forEach(function(mm,mi){
+      var gid=g.of[mi];
+      if(gid){ (buckets[gid]=buckets[gid]||[]).push(mm.name); }
+    });
+    Object.keys(buckets).forEach(function(k){ if(buckets[k].length>=2) aliases.push(buckets[k]); });
   });
-  var prev=MODEL.aliases||[];
-  var aliases=prev.concat(picks);
+  if(!aliases.length){ document.getElementById('matchNote').textContent='Nothing grouped yet — put at least two items in the same group.'; return; }
   var note=document.getElementById('matchNote'); note.textContent='Re-comparing…';
   var btn=document.getElementById('applyMatchBtn'); btn.disabled=true;
   fetch('/recompute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:MODEL.token,aliases:aliases})})
   .then(function(r){return r.json();})
   .then(function(j){ btn.disabled=false;
     if(!j.ok){note.textContent='Error: '+(j.error||'failed');return;}
-    var keepAliases=aliases; MODEL=j.model; MODEL.aliases=keepAliases;
-    note.textContent='Merged '+aliases.length+' item group(s).';
+    var keep=aliases; MODEL=j.model; MODEL.aliases=keep;
+    note.textContent='Merged '+aliases.length+' group(s) into single rows.';
     renderResults();
   }).catch(function(e){btn.disabled=false;note.textContent='Failed: '+e;});
 }
