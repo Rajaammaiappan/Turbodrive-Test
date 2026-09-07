@@ -118,6 +118,180 @@ def load_main_html_from_bytes(raw):
                     best = h
     return subject, best
 
+def _roman(n):
+    vals=[(1000,'m'),(900,'cm'),(500,'d'),(400,'cd'),(100,'c'),(90,'xc'),(50,'l'),
+          (40,'xl'),(10,'x'),(9,'ix'),(5,'v'),(4,'iv'),(1,'i')]
+    out=''
+    for v,s in vals:
+        while n>=v:
+            out+=s; n-=v
+    return out or 'i'
+def _ualpha(n):
+    s=''
+    while n>0:
+        n,r=divmod(n-1,26); s=chr(65+r)+s
+    return s or 'A'
+def _lalpha(n):
+    return _ualpha(n).lower()
+def _marker(level, count):
+    # class level 1->L2 'A.'  2->L3 '(1)'  3->L4 '(a)'  4->L5 '(i)'  5+->'(i)'
+    if level==1: return _ualpha(count)+'.'
+    if level==2: return '(%d)' % count
+    if level==3: return '(%s)' % _lalpha(count)
+    return '(%s)' % _roman(count)
+
+def _own_text(el):
+    parts=[]
+    for ch in el.children:
+        nm=getattr(ch,'name',None)
+        if nm is None:
+            parts.append(str(ch))
+        elif nm=='table':
+            continue
+        elif any(re.match(r'src-l\d+item', c) for c in (ch.get('class') or [])):
+            continue
+        else:
+            parts.append(ch.get_text(' '))
+    return clean(' '.join(parts))
+
+DISPO_RE = re.compile(r'\b(Accept|Reject|Repair\b.*|Scrap\b.*|Refer to\b.*)$')
+
+def parse_hierarchical(vp):
+    """Outline manuals (Trent 1000 AMM & Check-and-Rectify): reconstruct the
+    L1 subtask -> A. -> (1) -> (a) -> (i) numbering and capture each leaf criterion
+    with its full path."""
+    records=[]
+    L1=None
+    counters=[0]*8
+    labels={}         # level -> (marker, text)  for ':' heading nodes
+    for el in vp.descendants:
+        nm=getattr(el,'name',None)
+        if nm is None:
+            continue
+        cls=el.get('class') or []
+        if nm=='h4' and 'subtasktitle' in cls:
+            L1=clean(el.get_text(' ')); counters=[0]*8; labels={}
+            continue
+        lvl=None
+        for c in cls:
+            m=re.match(r'src-l(\d+)item', c)
+            if m:
+                lvl=int(m.group(1)); break
+        if lvl is None:
+            continue
+        own=_own_text(el)
+        if not own:
+            continue
+        counters[lvl]+=1
+        for k in range(lvl+1, 8):
+            counters[k]=0; labels.pop(k, None)
+        mk=_marker(lvl, counters[lvl])
+        dm=DISPO_RE.search(own)
+        is_note = own.lower().startswith('refer to')
+        if dm and not own.endswith(':') and not is_note:
+            crit=own[:dm.start()].strip(' .:-')
+            disp=norm_disp(dm.group(1))
+            path=' > '.join('%s %s' % (labels[k][0], labels[k][1])
+                            for k in sorted(labels) if k < lvl)
+            if crit:
+                records.append({'subtask': L1 or '(root)', 'condition': path,
+                                'criterion': '%s %s' % (mk, crit),
+                                'disposition': disp, 'kind': 'criteria'})
+        else:
+            labels[lvl]=(mk, own.rstrip(':').strip())
+    return records
+
+
+def _s1000d_label(el):
+    parts=[]
+    for ch in el.children:
+        nm=getattr(ch,'name',None)
+        if nm is None:
+            parts.append(str(ch)); continue
+        cl=ch.get('class') or []
+        if nm=='table':
+            break
+        if 'src-proceduralStep' in cl:
+            break
+        parts.append(ch.get_text(' '))
+    lab=clean(' '.join(parts))
+    for mk in ['DAMAGE', 'Alternative procedure', 'Sub-Procedure']:
+        i=lab.find(mk)
+        if i>0:
+            lab=lab[:i]
+    lab=re.sub(r'\bNote\b.*', '', lab)
+    return clean(lab).rstrip(':')
+
+def parse_s1000d(vp):
+    """S1000D manuals (e.g. Trent XWB / A350): decimal numbered steps 1, 1.1, 1.1.1,
+    1.1.1.1 ... with DAMAGE/LIMIT/ACTION tables at the leaves."""
+    steps=vp.select('.src-proceduralStep')
+    def depth(el):
+        d=0; p=el.parent
+        while p is not None:
+            if 'src-proceduralStep' in (p.get('class') or []):
+                d+=1
+            p=p.parent
+        return d
+    def nearest_step(node):
+        p=node.parent
+        while p is not None:
+            if 'src-proceduralStep' in (p.get('class') or []):
+                return p
+            p=p.parent
+        return None
+    # number + label every step in document order
+    info={}                       # id(el) -> {'num','label','el'}
+    counters=[0]*14
+    for el in steps:
+        d=depth(el)
+        if d>=14:
+            continue
+        counters[d]+=1
+        for k in range(d+1, 14):
+            counters[k]=0
+        num='.'.join(str(counters[i]) for i in range(d+1))
+        info[id(el)]={'num': num, 'label': _s1000d_label(el), 'el': el}
+
+    records=[]
+    for tbl in vp.select('table.src-table'):
+        if 'DAMAGE' not in tbl.get_text()[:40].upper():
+            continue
+        owner=nearest_step(tbl)
+        crumbs=[]; num=''
+        node=owner
+        while node is not None and id(node) in info:
+            lab=info[id(node)]['label']
+            if lab and lab.lower()!='procedure':
+                crumbs.append(lab)
+            if not num:
+                num=info[id(node)]['num']
+            node=nearest_step(node)
+        crumbs.reverse()
+        area=(crumbs[-1] if crumbs else 'part')
+        path=(num+'  ' if num else '')+' > '.join(crumbs)
+        last_dmg=''
+        for tr in tbl.find_all('tr')[1:]:
+            cells=[clean(c.get_text(' ')) for c in tr.find_all(['td','th'])]
+            if len(cells)<3:
+                continue
+            dmg, limit, action = cells[0], cells[1], cells[-1]
+            if dmg:
+                last_dmg=dmg
+            if limit and action:
+                records.append({'subtask': area,
+                                'condition': (path + ' > ' + (dmg or last_dmg)).strip(' >'),
+                                'criterion': limit, 'disposition': norm_disp(action),
+                                'kind': 'criteria'})
+    return records
+
+def detect_format(soup, vp):
+    if vp.select_one('.src-proceduralStep') or 'S1000DIssue4' in (str(soup)[:200000]):
+        return 'S1000D'
+    if len(vp.select('.src-l2item')) + len(vp.select('.src-l3item')) > 5:
+        return 'ATA'
+    return 'Tables'
+
 def norm_disp(s):
     dl = s.lower()
     if dl.startswith('accept'):
@@ -143,8 +317,11 @@ def parse_bytes(raw, fallback_name):
 
     # ---- task title / number ----
     task_title = None
+    tt = soup.select_one('.taskTitle')                           # Pinpoint task heading
+    if tt:
+        task_title = clean(tt.get_text(' '))
     hf = soup.select_one('.pgHeaderFooter')                      # Trent 1000 exam style
-    if hf:
+    if not task_title and hf:
         for c in hf.find_all(['td', 'th']):
             t = clean(c.get_text(' '))
             if t and 'Manual' not in t and 'Export' not in t and len(t) < 60:
@@ -154,8 +331,9 @@ def parse_bytes(raw, fallback_name):
         for hh in vp.find_all(['h1', 'h2', 'h3', 'h4']):
             t = clean(hh.get_text(' '))
             if t and t.lower() not in NAV_H4 and not t.upper().startswith('SUBTASK') \
-               and t.lower() not in ('description', 'procedure', 'examinations, tests, and checks') \
-               and len(t) < 110 and (' - ' in t or 'Examine' in t or 'Repair' in t or len(t) > 12):
+               and t.lower() not in ('description', 'procedure', 'examinations, tests, and checks',
+                                     'inspection/check') \
+               and len(t) < 110 and (' - ' in t or 'Examine' in t or 'Repair' in t or len(t) > 14):
                 task_title = t
                 break
     task_no = None
@@ -167,8 +345,22 @@ def parse_bytes(raw, fallback_name):
         if m2:
             task_no = m2.group(1)
 
-    # ---- walk content: keep ALL tables, with their real section/type ----
+    # ---- detect documentation standard and parse its hierarchy ----
+    fmt = detect_format(soup, vp)
     records = []
+    if fmt == 'S1000D':
+        records = parse_s1000d(vp)
+        if len(records) >= 5:
+            return {'subject': subject or fallback_name, 'task_no': task_no,
+                    'task_title': task_title, 'records': records, 'format': 'S1000D'}
+        records = []
+    elif fmt == 'ATA':
+        records = parse_hierarchical(vp)
+        if len(records) >= 5:
+            return {'subject': subject or fallback_name, 'task_no': task_no,
+                    'task_title': task_title, 'records': records, 'format': 'ATA'}
+        records = []
+
     cur_h4 = None       # descriptive <h4> section  ("Braze the Part", "Consumable Materials", "Examine the ...")
     cur_colon = None    # short line ending ':'  (XWB area, or exam condition)
     cur_sub = None      # "SUBTASK 72-41-12-xxx"
@@ -248,7 +440,7 @@ def parse_bytes(raw, fallback_name):
                                         'criterion': key, 'disposition': val[:60],
                                         'kind': 'reference'})
     return {'subject': subject or fallback_name, 'task_no': task_no,
-            'task_title': task_title, 'records': records}
+            'task_title': task_title, 'records': records, 'format': fmt}
 
 # ================================================================= MATCHING
 def norm_area(s):
@@ -266,6 +458,7 @@ def _dec(s):
 
 def norm_crit(s):
     s = _dec(s.lower())
+    s = re.sub(r'^\s*(\([a-z0-9ivx]{1,4}\)|[a-z]\.)\s*', '', s)   # drop leading outline marker
     s = re.sub(r'\(.*?\)', '', s)
     s = re.sub(r'refer to.*', '', s)
     s = re.sub(r'[^a-z0-9. ]', ' ', s)
@@ -499,6 +692,7 @@ def build_model(parsed, aliases=None):
 
     return {'names': names, 'task_no': parsed[0]['task_no'], 'task_title': parsed[0]['task_title'],
             'rows': rows, 'summary': summary, 'pairs': pairs, 'co': co,
+            'formats': [p.get('format', '?') for p in parsed],
             'generated': datetime.now().strftime('%d %b %Y  %H:%M')}
 
 # ================================================================= FILTER (shared by UI + download)
@@ -644,7 +838,7 @@ def compare():
         log_event('Manuals', 'compare', task_no=model['task_no'], task_title=model['task_title'],
                   documents=orig_names, doc_count=len(orig_names), rows=len(model['rows']),
                   note='%d criteria' % len(model['rows']))
-        payload = {k: model[k] for k in ('names', 'task_no', 'task_title', 'rows', 'summary', 'pairs', 'generated')}
+        payload = {k: model[k] for k in ('names', 'task_no', 'task_title', 'rows', 'summary', 'pairs', 'formats', 'generated')}
         payload['token'] = token
         payload['suggestions'] = suggest_matches(parsed)
         payload['warnings'] = ['"%s" had no criteria (empty or a different task).' % e for e in empties]
@@ -671,7 +865,7 @@ def recompute():
         log_event('Manuals', 'recompute', task_no=model['task_no'], task_title=model['task_title'],
                   documents=entry.get('orig_names'), doc_count=len(model['names']),
                   rows=len(model['rows']), note='merged %d item group(s)' % len(aliases))
-        payload = {k: model[k] for k in ('names', 'task_no', 'task_title', 'rows', 'summary', 'pairs', 'generated')}
+        payload = {k: model[k] for k in ('names', 'task_no', 'task_title', 'rows', 'summary', 'pairs', 'formats', 'generated')}
         payload['token'] = token
         payload['suggestions'] = suggest_matches(parsed, aliases)
         payload['merged_count'] = len(aliases)
@@ -819,6 +1013,8 @@ INDEX_HTML = r"""<!doctype html>
  .gtag.skip{background:#cbd3df;color:#5b6675}
  .g1{background:#1d6fdb}.g2{background:#2a9d4a}.g3{background:#d9822b}.g4{background:#8e44ad}.g5{background:#c0392b}.g6{background:#16a3a3}
  .mergedtag{display:inline-block;font-size:9px;font-weight:700;color:var(--accent);border:1px solid #9cc0e2;border-radius:8px;padding:0 5px;margin-left:6px;vertical-align:middle}
+ .fmtbadge{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.04em;color:#fff;border-radius:8px;padding:1px 6px;margin-left:6px;vertical-align:middle}
+ .fmt-S1000D{background:#7048c4}.fmt-ATA{background:#1d6fdb}.fmt-Tables{background:#5b6675}
  .d{color:#d11313;font-weight:700;text-decoration:underline;text-decoration-color:#d11313}
  .disp.dred{color:#d11313;font-weight:800}
  footer{color:var(--muted);font-size:11px;text-align:center;padding:16px}
@@ -1021,7 +1217,9 @@ function renderResults(){
     var counts=[['MATCH','match'],['PARTIAL','partial'],['THRESHOLD','threshold'],['MISSING','missing'],['UNIQUE','unique']]
       .map(function(p){return '<span><b>'+c[p[0]]+'</b> '+p[1]+'</span>';}).join('');
     var el=document.createElement('div');el.className='ecard';
-    el.innerHTML='<h3>'+esc(nm)+'</h3><div class="bar">'+ORDER.map(seg).join('')+'</div><div class="counts">'+counts+'</div>';
+    var fmt=(MODEL.formats&&MODEL.formats[gi])||'';
+    var fmtbadge=fmt?'<span class="fmtbadge fmt-'+fmt+'">'+fmt+'</span>':'';
+    el.innerHTML='<h3>'+esc(nm)+fmtbadge+'</h3><div class="bar">'+ORDER.map(seg).join('')+'</div><div class="counts">'+counts+'</div>';
     eb.appendChild(el);});
 
   // pairwise matrix
