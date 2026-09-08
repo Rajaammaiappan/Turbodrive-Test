@@ -305,6 +305,79 @@ def parse_s1000d(vp):
                                 'kind': 'criteria'})
     return records
 
+def parse_ata_repair(vp):
+    """Repair Manual (ATA): L1 = SUBTASK number, L2 = numbered title, L3 = A./B./C.,
+    L4 = PROCEDURE/RELATED DATA and reference tables (materials, tools, parts, part-ident)."""
+    records=[]
+    state={'subno': None, 'title': None, 'l2': 0, 'area': None, 'A': 0, 'curA': None}
+    def set_area():
+        parts=[]
+        if state['subno']:
+            parts.append(state['subno'])
+        if state['title']:
+            parts.append('%d. %s' % (state['l2'], state['title']))
+        state['area']=' \u00b7 '.join(parts) if parts else (state['title'] or '(root)')
+    for el in vp.descendants:
+        nm=getattr(el, 'name', None)
+        if nm is None:
+            continue
+        cls=el.get('class') or []
+        if nm=='h4':
+            t=clean(el.get_text(' '))
+            if t.upper().startswith('SUBTASK'):
+                state['subno']=t.replace('SUBTASK', '').replace('subtask', '').strip()
+                continue
+            if 'subtasktitle' in cls:
+                state['title']=t; state['l2']+=1; state['A']=0; state['curA']=None
+                set_area(); continue
+        if nm=='div' and 'src-l1item' in cls:
+            own=_own_text(el)
+            if not own:
+                continue
+            state['A']+=1; mk=_ualpha(state['A'])+'.'
+            dm=DISPO_RE.search(own)
+            if dm and not own.endswith(':') and not own.lower().startswith('refer to'):
+                crit=own[:dm.start()].strip(' .:')
+                records.append({'subtask': state['area'] or '(root)', 'condition': '',
+                                'criterion': '%s %s' % (mk, crit),
+                                'disposition': norm_disp(dm.group(1)), 'kind': 'criteria'})
+                state['curA']=(mk, crit)
+            else:
+                state['curA']=(mk, own.rstrip(':'))
+        if nm=='table' and 'src-table' in cls:
+            rows=el.find_all('tr')
+            if not rows:
+                continue
+            head=[clean(c.get_text(' ')).upper() for c in rows[0].find_all(['td', 'th'])]
+            hj=' | '.join(head)
+            ctx=('%s %s' % (state['curA'][0], state['curA'][1])) if state['curA'] else ''
+            if head and 'PROCEDURE' in head[0] and 'RELATED DATA' in hj:
+                for tr in rows[1:]:
+                    cs=[clean(c.get_text(' ')) for c in tr.find_all(['td', 'th'])]
+                    if not cs or not cs[0]:
+                        continue
+                    proc=cs[0]; rel=cs[-1] if len(cs) > 1 else ''
+                    records.append({'subtask': state['area'] or '(root)', 'condition': ctx,
+                                    'criterion': proc, 'disposition': (rel or 'Step'),
+                                    'kind': 'procedure'})
+            else:
+                for tr in rows:
+                    cs=[clean(c.get_text(' ')) for c in tr.find_all(['td', 'th'])]
+                    if len(cs) < 2 or not cs[0]:
+                        continue
+                    key=cs[0] if len(cs)==2 else ' '.join(cs[:-1])
+                    val=cs[-1]; vl=val.lower()
+                    if key.upper() in ('DAMAGE', 'LIMIT', 'ACTION', 'PROCEDURE', 'ENGINE',
+                                       'FIG/ITEM', 'TOOL NUMBER', 'PART IDENTIFICATION', 'PART NO'):
+                        continue
+                    if vl.startswith(('accept', 'reject')) or 'repair' in vl or 'refer to' in vl:
+                        records.append({'subtask': state['area'] or '(root)', 'condition': ctx,
+                                        'criterion': key, 'disposition': norm_disp(val), 'kind': 'criteria'})
+                    else:
+                        records.append({'subtask': state['area'] or '(root)', 'condition': ctx or 'reference',
+                                        'criterion': key, 'disposition': val, 'kind': 'reference'})
+    return records
+
 def detect_format(soup, vp):
     if vp.select_one('.src-proceduralStep') or 'S1000DIssue4' in (str(soup)[:200000]):
         return 'S1000D'
@@ -320,7 +393,7 @@ def norm_disp(s):
         return 'Reject'
     if 'repair' in dl or 'refer to' in dl or 'remove' in dl or 'blend' in dl:
         return 'Repair'
-    return s[:40]
+    return s.strip()
 
 NAV_H4 = {'print preview', 'print options', 'bookmark manager', 'delete ?',
     'close dialog without saving?', 'export control acknowledgement', 'unlock publications',
@@ -330,7 +403,7 @@ NAV_H4 = {'print preview', 'print options', 'bookmark manager', 'delete ?',
     'ipc-csn list', 'figures', 'graphic list', 'release log', 'table of contents',
     'list of figures', 'reference', 'references'}
 
-def parse_bytes(raw, fallback_name):
+def parse_bytes(raw, fallback_name, manual_type='Inspection Manual'):
     subject, html = load_main_html_from_bytes(raw)
     soup = BeautifulSoup(html, 'lxml')
     vp = soup.select_one('.viewPage') or soup
@@ -368,6 +441,13 @@ def parse_bytes(raw, fallback_name):
     # ---- detect documentation standard and parse its hierarchy ----
     fmt = detect_format(soup, vp)
     records = []
+    # Repair Manual (ATA) has a flat A./B. outline with PROCEDURE/RELATED DATA + reference
+    # tables; parse it with SUBTASK-number-keyed subtasks. Not used for S1000D repair.
+    if manual_type == 'Repair Manual' and fmt != 'S1000D' and vp.select_one('.subtasktitle'):
+        rr = parse_ata_repair(vp)
+        if len(rr) >= 5:
+            return {'subject': subject or fallback_name, 'task_no': task_no,
+                    'task_title': task_title, 'records': rr, 'format': 'ATA (Repair)'}
     if fmt == 'S1000D':
         records = parse_s1000d(vp)
         if len(records) >= 5:
@@ -436,7 +516,7 @@ def parse_bytes(raw, fallback_name):
                     proc = cells[0]
                     related = cells[-1] if len(cells) > 1 else ''
                     records.append({'subtask': area, 'condition': cur_sub or '',
-                                    'criterion': proc, 'disposition': (related[:60] or 'Step'),
+                                    'criterion': proc, 'disposition': (related or 'Step'),
                                     'kind': 'procedure'})
             else:
                 # everything else: examination criteria OR materials / tools / parts lists.
@@ -457,7 +537,7 @@ def parse_bytes(raw, fallback_name):
                         if key.upper() in ('DAMAGE', 'LIMIT', 'ACTION', 'PROCEDURE', 'ENGINE'):
                             continue
                         records.append({'subtask': area, 'condition': '',
-                                        'criterion': key, 'disposition': val[:60],
+                                        'criterion': key, 'disposition': val,
                                         'kind': 'reference'})
     return {'subject': subject or fallback_name, 'task_no': task_no,
             'task_title': task_title, 'records': records, 'format': fmt}
@@ -845,7 +925,7 @@ def compare():
             return jsonify({'ok': False, 'error': 'Please choose at least 2 MHTML files.'}), 400
         orig_names = [f.filename for f in files]
         manual_type = request.form.get('manual_type', 'Inspection Manual') or 'Inspection Manual'
-        parsed = [parse_bytes(f.read(), secure_filename(f.filename)) for f in files]
+        parsed = [parse_bytes(f.read(), secure_filename(f.filename), manual_type) for f in files]
         empties = [p['subject'] for p in parsed if not p['records']]
         if len([p for p in parsed if p['records']]) < 2:
             return jsonify({'ok': False, 'error': 'Fewer than 2 files contained inspection criteria. '
@@ -935,6 +1015,234 @@ def launch(key):
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
+GUIDE_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CAIRO-Assist — User Guide</title>
+<style>
+ :root{--ink:#1e293b;--muted:#5b6675;--accent:#1a4fad;--line:#c8d4e8;--bg:#eef2f9;--panel:#fff;
+   --mono:'IBM Plex Mono',Consolas,monospace;
+   --c-match:#C6EFCE;--c-partial:#FFF2CC;--c-thr:#FCE4D6;--c-miss:#FFC7CE;--c-uni:#E4DFEC;}
+ *{box-sizing:border-box}
+ body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,"Segoe UI",sans-serif;
+   font-size:15px;line-height:1.55}
+ header{background:linear-gradient(180deg,#12202f,#0d1620);color:#eef3f8;padding:22px 26px;border-bottom:3px solid #2a5d8f}
+ header .eyebrow{letter-spacing:.22em;text-transform:uppercase;font-size:11px;color:#6fa8dc}
+ header h1{margin:4px 0 2px;font-size:26px}
+ header .sub{color:#9fb3c8;font-size:13px}
+ .wrap{max-width:960px;margin:0 auto;padding:24px 26px 60px}
+ .toc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 20px;margin-bottom:24px}
+ .toc h2{margin:0 0 8px;font-size:14px;color:var(--accent);text-transform:uppercase;letter-spacing:.08em}
+ .toc ol{margin:0;padding-left:20px;columns:2;font-size:14px}
+ .toc a{color:var(--ink);text-decoration:none}.toc a:hover{color:var(--accent);text-decoration:underline}
+ section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px 24px;margin-bottom:18px}
+ h2.sec{margin:0 0 10px;font-size:20px;color:#12203a;border-bottom:2px solid var(--line);padding-bottom:6px}
+ h3{margin:18px 0 6px;font-size:16px;color:var(--accent)}
+ p{margin:8px 0}
+ code,.mono{font-family:var(--mono);font-size:.92em}
+ code{background:#f1f5fb;border:1px solid #e2e8f2;border-radius:4px;padding:1px 5px}
+ pre{background:#0f1720;color:#e6edf6;border-radius:8px;padding:12px 14px;overflow:auto;font-family:var(--mono);font-size:13px}
+ ul,ol{margin:8px 0 8px 4px;padding-left:22px}
+ li{margin:4px 0}
+ table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px}
+ th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+ th{background:#eef2f9}
+ .sw{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid #0002;vertical-align:middle;margin-right:6px}
+ .note{background:#fef8e7;border:1px solid #f6e4a8;border-radius:8px;padding:10px 14px;margin:12px 0;font-size:14px}
+ .tip{background:#e8f4ec;border:1px solid #bfe0cb;border-radius:8px;padding:10px 14px;margin:12px 0;font-size:14px}
+ .step{display:flex;gap:12px;margin:10px 0}
+ .step .n{flex:0 0 26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;
+   display:flex;align-items:center;justify-content:center;font-size:13px}
+ footer{color:var(--muted);font-size:12px;text-align:center;padding:20px}
+ @media print{body{background:#fff}section,.toc{border:none;padding:0 0 12px}header{background:#12202f}}
+</style></head>
+<body>
+<header>
+  <div class="eyebrow">RR / ALTEN &middot; CAIRO team &middot; Internal Use Only</div>
+  <h1>CAIRO-Assist — User Guide</h1>
+  <div class="sub">Criteria Analysis &amp; Inspection Reconciliation — all-document comparison of maintenance-manual MHTML snapshots</div>
+</header>
+<div class="wrap">
+
+  <div class="toc">
+    <h2>Contents</h2>
+    <ol>
+      <li><a href="#what">What it does</a></li>
+      <li><a href="#start">Starting the tool</a></li>
+      <li><a href="#run">Running a comparison</a></li>
+      <li><a href="#type">Document type</a></li>
+      <li><a href="#heatmap">Reading the heat-map</a></li>
+      <li><a href="#colours">Colour key</a></li>
+      <li><a href="#reddiff">Red-text differences</a></li>
+      <li><a href="#matrix">All-pairs matrix</a></li>
+      <li><a href="#grouping">Matching items (groups)</a></li>
+      <li><a href="#filter">Filter &amp; Excel download</a></li>
+      <li><a href="#formats">Formats: ATA &amp; S1000D</a></li>
+      <li><a href="#toolbox">CAIRO Toolbox</a></li>
+      <li><a href="#log">Usage log</a></li>
+      <li><a href="#trouble">Troubleshooting</a></li>
+    </ol>
+  </div>
+
+  <section id="what">
+    <h2 class="sec">1. What it does</h2>
+    <p>CAIRO-Assist compares the inspection / repair criteria of the <b>same maintenance task</b> across
+       two or more Rolls-Royce AeroManager / Pinpoint <b>MHTML</b> snapshots. It shows a colour heat-map,
+       an all-pairs agreement matrix, and exports an Excel workbook.</p>
+    <p>There is <b>no baseline</b>: every document is compared against every other one, and the comparison
+       is symmetric. The tool reads several manual formats and standards automatically.</p>
+  </section>
+
+  <section id="start">
+    <h2 class="sec">2. Starting the tool</h2>
+    <div class="step"><div class="n">1</div><div>Put <code>cairo_assist.py</code> and <code>Run_CAIRO-Assist.bat</code> in the same folder.</div></div>
+    <div class="step"><div class="n">2</div><div>Double-click <b>Run_CAIRO-Assist.bat</b>. A browser opens at <code>http://127.0.0.1:5002</code>.</div></div>
+    <div class="step"><div class="n">3</div><div>To stop the tool, close the black command window.</div></div>
+    <p>Or run directly: <code>"C:\\ProgramData\\Anaconda3\\python.exe" "path\\to\\cairo_assist.py"</code></p>
+    <div class="note">CAIRO-Assist uses port <b>5002</b> so it won't clash with other CAIRO tools that use 5000/5001.
+       No internet is needed — it uses packages already in the Anaconda environment.</div>
+  </section>
+
+  <section id="run">
+    <h2 class="sec">3. Running a comparison</h2>
+    <div class="step"><div class="n">1</div><div>Pick the <b>Document type</b> (see next section).</div></div>
+    <div class="step"><div class="n">2</div><div>Click <b>Choose files</b> or drag &amp; drop <b>2 or more</b> <code>.mhtml</code> snapshots.</div></div>
+    <div class="step"><div class="n">3</div><div>Click <b>Run comparison</b>. The heat-map, per-document summary, and agreement matrix appear.</div></div>
+    <div class="step"><div class="n">4</div><div>Optionally filter, group items, then <b>Download Excel</b>.</div></div>
+    <div class="tip">Each snapshot must have the <b>same task open in Pinpoint</b> before you save it as MHTML —
+       a snapshot only captures the task that is on screen.</div>
+  </section>
+
+  <section id="type">
+    <h2 class="sec">4. Document type</h2>
+    <p>The <b>HeatMap</b> card has a <b>Document type</b> dropdown:</p>
+    <ul>
+      <li><b>Inspection Manual</b> — auto-detects the format and reads the inspection criteria.</li>
+      <li><b>Repair Manual</b> — reads repair tasks: each SUBTASK number is a unique key, with its numbered
+          title, A./B./C. items, and the PROCEDURE / RELATED DATA and reference tables.</li>
+      <li><b>TV, Concession, RST &amp; TRM</b> — coming soon.</li>
+    </ul>
+    <p>The chosen type is shown on the results card and recorded in the usage log.</p>
+  </section>
+
+  <section id="heatmap">
+    <h2 class="sec">5. Reading the heat-map</h2>
+    <p>Each <b>row</b> is one criterion (or repair step); each <b>column</b> is one document. A cell shows that
+       document's own text for the criterion, coloured by how it compares with the others.</p>
+    <p>The left columns show the <b>Inspection Area</b> and the <b>Criterion</b>. For outline manuals the area
+       carries the hierarchy path, e.g. <span class="mono">B. VIGVs &gt; (2) Airfoil leading and trailing edges &gt; (a) Nicked</span>,
+       or for S1000D <span class="mono">1.1.1.1 &gt; Inner platform 8 &gt; Cracked</span>.</p>
+  </section>
+
+  <section id="colours">
+    <h2 class="sec">6. Colour key</h2>
+    <table>
+      <tr><th>Colour</th><th>Status</th><th>Meaning</th></tr>
+      <tr><td><span class="sw" style="background:var(--c-match)"></span>Light green</td><td>Match</td><td>All documents agree — identical criterion &amp; disposition.</td></tr>
+      <tr><td><span class="sw" style="background:var(--c-partial)"></span>Light yellow</td><td>Partial</td><td>Same intent, wording differs.</td></tr>
+      <tr><td><span class="sw" style="background:var(--c-thr)"></span>Light orange</td><td>Threshold diff</td><td>A numeric limit differs (e.g. 0,12 vs 0,13 mm).</td></tr>
+      <tr><td><span class="sw" style="background:var(--c-miss)"></span>Light pink</td><td>Missing</td><td>Criterion is absent in that document (needs 3+ docs to appear).</td></tr>
+      <tr><td><span class="sw" style="background:var(--c-uni)"></span>Light purple</td><td>Unique</td><td>Criterion only in that document.</td></tr>
+    </table>
+    <div class="note">With only <b>two</b> documents, a criterion that exists in one but not the other is <b>Unique</b>
+       (there is no baseline). <b>Missing</b> only appears when three or more documents are compared.</div>
+  </section>
+
+  <section id="reddiff">
+    <h2 class="sec">7. Red-text differences</h2>
+    <p>Within a row, the tool finds what the majority of documents say, keeps that black, and shows the
+       <b>differing words in red</b> in the odd ones out. If 3 documents say <span class="mono">0,12</span> and one says
+       <span class="mono">0,13</span>, only the <span class="mono" style="color:#d11313">0,13</span> is red. On a 2-vs-2 split, the
+       first set stays black and the differing pair turns red.</p>
+  </section>
+
+  <section id="matrix">
+    <h2 class="sec">8. All-pairs agreement matrix</h2>
+    <p>Under the summary, an N×N matrix shows the <b>% of shared criteria that match exactly</b> between each pair
+       of documents. Identical documents score 100%. It is symmetric (X↔Y = Y↔X).</p>
+  </section>
+
+  <section id="grouping">
+    <h2 class="sec">9. Matching items (groups)</h2>
+    <p>Different manuals often name the same feature with a different item number
+       (e.g. <span class="mono">Inner Platform 8</span> vs <span class="mono">Inner platform 8</span>, or
+       <span class="mono">Serrations 9</span> vs <span class="mono">Serrations 4</span>). After a comparison, the
+       <b>Suggested item matches</b> panel lists these, with the differing part in red.</p>
+    <ul>
+      <li>Each item has a <b>Group</b> selector — put items in the same group to merge them into one row.</li>
+      <li>Use <b>+ New group</b> to create Group 2, Group 3, … for splitting a set (e.g. G1/G2/G3).</li>
+      <li>Choose <b>Skip</b> to leave an item out.</li>
+      <li>Click <b>Apply matches &amp; re-compare</b>. Merged rows are tagged <b>merged</b>.</li>
+    </ul>
+    <div class="tip">Nothing is merged until you confirm it — the tool only suggests by shared words.</div>
+  </section>
+
+  <section id="filter">
+    <h2 class="sec">10. Filter &amp; Excel download</h2>
+    <p>The coloured chips toggle each status on/off, and the search box filters by text
+       (try <span class="mono">dimension 18</span>). The line under the download button shows how many rows are visible.</p>
+    <p><b>Download Excel (filtered)</b> exports <b>exactly the rows currently shown</b>. Select only <i>Missing</i>
+       and download, and the workbook contains only those rows. The workbook has four tabs:
+       <b>Heatmap</b>, <b>Summary</b>, <b>Pairwise</b>, and <b>Details (all)</b>.</p>
+  </section>
+
+  <section id="formats">
+    <h2 class="sec">11. Formats: ATA &amp; S1000D</h2>
+    <p>CAIRO-Assist detects each document's standard from its structure and shows a badge on the result card:</p>
+    <ul>
+      <li><b>ATA</b> (Trent 1000 AMM / Check-and-Rectify) — outline numbering
+          <span class="mono">L1 &rarr; A. &rarr; (1) &rarr; (a) &rarr; (i)</span>.</li>
+      <li><b>S1000D</b> (Trent XWB / A350) — decimal steps
+          <span class="mono">1 &rarr; 1.1 &rarr; 1.1.1 &rarr; 1.1.1.1</span> with DAMAGE / LIMIT / ACTION tables.</li>
+    </ul>
+    <p>Criteria are matched across standards by their limit wording, so the same limit lines up whether it came
+       from an ATA <span class="mono">(i)</span> item or an S1000D <span class="mono">1.1.1.1</span> step.</p>
+  </section>
+
+  <section id="toolbox">
+    <h2 class="sec">12. CAIRO Toolbox</h2>
+    <p>The <b>CAIRO Toolbox</b> card has buttons to launch the team's other tools —
+       <b>PINPACK</b>, <b>JETPULL</b>, <b>EDC-TV Downloader</b>, <b>TPCR-RTV Generator</b>. Clicking a button runs
+       that tool's batch file on the machine.</p>
+    <p>Set each path in the <code>TOOLBOX</code> block near the top of <code>cairo_assist.py</code>:</p>
+    <pre>TOOLBOX = {
+    'pinpack':  {'name': 'PINPACK',            'path': r"\\\\server\\tools\\PINPACK\\PINPACK.bat"},
+    'jetpull':  {'name': 'JETPULL',            'path': r"\\\\server\\tools\\JETPULL\\JETPULL.bat"},
+    'edc_tv':   {'name': 'EDC-TV Downloader',  'path': r"C:\\CAIRO\\tools\\EDC-TV\\EDC-TV_Downloader.bat"},
+    'tpcr_rtv': {'name': 'TPCR-RTV Generator', 'path': r"C:\\CAIRO\\tools\\TPCR-RTV\\TPCR-RTV_Generator.bat"},
+}</pre>
+    <p>If a path isn't set or the file is missing, the button tells you which path to fix.</p>
+  </section>
+
+  <section id="log">
+    <h2 class="sec">13. Usage log</h2>
+    <p>Every comparison, download, and tool launch is written to a SQLite <code>.db</code> file recording the
+       timestamp, user, machine, document type, task, documents, and counts. Open the <b>Usage log</b> link in the
+       footer (or <code>/logs</code>) to view it, and <b>Download CSV</b> to export. Set the save location with
+       <code>LOG_DB_PATH</code> near the top of <code>cairo_assist.py</code>.</p>
+  </section>
+
+  <section id="trouble">
+    <h2 class="sec">14. Troubleshooting</h2>
+    <table>
+      <tr><th>Symptom</th><th>Fix</th></tr>
+      <tr><td>Browser doesn't open</td><td>Go to <code>http://127.0.0.1:5002</code> manually. Make sure the command window is still running.</td></tr>
+      <tr><td>"No inspection criteria found"</td><td>The snapshot didn't have the task open in Pinpoint. Re-save with the task on screen.</td></tr>
+      <tr><td>A document shows very few rows</td><td>Check the <b>Document type</b> — pick <b>Repair Manual</b> for repair tasks.</td></tr>
+      <tr><td>Toolbox button says "not found"</td><td>Set the correct <code>.bat</code> path in the <code>TOOLBOX</code> block.</td></tr>
+      <tr><td>Port already in use</td><td>Change <code>PORT</code> near the top of <code>cairo_assist.py</code>.</td></tr>
+    </table>
+  </section>
+
+</div>
+<footer>&copy; 2026 Alten-Rolls-Royce. All rights reserved. Confidential — Internal Use Only. &middot; CAIRO-Assist User Guide</footer>
+</body></html>
+"""
+
+@app.route('/guide')
+def guide():
+    return Response(GUIDE_HTML, mimetype='text/html')
+
 @app.route('/logs')
 def logs():
     try:
@@ -992,6 +1300,9 @@ INDEX_HTML = r"""<!doctype html>
  .header-title .subtitle{margin:2px 0 0;color:var(--muted);font-size:12px}
  .fallback-alten{font-weight:800;color:#111;font-size:13px}.fallback-alten span{color:#e2001a}
  .fallback-rr{font-weight:800;color:#00205b;font-size:14px;letter-spacing:1px}
+ .guidebtn{margin-left:10px;background:var(--accent);color:#fff;text-decoration:none;border-radius:8px;
+   padding:8px 14px;font-size:13px;font-weight:600;white-space:nowrap;flex:0 0 auto}
+ .guidebtn:hover{background:#12388a}
  .wrap{max-width:1600px;margin:0 auto;padding:18px 20px}
  .card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:16px 18px;margin-bottom:16px}
  .card h2{margin:0 0 4px;font-size:15px}.card p.hint{margin:0 0 12px;color:var(--muted);font-size:12px}
@@ -1082,6 +1393,7 @@ INDEX_HTML = r"""<!doctype html>
     <img src="https://www.rolls-royce.com/~/media/Images/R/Rolls-Royce/logo/rebrand-svg-logo.svg" alt="Rolls-Royce"
          onerror="this.outerHTML='<div class=&quot;fallback-rr&quot;>RR</div>'">
   </div>
+  <a href="/guide" target="_blank" class="guidebtn" title="Open the CAIRO-Assist user guide">&#128214; User Guide</a>
 </header>
 
 <div class="wrap">
