@@ -16,7 +16,7 @@ Run:
     (or double-click the .bat launcher)
 """
 import os, re, io, email, json, difflib, threading, webbrowser, time, traceback, uuid
-import sqlite3, getpass, socket, csv
+import sqlite3, getpass, socket, csv, subprocess
 from collections import Counter
 from datetime import datetime
 
@@ -29,8 +29,20 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 app = Flask(__name__)
-PORT = 5001
+PORT = 5002        # CAIRO-Assist runs here (other CAIRO tools may use 5000/5001)
 app.config['MAX_CONTENT_LENGTH'] = 120 * 1024 * 1024   # 120 MB total upload
+
+# ============================================================================
+#  CAIRO TOOLBOX  --  EDIT the batch-file paths below to match the server.
+#  Each button launches the tool's .bat. Keys must match the buttons in the UI.
+#  Use raw strings (r"...") and full paths, e.g. r"\\gbwyndna\tools\PINPACK\run.bat".
+# ============================================================================
+TOOLBOX = {
+    'pinpack':  {'name': 'PINPACK',             'path': r"C:\CAIRO\tools\PINPACK\PINPACK.bat"},
+    'jetpull':  {'name': 'JETPULL',             'path': r"C:\CAIRO\tools\JETPULL\JETPULL.bat"},
+    'edc_tv':   {'name': 'EDC-TV Downloader',   'path': r"C:\CAIRO\tools\EDC-TV\EDC-TV_Downloader.bat"},
+    'tpcr_rtv': {'name': 'TPCR-RTV Generator',  'path': r"C:\CAIRO\tools\TPCR-RTV\TPCR-RTV_Generator.bat"},
+}
 
 STORE = {}   # last comparison model, keyed by token
 
@@ -162,6 +174,7 @@ def parse_hierarchical(vp):
     with its full path."""
     records=[]
     L1=None
+    cur_subno=None
     counters=[0]*8
     labels={}         # level -> (marker, text)  for ':' heading nodes
     for el in vp.descendants:
@@ -169,9 +182,16 @@ def parse_hierarchical(vp):
         if nm is None:
             continue
         cls=el.get('class') or []
-        if nm=='h4' and 'subtasktitle' in cls:
-            L1=clean(el.get_text(' ')); counters=[0]*8; labels={}
-            continue
+        if nm=='h4':
+            txt=clean(el.get_text(' '))
+            if txt.upper().startswith('SUBTASK'):
+                cur_subno=txt.replace('SUBTASK','').replace('subtask','').strip()   # unique subtask id
+                continue
+            if 'subtasktitle' in cls:
+                title=txt
+                L1=(cur_subno + ' \u00b7 ' + title) if cur_subno else title           # keep each subtask unique
+                counters=[0]*8; labels={}; cur_subno=None
+                continue
         lvl=None
         for c in cls:
             m=re.match(r'src-l(\d+)item', c)
@@ -824,6 +844,7 @@ def compare():
         if len(files) < 2:
             return jsonify({'ok': False, 'error': 'Please choose at least 2 MHTML files.'}), 400
         orig_names = [f.filename for f in files]
+        manual_type = request.form.get('manual_type', 'Inspection Manual') or 'Inspection Manual'
         parsed = [parse_bytes(f.read(), secure_filename(f.filename)) for f in files]
         empties = [p['subject'] for p in parsed if not p['records']]
         if len([p for p in parsed if p['records']]) < 2:
@@ -835,11 +856,13 @@ def compare():
         STORE[token]['orig_names'] = orig_names
         STORE[token]['parsed'] = parsed          # keep for re-compute with confirmed matches
         STORE[token]['aliases'] = []
-        log_event('Manuals', 'compare', task_no=model['task_no'], task_title=model['task_title'],
+        STORE[token]['manual_type'] = manual_type
+        log_event(manual_type, 'compare', task_no=model['task_no'], task_title=model['task_title'],
                   documents=orig_names, doc_count=len(orig_names), rows=len(model['rows']),
                   note='%d criteria' % len(model['rows']))
         payload = {k: model[k] for k in ('names', 'task_no', 'task_title', 'rows', 'summary', 'pairs', 'formats', 'generated')}
         payload['token'] = token
+        payload['manual_type'] = manual_type
         payload['suggestions'] = suggest_matches(parsed)
         payload['warnings'] = ['"%s" had no criteria (empty or a different task).' % e for e in empties]
         return jsonify({'ok': True, 'model': payload})
@@ -861,14 +884,16 @@ def recompute():
         model['parsed'] = parsed
         model['orig_names'] = entry.get('orig_names')
         model['aliases'] = aliases
+        model['manual_type'] = entry.get('manual_type')
         STORE[token] = model
-        log_event('Manuals', 'recompute', task_no=model['task_no'], task_title=model['task_title'],
+        log_event(entry.get('manual_type','Manuals'), 'recompute', task_no=model['task_no'], task_title=model['task_title'],
                   documents=entry.get('orig_names'), doc_count=len(model['names']),
                   rows=len(model['rows']), note='merged %d item group(s)' % len(aliases))
         payload = {k: model[k] for k in ('names', 'task_no', 'task_title', 'rows', 'summary', 'pairs', 'formats', 'generated')}
         payload['token'] = token
         payload['suggestions'] = suggest_matches(parsed, aliases)
         payload['merged_count'] = len(aliases)
+        payload['manual_type'] = entry.get('manual_type')
         return jsonify({'ok': True, 'model': payload})
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
@@ -881,7 +906,7 @@ def download():
         return jsonify({'ok': False, 'error': 'Result expired - run the comparison again.'}), 404
     rows = filter_rows(model['rows'], data.get('statuses'), data.get('query'))
     bio = write_excel(model, rows)
-    log_event('Manuals', 'download', task_no=model.get('task_no'), task_title=model.get('task_title'),
+    log_event(model.get('manual_type','Manuals'), 'download', task_no=model.get('task_no'), task_title=model.get('task_title'),
               documents=model.get('orig_names') or model.get('names'), doc_count=len(model['names']),
               rows=len(rows), note='filtered export (%d of %d rows)' % (len(rows), len(model['rows'])))
     fname = 'CAIRO-Assist_%s_%s.xlsx' % (model['task_no'] or 'task', datetime.now().strftime('%Y%m%d_%H%M%S'))
@@ -890,6 +915,25 @@ def download():
         return send_file(bio, as_attachment=True, attachment_filename=fname, mimetype=mime)
     except TypeError:
         return send_file(bio, as_attachment=True, download_name=fname, mimetype=mime)
+
+@app.route('/launch/<key>', methods=['POST'])
+def launch(key):
+    tool = TOOLBOX.get(key)
+    if not tool:
+        return jsonify({'ok': False, 'error': 'Unknown tool.'}), 404
+    path = tool['path']
+    if not os.path.exists(path):
+        return jsonify({'ok': False, 'error': 'Batch file not found. Set its path in the '
+                        'TOOLBOX section of cairo_assist.py:\n%s' % path}), 404
+    try:
+        if hasattr(os, 'startfile'):            # Windows: launch in its own window, non-blocking
+            os.startfile(path)                  # noqa
+        else:
+            subprocess.Popen(['cmd', '/c', 'start', '', path], shell=False)
+        log_event('Toolbox', 'launch', task_title=tool['name'], documents=[path], note=tool['name'])
+        return jsonify({'ok': True, 'name': tool['name']})
+    except Exception as e:
+        return jsonify({'ok': False, 'error': str(e)}), 500
 
 @app.route('/logs')
 def logs():
@@ -1015,6 +1059,11 @@ INDEX_HTML = r"""<!doctype html>
  .mergedtag{display:inline-block;font-size:9px;font-weight:700;color:var(--accent);border:1px solid #9cc0e2;border-radius:8px;padding:0 5px;margin-left:6px;vertical-align:middle}
  .fmtbadge{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.04em;color:#fff;border-radius:8px;padding:1px 6px;margin-left:6px;vertical-align:middle}
  .fmt-S1000D{background:#7048c4}.fmt-ATA{background:#1d6fdb}.fmt-Tables{background:#5b6675}
+ .toolbtns{display:flex;flex-wrap:wrap;gap:10px;margin-top:4px}
+ .toolbtn{background:#fff;border:1px solid var(--accent);color:var(--accent);border-radius:8px;
+   padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;transition:background .15s}
+ .toolbtn:hover{background:var(--accent);color:#fff}
+ .toolbtn:disabled{opacity:.5;cursor:wait}
  .d{color:#d11313;font-weight:700;text-decoration:underline;text-decoration-color:#d11313}
  .disp.dred{color:#d11313;font-weight:800}
  footer{color:var(--muted);font-size:11px;text-align:center;padding:16px}
@@ -1036,15 +1085,33 @@ INDEX_HTML = r"""<!doctype html>
 </header>
 
 <div class="wrap">
+  <div class="card" id="toolboxCard">
+    <h2 style="color:var(--accent)">CAIRO Toolbox</h2>
+    <p class="hint">Open another CAIRO team tool. Each button launches its program on this machine.</p>
+    <div class="toolbtns">
+      <button class="toolbtn" onclick="launchTool('pinpack',this)">PINPACK</button>
+      <button class="toolbtn" onclick="launchTool('jetpull',this)">JETPULL</button>
+      <button class="toolbtn" onclick="launchTool('edc_tv',this)">EDC-TV Downloader</button>
+      <button class="toolbtn" onclick="launchTool('tpcr_rtv',this)">TPCR-RTV Generator</button>
+    </div>
+    <div class="dlnote" id="toolNote"></div>
+  </div>
+
   <div class="card" id="docTypeCard">
     <h2 style="color:var(--accent)">HeatMap</h2>
-    <p class="hint">Tick <b>Manuals</b> to compare maintenance-manual inspection criteria (Accept/Reject) across
-       MHTML snapshots. The other document types are coming soon and will use the same heat-map engine.</p>
+    <p class="hint">Choose the document type, then add MHTML snapshots to compare. The format
+       (ATA / S1000D) is detected automatically; more document types are coming soon.</p>
     <div class="doctypes">
-      <label class="dt"><input type="checkbox" id="dt-manuals" checked onchange="checkReady()"> <b>Manuals</b></label>
-      <label class="dt soon"><input type="checkbox" disabled> <s>TV</s> <span class="soon-tag">(coming soon)</span></label>
-      <label class="dt soon"><input type="checkbox" disabled> <s>Concession</s> <span class="soon-tag">(coming soon)</span></label>
-      <label class="dt soon"><input type="checkbox" disabled> <s>RST &amp; TRM</s> <span class="soon-tag">(coming soon)</span></label>
+      <label style="font-size:14px;display:inline-flex;align-items:center;gap:8px">
+        <b>Document type:</b>
+        <select id="docType" class="grpsel" style="font-size:14px;padding:5px 8px" onchange="checkReady()">
+          <option value="Inspection Manual">Inspection Manual</option>
+          <option value="Repair Manual">Repair Manual</option>
+          <option value="" disabled>TV (coming soon)</option>
+          <option value="" disabled>Concession (coming soon)</option>
+          <option value="" disabled>RST &amp; TRM (coming soon)</option>
+        </select>
+      </label>
     </div>
   </div>
 
@@ -1133,14 +1200,15 @@ function addFiles(list){
 }
 function removeFile(i){chosen.splice(i,1);renderFiles();}
 function clearAll(){chosen=[];fi.value='';renderFiles();document.getElementById('results').style.display='none';document.getElementById('errBox').innerHTML='';}
-function manualsOn(){return document.getElementById('dt-manuals').checked;}
+function manualsOn(){var s=document.getElementById('docType');return !!(s&&s.value);}
+function docType(){var s=document.getElementById('docType');return s?s.value:'';}
 function checkReady(){
   var on=manualsOn();
   document.getElementById('inputCard').style.opacity = on ? '1' : '.5';
   document.getElementById('fileInput').disabled = !on;
   var note=document.getElementById('dtNote');
   document.getElementById('runBtn').disabled = !(on && chosen.length>=2);
-  if(note) note.textContent = on ? '' : 'Tick "Manuals" above to enable the comparison.';
+  if(note) note.textContent = on ? '' : 'Choose a document type above to enable the comparison.';
 }
 function renderFiles(){
   var ul=document.getElementById('filelist');ul.innerHTML='';
@@ -1151,12 +1219,13 @@ function renderFiles(){
 }
 
 function runTool(){
-  if(!manualsOn()){showErr('Please tick "Manuals" to run the comparison.');return;}
+  if(!manualsOn()){showErr('Please choose a document type to run the comparison.');return;}
   document.getElementById('errBox').innerHTML='';
   var pw=document.getElementById('progressWrap'),pb=document.getElementById('progressBar'),pm=document.getElementById('progressMsg');
   pw.style.display='block';pb.style.width='25%';pm.textContent='Uploading and comparing '+chosen.length+' files\u2026';
   document.getElementById('runBtn').disabled=true;
   var fd=new FormData();chosen.forEach(function(f){fd.append('files',f);});
+  fd.append('manual_type', docType());
   fetch('/compare',{method:'POST',body:fd}).then(function(r){return r.json();})
   .then(function(j){pb.style.width='100%';pm.textContent='Done';document.getElementById('runBtn').disabled=false;
     if(!j.ok){showErr(j.error||'Unknown error');pw.style.display='none';return;}
@@ -1205,6 +1274,7 @@ function renderResults(){
   document.getElementById('results').style.display='block';
   document.getElementById('rTitle').textContent=MODEL.task_title||'Comparison results';
   document.getElementById('rTask').textContent=(MODEL.task_no?('TASK '+MODEL.task_no+'  \u00b7  '):'')
+    +(MODEL.manual_type?MODEL.manual_type+'  \u00b7  ':'')
     +MODEL.names.length+' documents \u00b7 '+MODEL.rows.length+' criteria \u00b7 '+MODEL.generated;
   var wb=document.getElementById('warnBox');wb.innerHTML='';
   (MODEL.warnings||[]).forEach(function(w){wb.innerHTML+='<div class="warn">'+w+'</div>';});
@@ -1251,6 +1321,14 @@ function renderResults(){
 }
 
 var SUG_GRP={};   // SUG_GRP[blockIndex] = {count:n, of:[groupId per member]}  (0 = skip)
+function launchTool(key, btn){
+  var note=document.getElementById('toolNote'); var old=btn.textContent;
+  btn.disabled=true; note.textContent='Launching '+old+'\u2026';
+  fetch('/launch/'+key,{method:'POST'}).then(function(r){return r.json();})
+  .then(function(j){ btn.disabled=false;
+    note.textContent = j.ok ? ('Launched '+j.name+'.') : ('Could not launch: '+j.error);
+  }).catch(function(e){ btn.disabled=false; note.textContent='Launch failed: '+e; });
+}
 function hlWords(name, shared){
   return name.split(/(\s+)/).map(function(tok){
     var w=tok.toLowerCase().replace(/[^a-z0-9]/g,'');
