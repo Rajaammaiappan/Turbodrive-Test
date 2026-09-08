@@ -44,6 +44,16 @@ TOOLBOX = {
     'tpcr_rtv': {'name': 'TPCR-RTV Generator',  'path': r"C:\CAIRO\tools\TPCR-RTV\TPCR-RTV_Generator.bat"},
 }
 
+# ============================================================================
+#  USER GUIDE  --  EDIT this to point at YOUR HTML user guide.
+#  The "User Guide" button opens it. It can be a local/UNC HTML file path, e.g.
+#     USER_GUIDE_PATH = r"\\gbwyndna\tools\CAIRO-Assist\CAIRO-Assist_User_Guide.html"
+#  or an http(s) URL, e.g.
+#     USER_GUIDE_PATH = "http://intranet/cairo/CAIRO-Assist_User_Guide.html"
+#  Leave blank until you provide the HTML.
+# ============================================================================
+USER_GUIDE_PATH = r""
+
 STORE = {}   # last comparison model, keyed by token
 
 # ============================================================================
@@ -1015,233 +1025,23 @@ def launch(key):
     except Exception as e:
         return jsonify({'ok': False, 'error': str(e)}), 500
 
-GUIDE_HTML = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>CAIRO-Assist — User Guide</title>
-<style>
- :root{--ink:#1e293b;--muted:#5b6675;--accent:#1a4fad;--line:#c8d4e8;--bg:#eef2f9;--panel:#fff;
-   --mono:'IBM Plex Mono',Consolas,monospace;
-   --c-match:#C6EFCE;--c-partial:#FFF2CC;--c-thr:#FCE4D6;--c-miss:#FFC7CE;--c-uni:#E4DFEC;}
- *{box-sizing:border-box}
- body{margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,"Segoe UI",sans-serif;
-   font-size:15px;line-height:1.55}
- header{background:linear-gradient(180deg,#12202f,#0d1620);color:#eef3f8;padding:22px 26px;border-bottom:3px solid #2a5d8f}
- header .eyebrow{letter-spacing:.22em;text-transform:uppercase;font-size:11px;color:#6fa8dc}
- header h1{margin:4px 0 2px;font-size:26px}
- header .sub{color:#9fb3c8;font-size:13px}
- .wrap{max-width:960px;margin:0 auto;padding:24px 26px 60px}
- .toc{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px 20px;margin-bottom:24px}
- .toc h2{margin:0 0 8px;font-size:14px;color:var(--accent);text-transform:uppercase;letter-spacing:.08em}
- .toc ol{margin:0;padding-left:20px;columns:2;font-size:14px}
- .toc a{color:var(--ink);text-decoration:none}.toc a:hover{color:var(--accent);text-decoration:underline}
- section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:20px 24px;margin-bottom:18px}
- h2.sec{margin:0 0 10px;font-size:20px;color:#12203a;border-bottom:2px solid var(--line);padding-bottom:6px}
- h3{margin:18px 0 6px;font-size:16px;color:var(--accent)}
- p{margin:8px 0}
- code,.mono{font-family:var(--mono);font-size:.92em}
- code{background:#f1f5fb;border:1px solid #e2e8f2;border-radius:4px;padding:1px 5px}
- pre{background:#0f1720;color:#e6edf6;border-radius:8px;padding:12px 14px;overflow:auto;font-family:var(--mono);font-size:13px}
- ul,ol{margin:8px 0 8px 4px;padding-left:22px}
- li{margin:4px 0}
- table{border-collapse:collapse;width:100%;margin:10px 0;font-size:14px}
- th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
- th{background:#eef2f9}
- .sw{display:inline-block;width:14px;height:14px;border-radius:3px;border:1px solid #0002;vertical-align:middle;margin-right:6px}
- .note{background:#fef8e7;border:1px solid #f6e4a8;border-radius:8px;padding:10px 14px;margin:12px 0;font-size:14px}
- .tip{background:#e8f4ec;border:1px solid #bfe0cb;border-radius:8px;padding:10px 14px;margin:12px 0;font-size:14px}
- .step{display:flex;gap:12px;margin:10px 0}
- .step .n{flex:0 0 26px;height:26px;border-radius:50%;background:var(--accent);color:#fff;font-weight:700;
-   display:flex;align-items:center;justify-content:center;font-size:13px}
- footer{color:var(--muted);font-size:12px;text-align:center;padding:20px}
- @media print{body{background:#fff}section,.toc{border:none;padding:0 0 12px}header{background:#12202f}}
-</style></head>
-<body>
-<header>
-  <div class="eyebrow">RR / ALTEN &middot; CAIRO team &middot; Internal Use Only</div>
-  <h1>CAIRO-Assist — User Guide</h1>
-  <div class="sub">Criteria Analysis &amp; Inspection Reconciliation — all-document comparison of maintenance-manual MHTML snapshots</div>
-</header>
-<div class="wrap">
-
-  <div class="toc">
-    <h2>Contents</h2>
-    <ol>
-      <li><a href="#what">What it does</a></li>
-      <li><a href="#start">Starting the tool</a></li>
-      <li><a href="#run">Running a comparison</a></li>
-      <li><a href="#type">Document type</a></li>
-      <li><a href="#heatmap">Reading the heat-map</a></li>
-      <li><a href="#colours">Colour key</a></li>
-      <li><a href="#reddiff">Red-text differences</a></li>
-      <li><a href="#matrix">All-pairs matrix</a></li>
-      <li><a href="#grouping">Matching items (groups)</a></li>
-      <li><a href="#filter">Filter &amp; Excel download</a></li>
-      <li><a href="#formats">Formats: ATA &amp; S1000D</a></li>
-      <li><a href="#toolbox">CAIRO Toolbox</a></li>
-      <li><a href="#log">Usage log</a></li>
-      <li><a href="#trouble">Troubleshooting</a></li>
-    </ol>
-  </div>
-
-  <section id="what">
-    <h2 class="sec">1. What it does</h2>
-    <p>CAIRO-Assist compares the inspection / repair criteria of the <b>same maintenance task</b> across
-       two or more Rolls-Royce AeroManager / Pinpoint <b>MHTML</b> snapshots. It shows a colour heat-map,
-       an all-pairs agreement matrix, and exports an Excel workbook.</p>
-    <p>There is <b>no baseline</b>: every document is compared against every other one, and the comparison
-       is symmetric. The tool reads several manual formats and standards automatically.</p>
-  </section>
-
-  <section id="start">
-    <h2 class="sec">2. Starting the tool</h2>
-    <div class="step"><div class="n">1</div><div>Put <code>cairo_assist.py</code> and <code>Run_CAIRO-Assist.bat</code> in the same folder.</div></div>
-    <div class="step"><div class="n">2</div><div>Double-click <b>Run_CAIRO-Assist.bat</b>. A browser opens at <code>http://127.0.0.1:5002</code>.</div></div>
-    <div class="step"><div class="n">3</div><div>To stop the tool, close the black command window.</div></div>
-    <p>Or run directly: <code>"C:\\ProgramData\\Anaconda3\\python.exe" "path\\to\\cairo_assist.py"</code></p>
-    <div class="note">CAIRO-Assist uses port <b>5002</b> so it won't clash with other CAIRO tools that use 5000/5001.
-       No internet is needed — it uses packages already in the Anaconda environment.</div>
-  </section>
-
-  <section id="run">
-    <h2 class="sec">3. Running a comparison</h2>
-    <div class="step"><div class="n">1</div><div>Pick the <b>Document type</b> (see next section).</div></div>
-    <div class="step"><div class="n">2</div><div>Click <b>Choose files</b> or drag &amp; drop <b>2 or more</b> <code>.mhtml</code> snapshots.</div></div>
-    <div class="step"><div class="n">3</div><div>Click <b>Run comparison</b>. The heat-map, per-document summary, and agreement matrix appear.</div></div>
-    <div class="step"><div class="n">4</div><div>Optionally filter, group items, then <b>Download Excel</b>.</div></div>
-    <div class="tip">Each snapshot must have the <b>same task open in Pinpoint</b> before you save it as MHTML —
-       a snapshot only captures the task that is on screen.</div>
-  </section>
-
-  <section id="type">
-    <h2 class="sec">4. Document type</h2>
-    <p>The <b>HeatMap</b> card has a <b>Document type</b> dropdown:</p>
-    <ul>
-      <li><b>Inspection Manual</b> — auto-detects the format and reads the inspection criteria.</li>
-      <li><b>Repair Manual</b> — reads repair tasks: each SUBTASK number is a unique key, with its numbered
-          title, A./B./C. items, and the PROCEDURE / RELATED DATA and reference tables.</li>
-      <li><b>TV, Concession, RST &amp; TRM</b> — coming soon.</li>
-    </ul>
-    <p>The chosen type is shown on the results card and recorded in the usage log.</p>
-  </section>
-
-  <section id="heatmap">
-    <h2 class="sec">5. Reading the heat-map</h2>
-    <p>Each <b>row</b> is one criterion (or repair step); each <b>column</b> is one document. A cell shows that
-       document's own text for the criterion, coloured by how it compares with the others.</p>
-    <p>The left columns show the <b>Inspection Area</b> and the <b>Criterion</b>. For outline manuals the area
-       carries the hierarchy path, e.g. <span class="mono">B. VIGVs &gt; (2) Airfoil leading and trailing edges &gt; (a) Nicked</span>,
-       or for S1000D <span class="mono">1.1.1.1 &gt; Inner platform 8 &gt; Cracked</span>.</p>
-  </section>
-
-  <section id="colours">
-    <h2 class="sec">6. Colour key</h2>
-    <table>
-      <tr><th>Colour</th><th>Status</th><th>Meaning</th></tr>
-      <tr><td><span class="sw" style="background:var(--c-match)"></span>Light green</td><td>Match</td><td>All documents agree — identical criterion &amp; disposition.</td></tr>
-      <tr><td><span class="sw" style="background:var(--c-partial)"></span>Light yellow</td><td>Partial</td><td>Same intent, wording differs.</td></tr>
-      <tr><td><span class="sw" style="background:var(--c-thr)"></span>Light orange</td><td>Threshold diff</td><td>A numeric limit differs (e.g. 0,12 vs 0,13 mm).</td></tr>
-      <tr><td><span class="sw" style="background:var(--c-miss)"></span>Light pink</td><td>Missing</td><td>Criterion is absent in that document (needs 3+ docs to appear).</td></tr>
-      <tr><td><span class="sw" style="background:var(--c-uni)"></span>Light purple</td><td>Unique</td><td>Criterion only in that document.</td></tr>
-    </table>
-    <div class="note">With only <b>two</b> documents, a criterion that exists in one but not the other is <b>Unique</b>
-       (there is no baseline). <b>Missing</b> only appears when three or more documents are compared.</div>
-  </section>
-
-  <section id="reddiff">
-    <h2 class="sec">7. Red-text differences</h2>
-    <p>Within a row, the tool finds what the majority of documents say, keeps that black, and shows the
-       <b>differing words in red</b> in the odd ones out. If 3 documents say <span class="mono">0,12</span> and one says
-       <span class="mono">0,13</span>, only the <span class="mono" style="color:#d11313">0,13</span> is red. On a 2-vs-2 split, the
-       first set stays black and the differing pair turns red.</p>
-  </section>
-
-  <section id="matrix">
-    <h2 class="sec">8. All-pairs agreement matrix</h2>
-    <p>Under the summary, an N×N matrix shows the <b>% of shared criteria that match exactly</b> between each pair
-       of documents. Identical documents score 100%. It is symmetric (X↔Y = Y↔X).</p>
-  </section>
-
-  <section id="grouping">
-    <h2 class="sec">9. Matching items (groups)</h2>
-    <p>Different manuals often name the same feature with a different item number
-       (e.g. <span class="mono">Inner Platform 8</span> vs <span class="mono">Inner platform 8</span>, or
-       <span class="mono">Serrations 9</span> vs <span class="mono">Serrations 4</span>). After a comparison, the
-       <b>Suggested item matches</b> panel lists these, with the differing part in red.</p>
-    <ul>
-      <li>Each item has a <b>Group</b> selector — put items in the same group to merge them into one row.</li>
-      <li>Use <b>+ New group</b> to create Group 2, Group 3, … for splitting a set (e.g. G1/G2/G3).</li>
-      <li>Choose <b>Skip</b> to leave an item out.</li>
-      <li>Click <b>Apply matches &amp; re-compare</b>. Merged rows are tagged <b>merged</b>.</li>
-    </ul>
-    <div class="tip">Nothing is merged until you confirm it — the tool only suggests by shared words.</div>
-  </section>
-
-  <section id="filter">
-    <h2 class="sec">10. Filter &amp; Excel download</h2>
-    <p>The coloured chips toggle each status on/off, and the search box filters by text
-       (try <span class="mono">dimension 18</span>). The line under the download button shows how many rows are visible.</p>
-    <p><b>Download Excel (filtered)</b> exports <b>exactly the rows currently shown</b>. Select only <i>Missing</i>
-       and download, and the workbook contains only those rows. The workbook has four tabs:
-       <b>Heatmap</b>, <b>Summary</b>, <b>Pairwise</b>, and <b>Details (all)</b>.</p>
-  </section>
-
-  <section id="formats">
-    <h2 class="sec">11. Formats: ATA &amp; S1000D</h2>
-    <p>CAIRO-Assist detects each document's standard from its structure and shows a badge on the result card:</p>
-    <ul>
-      <li><b>ATA</b> (Trent 1000 AMM / Check-and-Rectify) — outline numbering
-          <span class="mono">L1 &rarr; A. &rarr; (1) &rarr; (a) &rarr; (i)</span>.</li>
-      <li><b>S1000D</b> (Trent XWB / A350) — decimal steps
-          <span class="mono">1 &rarr; 1.1 &rarr; 1.1.1 &rarr; 1.1.1.1</span> with DAMAGE / LIMIT / ACTION tables.</li>
-    </ul>
-    <p>Criteria are matched across standards by their limit wording, so the same limit lines up whether it came
-       from an ATA <span class="mono">(i)</span> item or an S1000D <span class="mono">1.1.1.1</span> step.</p>
-  </section>
-
-  <section id="toolbox">
-    <h2 class="sec">12. CAIRO Toolbox</h2>
-    <p>The <b>CAIRO Toolbox</b> card has buttons to launch the team's other tools —
-       <b>PINPACK</b>, <b>JETPULL</b>, <b>EDC-TV Downloader</b>, <b>TPCR-RTV Generator</b>. Clicking a button runs
-       that tool's batch file on the machine.</p>
-    <p>Set each path in the <code>TOOLBOX</code> block near the top of <code>cairo_assist.py</code>:</p>
-    <pre>TOOLBOX = {
-    'pinpack':  {'name': 'PINPACK',            'path': r"\\\\server\\tools\\PINPACK\\PINPACK.bat"},
-    'jetpull':  {'name': 'JETPULL',            'path': r"\\\\server\\tools\\JETPULL\\JETPULL.bat"},
-    'edc_tv':   {'name': 'EDC-TV Downloader',  'path': r"C:\\CAIRO\\tools\\EDC-TV\\EDC-TV_Downloader.bat"},
-    'tpcr_rtv': {'name': 'TPCR-RTV Generator', 'path': r"C:\\CAIRO\\tools\\TPCR-RTV\\TPCR-RTV_Generator.bat"},
-}</pre>
-    <p>If a path isn't set or the file is missing, the button tells you which path to fix.</p>
-  </section>
-
-  <section id="log">
-    <h2 class="sec">13. Usage log</h2>
-    <p>Every comparison, download, and tool launch is written to a SQLite <code>.db</code> file recording the
-       timestamp, user, machine, document type, task, documents, and counts. Open the <b>Usage log</b> link in the
-       footer (or <code>/logs</code>) to view it, and <b>Download CSV</b> to export. Set the save location with
-       <code>LOG_DB_PATH</code> near the top of <code>cairo_assist.py</code>.</p>
-  </section>
-
-  <section id="trouble">
-    <h2 class="sec">14. Troubleshooting</h2>
-    <table>
-      <tr><th>Symptom</th><th>Fix</th></tr>
-      <tr><td>Browser doesn't open</td><td>Go to <code>http://127.0.0.1:5002</code> manually. Make sure the command window is still running.</td></tr>
-      <tr><td>"No inspection criteria found"</td><td>The snapshot didn't have the task open in Pinpoint. Re-save with the task on screen.</td></tr>
-      <tr><td>A document shows very few rows</td><td>Check the <b>Document type</b> — pick <b>Repair Manual</b> for repair tasks.</td></tr>
-      <tr><td>Toolbox button says "not found"</td><td>Set the correct <code>.bat</code> path in the <code>TOOLBOX</code> block.</td></tr>
-      <tr><td>Port already in use</td><td>Change <code>PORT</code> near the top of <code>cairo_assist.py</code>.</td></tr>
-    </table>
-  </section>
-
-</div>
-<footer>&copy; 2026 Alten-Rolls-Royce. All rights reserved. Confidential — Internal Use Only. &middot; CAIRO-Assist User Guide</footer>
-</body></html>
-"""
-
 @app.route('/guide')
 def guide():
-    return Response(GUIDE_HTML, mimetype='text/html')
+    p = (USER_GUIDE_PATH or '').strip()
+    if not p:
+        return Response('<h3>User guide not set</h3><p>Point <code>USER_GUIDE_PATH</code> '
+                        'in cairo_assist.py at your HTML guide file or URL.</p>', mimetype='text/html')
+    if p.lower().startswith(('http://', 'https://')):
+        from flask import redirect
+        return redirect(p)
+    if os.path.exists(p):
+        try:
+            with open(p, 'r', encoding='utf-8', errors='ignore') as f:
+                return Response(f.read(), mimetype='text/html')
+        except Exception as e:
+            return Response('Could not read guide: %s' % e, mimetype='text/html')
+    return Response('<h3>User guide file not found</h3><pre>%s</pre>'
+                    '<p>Fix <code>USER_GUIDE_PATH</code> in cairo_assist.py.</p>' % p, mimetype='text/html')
 
 @app.route('/logs')
 def logs():
@@ -1359,14 +1159,15 @@ INDEX_HTML = r"""<!doctype html>
  tr.arowtop th.area{border-top:2px solid #d3dcea}tr.arowtop td{border-top:2px solid #eef0f4}
  .flag{position:absolute;top:4px;right:5px;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;background:#0000000f;color:#4b5563}
  .msug-block{border:1px solid var(--border);border-radius:8px;padding:8px 10px;margin-bottom:8px;background:#fff}
+ .msug-flex{display:flex;gap:12px;align-items:center}
+ .msug-left{flex:1;min-width:0}
+ .msug-action{flex:0 0 auto}
  .msug-head{font-size:11px;color:var(--muted);margin-bottom:6px}
- .msug-row{display:flex;gap:8px;align-items:center;font-size:12.5px;padding:3px 0}
- .grpsel{font-size:12px;padding:2px 4px;border:1px solid var(--border);border-radius:6px}
+ .msug-row{display:flex;gap:8px;align-items:center;font-size:12.5px;padding:3px 0;cursor:pointer}
+ .mchk{width:16px;height:16px;accent-color:var(--accent);cursor:pointer}
+ .matchbtn{white-space:nowrap;padding:9px 14px;font-size:13px}
  .fb{display:inline-block;font-size:10px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:0 6px;color:var(--muted)}
  .wd{color:#d11313;font-weight:700}
- .gtag{display:inline-block;min-width:24px;text-align:center;font-size:10px;font-weight:800;color:#fff;border-radius:6px;padding:1px 5px}
- .gtag.skip{background:#cbd3df;color:#5b6675}
- .g1{background:#1d6fdb}.g2{background:#2a9d4a}.g3{background:#d9822b}.g4{background:#8e44ad}.g5{background:#c0392b}.g6{background:#16a3a3}
  .mergedtag{display:inline-block;font-size:9px;font-weight:700;color:var(--accent);border:1px solid #9cc0e2;border-radius:8px;padding:0 5px;margin-left:6px;vertical-align:middle}
  .fmtbadge{display:inline-block;font-size:9px;font-weight:800;letter-spacing:.04em;color:#fff;border-radius:8px;padding:1px 6px;margin-left:6px;vertical-align:middle}
  .fmt-S1000D{background:#7048c4}.fmt-ATA{background:#1d6fdb}.fmt-Tables{background:#5b6675}
@@ -1417,6 +1218,7 @@ INDEX_HTML = r"""<!doctype html>
       <label style="font-size:14px;display:inline-flex;align-items:center;gap:8px">
         <b>Document type:</b>
         <select id="docType" class="grpsel" style="font-size:14px;padding:5px 8px" onchange="checkReady()">
+          <option value="" selected>&mdash; Select document type &mdash;</option>
           <option value="Inspection Manual">Inspection Manual</option>
           <option value="Repair Manual">Repair Manual</option>
           <option value="" disabled>TV (coming soon)</option>
@@ -1472,12 +1274,9 @@ INDEX_HTML = r"""<!doctype html>
 
     <details id="matchDetails" style="margin-bottom:14px">
       <summary style="cursor:pointer;font-weight:600;font-size:13px">Suggested item matches <span id="matchCount" style="color:var(--muted);font-weight:400"></span></summary>
-      <div style="font-size:12px;color:var(--muted);margin:6px 0">These areas look like the same item under a different number/wording. Tick the ones that are the same, then re-compare to merge them into single rows.</div>
+      <div style="font-size:12px;color:var(--muted);margin:6px 0">Each box below is one field that appears under different numbers across the documents. Tick the ones that are the same and click <b>Match &amp; re-compare</b> for that field only &mdash; do them one at a time. Untick any you don't want.</div>
       <div id="matchList"></div>
-      <div class="row" style="margin-top:8px">
-        <button class="primary" id="applyMatchBtn" onclick="applyMatches()">&#10003; Apply matches &amp; re-compare</button>
-        <span class="dlnote" id="matchNote"></span>
-      </div>
+      <div class="row" style="margin-top:4px"><span class="dlnote" id="matchNote"></span></div>
     </details>
 
     <div class="toolbar">
@@ -1520,8 +1319,9 @@ function checkReady(){
   document.getElementById('fileInput').disabled = !on;
   var note=document.getElementById('dtNote');
   document.getElementById('runBtn').disabled = !(on && chosen.length>=2);
-  if(note) note.textContent = on ? '' : 'Choose a document type above to enable the comparison.';
+  if(note) note.textContent = on ? '' : 'Select a document type above (required) to enable the comparison.';
 }
+checkReady();
 function renderFiles(){
   var ul=document.getElementById('filelist');ul.innerHTML='';
   chosen.forEach(function(f,i){var li=document.createElement('li');
@@ -1649,61 +1449,45 @@ function hlWords(name, shared){
     return esc(tok);
   }).join('');
 }
-function ensureGrp(i,n){ if(!SUG_GRP[i]) SUG_GRP[i]={count:1, of:new Array(n).fill(1)}; }
 
 function renderSuggestions(){
   var sug=MODEL.suggestions||[];
-  document.getElementById('matchCount').textContent = sug.length? '('+sug.length+' set'+(sug.length>1?'s':'')+' found)' : '(none)';
+  document.getElementById('matchCount').textContent = sug.length? '('+sug.length+' field'+(sug.length>1?'s':'')+' found)' : '(none)';
   var box=document.getElementById('matchList'); box.innerHTML='';
-  if(!sug.length){ box.innerHTML='<div style="font-size:12px;color:var(--muted)">No differently-numbered items detected across the files.</div>';
-    document.getElementById('applyMatchBtn').style.display='none'; return; }
-  document.getElementById('applyMatchBtn').style.display='';
+  if(!sug.length){ box.innerHTML='<div style="font-size:12px;color:var(--muted)">No differently-numbered items detected across the files.</div>'; return; }
   sug.forEach(function(s,i){
-    ensureGrp(i, s.members.length);
-    var g=SUG_GRP[i];
-    var head='<div class="msug-head">Similar items ('+Math.round(s.score*100)+'% word match) &mdash; put items in the same group to merge them into one row; choose Skip to leave one out.</div>';
     var rowsH=s.members.map(function(mm,mi){
-      var cur=g.of[mi];
-      var opts='<option value="0"'+(cur===0?' selected':'')+'>Skip</option>';
-      for(var k=1;k<=g.count;k++) opts+='<option value="'+k+'"'+(cur===k?' selected':'')+'>Group '+k+'</option>';
-      opts+='<option value="new">+ New group</option>';
-      var tag=cur? '<span class="gtag g'+(((cur-1)%6)+1)+'">G'+cur+'</span>' : '<span class="gtag skip">&mdash;</span>';
-      return '<div class="msug-row">'+tag+'<select class="grpsel" data-i="'+i+'" data-mi="'+mi+'">'+opts+'</select>'
-        +'<span class="fb">'+esc(MODEL.names[mm.file])+'</span><span>'+hlWords(mm.name,s.shared)+'</span></div>';
+      return '<label class="msug-row"><input type="checkbox" class="mchk" data-i="'+i+'" data-mi="'+mi+'" checked>'
+        +'<span class="fb">'+esc(MODEL.names[mm.file])+'</span><span>'+hlWords(mm.name,s.shared)+'</span></label>';
     }).join('');
-    var block=document.createElement('div'); block.className='msug-block'; block.innerHTML=head+rowsH;
+    var block=document.createElement('div'); block.className='msug-block';
+    block.innerHTML='<div class="msug-flex"><div class="msug-left">'
+      +'<div class="msug-head">Similar field ('+Math.round(s.score*100)+'% word match) &mdash; tick the ones that are the same</div>'
+      +rowsH+'</div>'
+      +'<div class="msug-action"><button class="primary matchbtn" data-i="'+i+'">&#10003; Match &amp; re-compare</button></div></div>';
     box.appendChild(block);
   });
-  box.querySelectorAll('.grpsel').forEach(function(sel){
-    sel.onchange=function(){
-      var i=+sel.dataset.i, mi=+sel.dataset.mi, v=sel.value;
-      if(v==='new'){ SUG_GRP[i].count++; SUG_GRP[i].of[mi]=SUG_GRP[i].count; }
-      else SUG_GRP[i].of[mi]=+v;
-      renderSuggestions();     // refresh tags/options; SUG_GRP is preserved
-    };
+  box.querySelectorAll('.matchbtn').forEach(function(btn){
+    btn.onclick=function(){ matchOne(+btn.dataset.i, btn); };
   });
 }
 
-function applyMatches(){
-  var aliases=(MODEL.aliases||[]).slice();
-  (MODEL.suggestions||[]).forEach(function(s,i){
-    var g=SUG_GRP[i]; if(!g) return;
-    var buckets={};
-    s.members.forEach(function(mm,mi){
-      var gid=g.of[mi];
-      if(gid){ (buckets[gid]=buckets[gid]||[]).push(mm.name); }
-    });
-    Object.keys(buckets).forEach(function(k){ if(buckets[k].length>=2) aliases.push(buckets[k]); });
+function matchOne(i, btn){
+  var s=(MODEL.suggestions||[])[i]; if(!s) return;
+  var names=[];
+  document.querySelectorAll('.mchk[data-i="'+i+'"]').forEach(function(cb){
+    if(cb.checked) names.push(s.members[+cb.dataset.mi].name);
   });
-  if(!aliases.length){ document.getElementById('matchNote').textContent='Nothing grouped yet — put at least two items in the same group.'; return; }
-  var note=document.getElementById('matchNote'); note.textContent='Re-comparing…';
-  var btn=document.getElementById('applyMatchBtn'); btn.disabled=true;
+  var note=document.getElementById('matchNote');
+  if(names.length<2){ note.textContent='Tick at least two items in that field to match them.'; return; }
+  var aliases=(MODEL.aliases||[]).slice(); aliases.push(names);
+  note.textContent='Re-comparing\u2026'; btn.disabled=true;
   fetch('/recompute',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:MODEL.token,aliases:aliases})})
   .then(function(r){return r.json();})
   .then(function(j){ btn.disabled=false;
     if(!j.ok){note.textContent='Error: '+(j.error||'failed');return;}
     var keep=aliases; MODEL=j.model; MODEL.aliases=keep;
-    note.textContent='Merged '+aliases.length+' group(s) into single rows.';
+    note.textContent='Matched that field ('+names.length+' items). '+aliases.length+' field(s) merged so far.';
     renderResults();
   }).catch(function(e){btn.disabled=false;note.textContent='Failed: '+e;});
 }
