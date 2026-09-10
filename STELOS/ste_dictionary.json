@@ -1,0 +1,9572 @@
+{
+"meta": {
+"source": "ASD-STE100 Issue 9 (2025-01-15)",
+"approved_count": 831,
+"not_approved_count": 1228
+},
+"rules": {
+"proc_sentence_max": 20,
+"desc_sentence_max": 25,
+"note_max": 25,
+"para_max_sentences": 6
+},
+"approved": {
+"a": {
+"word": "A",
+"pos": "art"
+},
+"stop": {
+"word": "STOP",
+"pos": "v"
+},
+"incorrect": {
+"word": "INCORRECT",
+"pos": "adj"
+},
+"about": {
+"word": "ABOUT",
+"pos": "prep"
+},
+"approximately": {
+"word": "APPROXIMATELY",
+"pos": "adv"
+},
+"around": {
+"word": "AROUND",
+"pos": "prep"
+},
+"above": {
+"word": "ABOVE",
+"pos": "prep"
+},
+"abrasive": {
+"word": "ABRASIVE",
+"pos": "adj"
+},
+"suddenly": {
+"word": "SUDDENLY",
+"pos": "adv"
+},
+"not": {
+"word": "NOT",
+"pos": "adv"
+},
+"no": {
+"word": "NO",
+"pos": "adj"
+},
+"absorb": {
+"word": "ABSORB",
+"pos": "v"
+},
+"faster": {
+"word": "FASTER",
+"pos": "adj"
+},
+"accept": {
+"word": "ACCEPT",
+"pos": "v"
+},
+"satisfactory": {
+"word": "SATISFACTORY",
+"pos": "adj"
+},
+"serviceable": {
+"word": "SERVICEABLE",
+"pos": "adj"
+},
+"access": {
+"word": "ACCESS",
+"pos": "n"
+},
+"accident": {
+"word": "ACCIDENT",
+"pos": "n"
+},
+"complete": {
+"word": "COMPLETE",
+"pos": "v"
+},
+"refer": {
+"word": "REFER",
+"pos": "v"
+},
+"collect": {
+"word": "COLLECT",
+"pos": "v"
+},
+"accurate": {
+"word": "ACCURATE",
+"pos": "adj"
+},
+"across": {
+"word": "ACROSS",
+"pos": "prep"
+},
+"procedure": {
+"word": "PROCEDURE",
+"pos": "n"
+},
+"task": {
+"word": "TASK",
+"pos": "n"
+},
+"activate": {
+"word": "ACTIVATE",
+"pos": "v"
+},
+"start": {
+"word": "START",
+"pos": "v"
+},
+"active": {
+"word": "ACTIVE",
+"pos": "adj"
+},
+"work": {
+"word": "WORK",
+"pos": "n"
+},
+"operate": {
+"word": "OPERATE",
+"pos": "v"
+},
+"push": {
+"word": "PUSH",
+"pos": "v"
+},
+"adapt": {
+"word": "ADAPT",
+"pos": "v"
+},
+"add": {
+"word": "ADD",
+"pos": "v"
+},
+"obey": {
+"word": "OBEY",
+"pos": "v"
+},
+"adjacent": {
+"word": "ADJACENT",
+"pos": "adj"
+},
+"adjust": {
+"word": "ADJUST",
+"pos": "v"
+},
+"adjustable": {
+"word": "ADJUSTABLE",
+"pos": "adj"
+},
+"adjustment": {
+"word": "ADJUSTMENT",
+"pos": "n"
+},
+"forward": {
+"word": "FORWARD",
+"pos": "adv"
+},
+"recommend": {
+"word": "RECOMMEND",
+"pos": "v"
+},
+"aft": {
+"word": "AFT",
+"pos": "adj"
+},
+"after": {
+"word": "AFTER",
+"pos": "conj"
+},
+"aft of": {
+"word": "AFT OF",
+"pos": "prep"
+},
+"again": {
+"word": "AGAIN",
+"pos": "adv"
+},
+"against": {
+"word": "AGAINST",
+"pos": "prep"
+},
+"agent": {
+"word": "AGENT",
+"pos": "n"
+},
+"agree": {
+"word": "AGREE",
+"pos": "v"
+},
+"aid": {
+"word": "AID",
+"pos": "n"
+},
+"airborne": {
+"word": "AIRBORNE",
+"pos": "adj"
+},
+"airflow": {
+"word": "AIRFLOW",
+"pos": "n"
+},
+"align": {
+"word": "ALIGN",
+"pos": "v"
+},
+"all": {
+"word": "ALL",
+"pos": "adj"
+},
+"approved": {
+"word": "APPROVED",
+"pos": "adj"
+},
+"almost": {
+"word": "ALMOST",
+"pos": "adv"
+},
+"along": {
+"word": "ALONG",
+"pos": "prep"
+},
+"also": {
+"word": "ALSO",
+"pos": "adv"
+},
+"alternative": {
+"word": "ALTERNATIVE",
+"pos": "n"
+},
+"although": {
+"word": "ALTHOUGH",
+"pos": "conj"
+},
+"always": {
+"word": "ALWAYS",
+"pos": "adv"
+},
+"change": {
+"word": "CHANGE",
+"pos": "v"
+},
+"an": {
+"word": "AN",
+"pos": "art"
+},
+"analog": {
+"word": "ANALOG",
+"pos": "adj"
+},
+"secondary": {
+"word": "SECONDARY",
+"pos": "adj"
+},
+"and": {
+"word": "AND",
+"pos": "conj"
+},
+"angular": {
+"word": "ANGULAR",
+"pos": "adj"
+},
+"record": {
+"word": "RECORD",
+"pos": "v"
+},
+"different": {
+"word": "DIFFERENT",
+"pos": "adj"
+},
+"apart": {
+"word": "APART",
+"pos": "adv"
+},
+"find": {
+"word": "FIND",
+"pos": "v"
+},
+"view": {
+"word": "VIEW",
+"pos": "n"
+},
+"think": {
+"word": "THINK",
+"pos": "v"
+},
+"possible": {
+"word": "POSSIBLE",
+"pos": "adj"
+},
+"applicable": {
+"word": "APPLICABLE",
+"pos": "adj"
+},
+"apply": {
+"word": "APPLY",
+"pos": "v"
+},
+"approval": {
+"word": "APPROVAL",
+"pos": "n"
+},
+"area": {
+"word": "AREA",
+"pos": "n"
+},
+"cause": {
+"word": "CAUSE",
+"pos": "v"
+},
+"arm": {
+"word": "ARM",
+"pos": "v"
+},
+"prepare": {
+"word": "PREPARE",
+"pos": "v"
+},
+"hold": {
+"word": "HOLD",
+"pos": "v"
+},
+"arrow": {
+"word": "ARROW",
+"pos": "n"
+},
+"as": {
+"word": "AS",
+"pos": "prep"
+},
+"while": {
+"word": "WHILE",
+"pos": "conj"
+},
+"as ... as": {
+"word": "AS ... AS",
+"pos": "conj"
+},
+"speak": {
+"word": "SPEAK",
+"pos": "v"
+},
+"assemble": {
+"word": "ASSEMBLE",
+"pos": "v"
+},
+"assembly": {
+"word": "ASSEMBLY",
+"pos": "n"
+},
+"estimate": {
+"word": "ESTIMATE",
+"pos": "n"
+},
+"calculate": {
+"word": "CALCULATE",
+"pos": "v"
+},
+"help": {
+"word": "HELP",
+"pos": "v"
+},
+"related": {
+"word": "RELATED",
+"pos": "adj"
+},
+"its": {
+"word": "ITS",
+"pos": "adj"
+},
+"their": {
+"word": "THEIR",
+"pos": "adj"
+},
+"at": {
+"word": "AT",
+"pos": "prep"
+},
+"attach": {
+"word": "ATTACH",
+"pos": "v"
+},
+"be": {
+"word": "BE",
+"pos": "v"
+},
+"get": {
+"word": "GET",
+"pos": "v"
+},
+"careful": {
+"word": "CAREFUL",
+"pos": "adj"
+},
+"monitor": {
+"word": "MONITOR",
+"pos": "v"
+},
+"listen": {
+"word": "LISTEN",
+"pos": "v"
+},
+"hear": {
+"word": "HEAR",
+"pos": "v"
+},
+"authority": {
+"word": "AUTHORITY",
+"pos": "n"
+},
+"automatic": {
+"word": "AUTOMATIC",
+"pos": "adj"
+},
+"auxiliary": {
+"word": "AUXILIARY",
+"pos": "adj"
+},
+"available": {
+"word": "AVAILABLE",
+"pos": "adj"
+},
+"tell": {
+"word": "TELL",
+"pos": "v"
+},
+"axial": {
+"word": "AXIAL",
+"pos": "adj"
+},
+"axially": {
+"word": "AXIALLY",
+"pos": "adv"
+},
+"back": {
+"word": "BACK",
+"pos": "adv"
+},
+"direction": {
+"word": "DIRECTION",
+"pos": "n"
+},
+"bad": {
+"word": "BAD",
+"pos": "adj"
+},
+"decrease": {
+"word": "DECREASE",
+"pos": "v"
+},
+"balance": {
+"word": "BALANCE",
+"pos": "v"
+},
+"bare": {
+"word": "BARE",
+"pos": "adj"
+},
+"basic": {
+"word": "BASIC",
+"pos": "adj"
+},
+"because": {
+"word": "BECAUSE",
+"pos": "conj"
+},
+"become": {
+"word": "BECOME",
+"pos": "v"
+},
+"before": {
+"word": "BEFORE",
+"pos": "conj"
+},
+"source": {
+"word": "SOURCE",
+"pos": "n"
+},
+"behind": {
+"word": "BEHIND",
+"pos": "prep"
+},
+"these": {
+"word": "THESE",
+"pos": "adj"
+},
+"below": {
+"word": "BELOW",
+"pos": "prep"
+},
+"bend": {
+"word": "BEND",
+"pos": "n"
+},
+"between": {
+"word": "BETWEEN",
+"pos": "prep"
+},
+"bleed": {
+"word": "BLEED",
+"pos": "v"
+},
+"blockage": {
+"word": "BLOCKAGE",
+"pos": "n"
+},
+"blocked": {
+"word": "BLOCKED",
+"pos": "adj"
+},
+"blow": {
+"word": "BLOW",
+"pos": "v"
+},
+"blunt": {
+"word": "BLUNT",
+"pos": "adj"
+},
+"bond": {
+"word": "BOND",
+"pos": "n"
+},
+"bottom": {
+"word": "BOTTOM",
+"pos": "adj"
+},
+"strong": {
+"word": "STRONG",
+"pos": "adj"
+},
+"break": {
+"word": "BREAK",
+"pos": "v"
+},
+"breathe": {
+"word": "BREATHE",
+"pos": "v"
+},
+"bright": {
+"word": "BRIGHT",
+"pos": "adj"
+},
+"brightly": {
+"word": "BRIGHTLY",
+"pos": "adv"
+},
+"put": {
+"word": "PUT",
+"pos": "v"
+},
+"bubble": {
+"word": "BUBBLE",
+"pos": "n"
+},
+"burn": {
+"word": "BURN",
+"pos": "v"
+},
+"but": {
+"word": "BUT",
+"pos": "conj"
+},
+"by": {
+"word": "BY",
+"pos": "prep"
+},
+"bypass": {
+"word": "BYPASS",
+"pos": "v"
+},
+"calibrate": {
+"word": "CALIBRATE",
+"pos": "v"
+},
+"calibration": {
+"word": "CALIBRATION",
+"pos": "n"
+},
+"can": {
+"word": "CAN",
+"pos": "v"
+},
+"could": {
+"word": "COULD",
+"pos": "v"
+},
+"cancel": {
+"word": "CANCEL",
+"pos": "v"
+},
+"cannot": {
+"word": "CANNOT",
+"pos": "v"
+},
+"capacity": {
+"word": "CAPACITY",
+"pos": "n"
+},
+"carefully": {
+"word": "CAREFULLY",
+"pos": "adv"
+},
+"measure": {
+"word": "MEASURE",
+"pos": "v"
+},
+"if": {
+"word": "IF",
+"pos": "conj"
+},
+"catch": {
+"word": "CATCH",
+"pos": "v"
+},
+"space": {
+"word": "SPACE",
+"pos": "n"
+},
+"some": {
+"word": "SOME",
+"pos": "adj"
+},
+"specified": {
+"word": "SPECIFIED",
+"pos": "adj"
+},
+"risk": {
+"word": "RISK",
+"pos": "n"
+},
+"accidentally": {
+"word": "ACCIDENTALLY",
+"pos": "adv"
+},
+"replace": {
+"word": "REPLACE",
+"pos": "v"
+},
+"quality": {
+"word": "QUALITY",
+"pos": "n"
+},
+"charge": {
+"word": "CHARGE",
+"pos": "v"
+},
+"fill": {
+"word": "FILL",
+"pos": "v"
+},
+"pressurize": {
+"word": "PRESSURIZE",
+"pos": "v"
+},
+"check": {
+"word": "CHECK",
+"pos": "n"
+},
+"examine": {
+"word": "EXAMINE",
+"pos": "v"
+},
+"chemical": {
+"word": "CHEMICAL",
+"pos": "adj"
+},
+"circular": {
+"word": "CIRCULAR",
+"pos": "adj"
+},
+"clean": {
+"word": "CLEAN",
+"pos": "adj"
+},
+"clear": {
+"word": "CLEAR",
+"pos": "adj"
+},
+"transparent": {
+"word": "TRANSPARENT",
+"pos": "adj"
+},
+"clearance": {
+"word": "CLEARANCE",
+"pos": "n"
+},
+"clearly": {
+"word": "CLEARLY",
+"pos": "adv"
+},
+"click": {
+"word": "CLICK",
+"pos": "n"
+},
+"clockwise": {
+"word": "CLOCKWISE",
+"pos": "adv"
+},
+"clogged": {
+"word": "CLOGGED",
+"pos": "adj"
+},
+"close": {
+"word": "CLOSE",
+"pos": "v"
+},
+"code": {
+"word": "CODE",
+"pos": "n"
+},
+"coil": {
+"word": "COIL",
+"pos": "n"
+},
+"cold": {
+"word": "COLD",
+"pos": "adj"
+},
+"fall": {
+"word": "FALL",
+"pos": "v"
+},
+"color": {
+"word": "COLOR",
+"pos": "n"
+},
+"come": {
+"word": "COME",
+"pos": "v"
+},
+"come on": {
+"word": "COME ON",
+"pos": "v"
+},
+"communication": {
+"word": "COMMUNICATION",
+"pos": "n"
+},
+"compare": {
+"word": "COMPARE",
+"pos": "v"
+},
+"compatible": {
+"word": "COMPATIBLE",
+"pos": "adj"
+},
+"completed": {
+"word": "COMPLETED",
+"pos": "adj"
+},
+"component": {
+"word": "COMPONENT",
+"pos": "n"
+},
+"full": {
+"word": "FULL",
+"pos": "adj"
+},
+"compress": {
+"word": "COMPRESS",
+"pos": "v"
+},
+"contain": {
+"word": "CONTAIN",
+"pos": "v"
+},
+"concentric": {
+"word": "CONCENTRIC",
+"pos": "adj"
+},
+"result": {
+"word": "RESULT",
+"pos": "n"
+},
+"condition": {
+"word": "CONDITION",
+"pos": "n"
+},
+"connect": {
+"word": "CONNECT",
+"pos": "v"
+},
+"connection": {
+"word": "CONNECTION",
+"pos": "n"
+},
+"sequence": {
+"word": "SEQUENCE",
+"pos": "n"
+},
+"important": {
+"word": "IMPORTANT",
+"pos": "adj"
+},
+"dangerous": {
+"word": "DANGEROUS",
+"pos": "adj"
+},
+"constant": {
+"word": "CONSTANT",
+"pos": "adj"
+},
+"contact": {
+"word": "CONTACT",
+"pos": "v"
+},
+"touch": {
+"word": "TOUCH",
+"pos": "v"
+},
+"container": {
+"word": "CONTAINER",
+"pos": "n"
+},
+"contamination": {
+"word": "CONTAMINATION",
+"pos": "n"
+},
+"contents": {
+"word": "CONTENTS",
+"pos": "n"
+},
+"continue": {
+"word": "CONTINUE",
+"pos": "v"
+},
+"continuous": {
+"word": "CONTINUOUS",
+"pos": "adj"
+},
+"contour": {
+"word": "CONTOUR",
+"pos": "n"
+},
+"control": {
+"word": "CONTROL",
+"pos": "n"
+},
+"cool": {
+"word": "COOL",
+"pos": "adj"
+},
+"copy": {
+"word": "COPY",
+"pos": "n"
+},
+"corner": {
+"word": "CORNER",
+"pos": "n"
+},
+"correct": {
+"word": "CORRECT",
+"pos": "adj"
+},
+"correction": {
+"word": "CORRECTION",
+"pos": "n"
+},
+"correctly": {
+"word": "CORRECTLY",
+"pos": "adv"
+},
+"same": {
+"word": "SAME",
+"pos": "adj"
+},
+"count": {
+"word": "COUNT",
+"pos": "v"
+},
+"wise": {
+"word": "WISE",
+"pos": "adv"
+},
+"have": {
+"word": "HAVE",
+"pos": "v"
+},
+"curve": {
+"word": "CURVE",
+"pos": "n"
+},
+"cut": {
+"word": "CUT",
+"pos": "v"
+},
+"cycle": {
+"word": "CYCLE",
+"pos": "n"
+},
+"damage": {
+"word": "DAMAGE",
+"pos": "n"
+},
+"damaged": {
+"word": "DAMAGED",
+"pos": "adj"
+},
+"data": {
+"word": "DATA",
+"pos": "n"
+},
+"date": {
+"word": "DATE",
+"pos": "n"
+},
+"deactivate": {
+"word": "DEACTIVATE",
+"pos": "v"
+},
+"remove": {
+"word": "REMOVE",
+"pos": "v"
+},
+"slower": {
+"word": "SLOWER",
+"pos": "adj"
+},
+"decision": {
+"word": "DECISION",
+"pos": "n"
+},
+"dedicated": {
+"word": "DEDICATED",
+"pos": "adj"
+},
+"de-energize": {
+"word": "DE-ENERGIZE",
+"pos": "v"
+},
+"deep": {
+"word": "DEEP",
+"pos": "adj"
+},
+"defective": {
+"word": "DEFECTIVE",
+"pos": "adj"
+},
+"give": {
+"word": "GIVE",
+"pos": "v"
+},
+"deflate": {
+"word": "DEFLATE",
+"pos": "v"
+},
+"position": {
+"word": "POSITION",
+"pos": "n"
+},
+"travel": {
+"word": "TRAVEL",
+"pos": "n"
+},
+"defuel": {
+"word": "DEFUEL",
+"pos": "v"
+},
+"immediately": {
+"word": "IMMEDIATELY",
+"pos": "adv"
+},
+"deploy": {
+"word": "DEPLOY",
+"pos": "v"
+},
+"depth": {
+"word": "DEPTH",
+"pos": "n"
+},
+"disengage": {
+"word": "DISENGAGE",
+"pos": "v"
+},
+"sense": {
+"word": "SENSE",
+"pos": "v"
+},
+"select": {
+"word": "SELECT",
+"pos": "v"
+},
+"device": {
+"word": "DEVICE",
+"pos": "n"
+},
+"difference": {
+"word": "DIFFERENCE",
+"pos": "n"
+},
+"digital": {
+"word": "DIGITAL",
+"pos": "adj"
+},
+"digitally": {
+"word": "DIGITALLY",
+"pos": "adv"
+},
+"dim": {
+"word": "DIM",
+"pos": "adj"
+},
+"dimension": {
+"word": "DIMENSION",
+"pos": "n"
+},
+"dimly": {
+"word": "DIMLY",
+"pos": "adv"
+},
+"directly": {
+"word": "DIRECTLY",
+"pos": "adv"
+},
+"dirty": {
+"word": "DIRTY",
+"pos": "adj"
+},
+"disarm": {
+"word": "DISARM",
+"pos": "v"
+},
+"disassemble": {
+"word": "DISASSEMBLE",
+"pos": "v"
+},
+"discard": {
+"word": "DISCARD",
+"pos": "v"
+},
+"go": {
+"word": "GO",
+"pos": "v"
+},
+"disconnect": {
+"word": "DISCONNECT",
+"pos": "v"
+},
+"display": {
+"word": "DISPLAY",
+"pos": "n"
+},
+"distance": {
+"word": "DISTANCE",
+"pos": "n"
+},
+"supply": {
+"word": "SUPPLY",
+"pos": "v"
+},
+"divide": {
+"word": "DIVIDE",
+"pos": "v"
+},
+"do": {
+"word": "DO",
+"pos": "v"
+},
+"put on": {
+"word": "PUT ON",
+"pos": "v"
+},
+"down": {
+"word": "DOWN",
+"pos": "adj"
+},
+"of": {
+"word": "OF",
+"pos": "prep"
+},
+"drain": {
+"word": "DRAIN",
+"pos": "v"
+},
+"pull": {
+"word": "PULL",
+"pos": "v"
+},
+"drink": {
+"word": "DRINK",
+"pos": "v"
+},
+"swallow": {
+"word": "SWALLOW",
+"pos": "v"
+},
+"drop": {
+"word": "DROP",
+"pos": "n"
+},
+"dry": {
+"word": "DRY",
+"pos": "adj"
+},
+"matt": {
+"word": "MATT",
+"pos": "adj"
+},
+"during": {
+"word": "DURING",
+"pos": "prep"
+},
+"each": {
+"word": "EACH",
+"pos": "adj"
+},
+"easy": {
+"word": "EASY",
+"pos": "adj"
+},
+"easily": {
+"word": "EASILY",
+"pos": "adv"
+},
+"eat": {
+"word": "EAT",
+"pos": "v"
+},
+"edge": {
+"word": "EDGE",
+"pos": "n"
+},
+"effect": {
+"word": "EFFECT",
+"pos": "n"
+},
+"try": {
+"word": "TRY",
+"pos": "v"
+},
+"eject": {
+"word": "EJECT",
+"pos": "v"
+},
+"interval": {
+"word": "INTERVAL",
+"pos": "n"
+},
+"electric": {
+"word": "ELECTRIC",
+"pos": "adj"
+},
+"electrical": {
+"word": "ELECTRICAL",
+"pos": "adj"
+},
+"netic": {
+"word": "NETIC",
+"pos": "adj"
+},
+"netically": {
+"word": "NETICALLY",
+"pos": "adv"
+},
+"electronic": {
+"word": "ELECTRONIC",
+"pos": "adj"
+},
+"prevent": {
+"word": "PREVENT",
+"pos": "v"
+},
+"emergency": {
+"word": "EMERGENCY",
+"pos": "n"
+},
+"empty": {
+"word": "EMPTY",
+"pos": "adj"
+},
+"end": {
+"word": "END",
+"pos": "n"
+},
+"energize": {
+"word": "ENERGIZE",
+"pos": "v"
+},
+"engage": {
+"word": "ENGAGE",
+"pos": "v"
+},
+"large": {
+"word": "LARGE",
+"pos": "adj"
+},
+"entry": {
+"word": "ENTRY",
+"pos": "n"
+},
+"entrance": {
+"word": "ENTRANCE",
+"pos": "n"
+},
+"equal": {
+"word": "EQUAL",
+"pos": "adj"
+},
+"equally": {
+"word": "EQUALLY",
+"pos": "adv"
+},
+"equipment": {
+"word": "EQUIPMENT",
+"pos": "n"
+},
+"equivalent": {
+"word": "EQUIVALENT",
+"pos": "adj"
+},
+"erase": {
+"word": "ERASE",
+"pos": "v"
+},
+"error": {
+"word": "ERROR",
+"pos": "n"
+},
+"release": {
+"word": "RELEASE",
+"pos": "v"
+},
+"flat": {
+"word": "FLAT",
+"pos": "adj"
+},
+"flush": {
+"word": "FLUSH",
+"pos": "adj"
+},
+"level": {
+"word": "LEVEL",
+"pos": "adj"
+},
+"sign": {
+"word": "SIGN",
+"pos": "n"
+},
+"show": {
+"word": "SHOW",
+"pos": "v"
+},
+"fully": {
+"word": "FULLY",
+"pos": "adv"
+},
+"example": {
+"word": "EXAMPLE",
+"pos": "n"
+},
+"unwanted": {
+"word": "UNWANTED",
+"pos": "adj"
+},
+"exhaust": {
+"word": "EXHAUST",
+"pos": "n"
+},
+"exit": {
+"word": "EXIT",
+"pos": "n"
+},
+"expand": {
+"word": "EXPAND",
+"pos": "v"
+},
+"expired": {
+"word": "EXPIRED",
+"pos": "adj"
+},
+"explosion": {
+"word": "EXPLOSION",
+"pos": "n"
+},
+"explosive": {
+"word": "EXPLOSIVE",
+"pos": "adj"
+},
+"extend": {
+"word": "EXTEND",
+"pos": "v"
+},
+"extension": {
+"word": "EXTENSION",
+"pos": "n"
+},
+"length": {
+"word": "LENGTH",
+"pos": "n"
+},
+"width": {
+"word": "WIDTH",
+"pos": "n"
+},
+"external": {
+"word": "EXTERNAL",
+"pos": "adj"
+},
+"extinguish": {
+"word": "EXTINGUISH",
+"pos": "v"
+},
+"very bad": {
+"word": "VERY BAD",
+"pos": "adj"
+},
+"very cold": {
+"word": "VERY COLD",
+"pos": "adj"
+},
+"very hot": {
+"word": "VERY HOT",
+"pos": "adj"
+},
+"face": {
+"word": "FACE",
+"pos": "n"
+},
+"turn": {
+"word": "TURN",
+"pos": "v"
+},
+"fact": {
+"word": "FACT",
+"pos": "n"
+},
+"unserviceable": {
+"word": "UNSERVICEABLE",
+"pos": "adj"
+},
+"intensity": {
+"word": "INTENSITY",
+"pos": "n"
+},
+"far": {
+"word": "FAR",
+"pos": "adj"
+},
+"fast": {
+"word": "FAST",
+"pos": "adj"
+},
+"make sure": {
+"word": "MAKE SURE",
+"pos": "v"
+},
+"feather": {
+"word": "FEATHER",
+"pos": "v"
+},
+"feel": {
+"word": "FEEL",
+"pos": "v"
+},
+"filtered": {
+"word": "FILTERED",
+"pos": "adj"
+},
+"finish": {
+"word": "FINISH",
+"pos": "n"
+},
+"fire": {
+"word": "FIRE",
+"pos": "n"
+},
+"first": {
+"word": "FIRST",
+"pos": "adv"
+},
+"fit": {
+"word": "FIT",
+"pos": "n"
+},
+"set": {
+"word": "SET",
+"pos": "v"
+},
+"repair": {
+"word": "REPAIR",
+"pos": "v"
+},
+"install": {
+"word": "INSTALL",
+"pos": "v"
+},
+"flame": {
+"word": "FLAME",
+"pos": "n"
+},
+"flammable": {
+"word": "FLAMMABLE",
+"pos": "adj"
+},
+"flange": {
+"word": "FLANGE",
+"pos": "n"
+},
+"flash": {
+"word": "FLASH",
+"pos": "v"
+},
+"flexible": {
+"word": "FLEXIBLE",
+"pos": "adj"
+},
+"flight": {
+"word": "FLIGHT",
+"pos": "n"
+},
+"flow": {
+"word": "FLOW",
+"pos": "n"
+},
+"fluid": {
+"word": "FLUID",
+"pos": "n"
+},
+"fold": {
+"word": "FOLD",
+"pos": "v"
+},
+"follow": {
+"word": "FOLLOW",
+"pos": "v"
+},
+"for": {
+"word": "FOR",
+"pos": "prep"
+},
+"hit": {
+"word": "HIT",
+"pos": "v"
+},
+"free": {
+"word": "FREE",
+"pos": "adj"
+},
+"freely": {
+"word": "FREELY",
+"pos": "adv"
+},
+"freeze": {
+"word": "FREEZE",
+"pos": "v"
+},
+"frequent": {
+"word": "FREQUENT",
+"pos": "adj"
+},
+"new": {
+"word": "NEW",
+"pos": "adj"
+},
+"from": {
+"word": "FROM",
+"pos": "prep"
+},
+"front": {
+"word": "FRONT",
+"pos": "adj"
+},
+"function": {
+"word": "FUNCTION",
+"pos": "n"
+},
+"move": {
+"word": "MOVE",
+"pos": "v"
+},
+"gas": {
+"word": "GAS",
+"pos": "n"
+},
+"general": {
+"word": "GENERAL",
+"pos": "adj"
+},
+"thick": {
+"word": "THICK",
+"pos": "adj"
+},
+"lightly": {
+"word": "LIGHTLY",
+"pos": "adv"
+},
+"increase": {
+"word": "INCREASE",
+"pos": "v"
+},
+"glossy": {
+"word": "GLOSSY",
+"pos": "adj"
+},
+"go off": {
+"word": "GO OFF",
+"pos": "v"
+},
+"good": {
+"word": "GOOD",
+"pos": "adj"
+},
+"gradually": {
+"word": "GRADUALLY",
+"pos": "adv"
+},
+"very": {
+"word": "VERY",
+"pos": "adv"
+},
+"groove": {
+"word": "GROOVE",
+"pos": "n"
+},
+"ground": {
+"word": "GROUND",
+"pos": "n"
+},
+"group": {
+"word": "GROUP",
+"pos": "n"
+},
+"use": {
+"word": "USE",
+"pos": "v"
+},
+"hang": {
+"word": "HANG",
+"pos": "v"
+},
+"hard": {
+"word": "HARD",
+"pos": "adj"
+},
+"injury": {
+"word": "INJURY",
+"pos": "n"
+},
+"head": {
+"word": "HEAD",
+"pos": "n"
+},
+"heat": {
+"word": "HEAT",
+"pos": "n"
+},
+"hot": {
+"word": "HOT",
+"pos": "adj"
+},
+"heavy": {
+"word": "HEAVY",
+"pos": "adj"
+},
+"height": {
+"word": "HEIGHT",
+"pos": "n"
+},
+"here": {
+"word": "HERE",
+"pos": "adv"
+},
+"high": {
+"word": "HIGH",
+"pos": "adj"
+},
+"hole": {
+"word": "HOLE",
+"pos": "n"
+},
+"horizontal": {
+"word": "HORIZONTAL",
+"pos": "adj"
+},
+"how": {
+"word": "HOW",
+"pos": "adv"
+},
+"hydraulic": {
+"word": "HYDRAULIC",
+"pos": "adj"
+},
+"identify": {
+"word": "IDENTIFY",
+"pos": "v"
+},
+"ignore": {
+"word": "IGNORE",
+"pos": "v"
+},
+"illuminate": {
+"word": "ILLUMINATE",
+"pos": "v"
+},
+"in": {
+"word": "IN",
+"pos": "adv"
+},
+"inboard": {
+"word": "INBOARD",
+"pos": "adj"
+},
+"incident": {
+"word": "INCIDENT",
+"pos": "n"
+},
+"include": {
+"word": "INCLUDE",
+"pos": "v"
+},
+"with": {
+"word": "WITH",
+"pos": "prep"
+},
+"increment": {
+"word": "INCREMENT",
+"pos": "n"
+},
+"indication": {
+"word": "INDICATION",
+"pos": "n"
+},
+"inflate": {
+"word": "INFLATE",
+"pos": "v"
+},
+"information": {
+"word": "INFORMATION",
+"pos": "n"
+},
+"initial": {
+"word": "INITIAL",
+"pos": "adj"
+},
+"initially": {
+"word": "INITIALLY",
+"pos": "adv"
+},
+"inner": {
+"word": "INNER",
+"pos": "adj"
+},
+"input": {
+"word": "INPUT",
+"pos": "n"
+},
+"into": {
+"word": "INTO",
+"pos": "prep"
+},
+"inspection": {
+"word": "INSPECTION",
+"pos": "n"
+},
+"installation": {
+"word": "INSTALLATION",
+"pos": "n"
+},
+"instruction": {
+"word": "INSTRUCTION",
+"pos": "n"
+},
+"instrument": {
+"word": "INSTRUMENT",
+"pos": "n"
+},
+"insulation": {
+"word": "INSULATION",
+"pos": "n"
+},
+"interchange": {
+"word": "INTERCHANGE",
+"pos": "v"
+},
+"able": {
+"word": "ABLE",
+"pos": "adj"
+},
+"interface": {
+"word": "INTERFACE",
+"pos": "n"
+},
+"internal": {
+"word": "INTERNAL",
+"pos": "adj"
+},
+"internally": {
+"word": "INTERNALLY",
+"pos": "adv"
+},
+"irregular": {
+"word": "IRREGULAR",
+"pos": "adj"
+},
+"unusual": {
+"word": "UNUSUAL",
+"pos": "adj"
+},
+"isolate": {
+"word": "ISOLATE",
+"pos": "v"
+},
+"item": {
+"word": "ITEM",
+"pos": "n"
+},
+"joint": {
+"word": "JOINT",
+"pos": "n"
+},
+"keep": {
+"word": "KEEP",
+"pos": "v"
+},
+"kill": {
+"word": "KILL",
+"pos": "v"
+},
+"know": {
+"word": "KNOW",
+"pos": "v"
+},
+"laminated": {
+"word": "LAMINATED",
+"pos": "adj"
+},
+"lamination": {
+"word": "LAMINATION",
+"pos": "n"
+},
+"last": {
+"word": "LAST",
+"pos": "adj"
+},
+"latch": {
+"word": "LATCH",
+"pos": "v"
+},
+"then": {
+"word": "THEN",
+"pos": "adv"
+},
+"when": {
+"word": "WHEN",
+"pos": "conj"
+},
+"lateral": {
+"word": "LATERAL",
+"pos": "adj"
+},
+"laterally": {
+"word": "LATERALLY",
+"pos": "adv"
+},
+"layer": {
+"word": "LAYER",
+"pos": "n"
+},
+"leak": {
+"word": "LEAK",
+"pos": "n"
+},
+"leakage": {
+"word": "LEAKAGE",
+"pos": "n"
+},
+"minimum": {
+"word": "MINIMUM",
+"pos": "adj"
+},
+"left": {
+"word": "LEFT",
+"pos": "adj"
+},
+"less": {
+"word": "LESS",
+"pos": "adj"
+},
+"let": {
+"word": "LET",
+"pos": "v"
+},
+"life": {
+"word": "LIFE",
+"pos": "n"
+},
+"lift": {
+"word": "LIFT",
+"pos": "v"
+},
+"light": {
+"word": "LIGHT",
+"pos": "adj"
+},
+"thin": {
+"word": "THIN",
+"pos": "adj"
+},
+"small": {
+"word": "SMALL",
+"pos": "adj"
+},
+"lighting": {
+"word": "LIGHTING",
+"pos": "n"
+},
+"limit": {
+"word": "LIMIT",
+"pos": "n"
+},
+"linear": {
+"word": "LINEAR",
+"pos": "adj"
+},
+"linearly": {
+"word": "LINEARLY",
+"pos": "adv"
+},
+"liquid": {
+"word": "LIQUID",
+"pos": "adj"
+},
+"short": {
+"word": "SHORT",
+"pos": "adj"
+},
+"live": {
+"word": "LIVE",
+"pos": "adj"
+},
+"local": {
+"word": "LOCAL",
+"pos": "adj"
+},
+"locally": {
+"word": "LOCALLY",
+"pos": "adv"
+},
+"location": {
+"word": "LOCATION",
+"pos": "n"
+},
+"lock": {
+"word": "LOCK",
+"pos": "v"
+},
+"long": {
+"word": "LONG",
+"pos": "adj"
+},
+"look": {
+"word": "LOOK",
+"pos": "v"
+},
+"loop": {
+"word": "LOOP",
+"pos": "n"
+},
+"loose": {
+"word": "LOOSE",
+"pos": "adj"
+},
+"loosely": {
+"word": "LOOSELY",
+"pos": "adv"
+},
+"loosen": {
+"word": "LOOSEN",
+"pos": "v"
+},
+"low": {
+"word": "LOW",
+"pos": "adj"
+},
+"lower": {
+"word": "LOWER",
+"pos": "v"
+},
+"lubricate": {
+"word": "LUBRICATE",
+"pos": "v"
+},
+"magnetic": {
+"word": "MAGNETIC",
+"pos": "adj"
+},
+"maintenance": {
+"word": "MAINTENANCE",
+"pos": "n"
+},
+"make": {
+"word": "MAKE",
+"pos": "v"
+},
+"malfunction": {
+"word": "MALFUNCTION",
+"pos": "n"
+},
+"mandatory": {
+"word": "MANDATORY",
+"pos": "adj"
+},
+"manual": {
+"word": "MANUAL",
+"pos": "adj"
+},
+"manually": {
+"word": "MANUALLY",
+"pos": "adv"
+},
+"many": {
+"word": "MANY",
+"pos": "adj"
+},
+"mark": {
+"word": "MARK",
+"pos": "n"
+},
+"mass": {
+"word": "MASS",
+"pos": "n"
+},
+"together": {
+"word": "TOGETHER",
+"pos": "adv"
+},
+"material": {
+"word": "MATERIAL",
+"pos": "n"
+},
+"mating": {
+"word": "MATING",
+"pos": "adj"
+},
+"maximum": {
+"word": "MAXIMUM",
+"pos": "adj"
+},
+"possibly": {
+"word": "POSSIBLY",
+"pos": "adv"
+},
+"mechanical": {
+"word": "MECHANICAL",
+"pos": "adj"
+},
+"mechanism": {
+"word": "MECHANISM",
+"pos": "n"
+},
+"medical": {
+"word": "MEDICAL",
+"pos": "adj"
+},
+"melt": {
+"word": "MELT",
+"pos": "v"
+},
+"weather": {
+"word": "WEATHER",
+"pos": "n"
+},
+"method": {
+"word": "METHOD",
+"pos": "n"
+},
+"middle": {
+"word": "MIDDLE",
+"pos": "adj"
+},
+"minus": {
+"word": "MINUS",
+"pos": "prep"
+},
+"other": {
+"word": "OTHER",
+"pos": "adj"
+},
+"missing": {
+"word": "MISSING",
+"pos": "adj"
+},
+"mix": {
+"word": "MIX",
+"pos": "v"
+},
+"mixture": {
+"word": "MIXTURE",
+"pos": "n"
+},
+"mobile": {
+"word": "MOBILE",
+"pos": "adj"
+},
+"mode": {
+"word": "MODE",
+"pos": "n"
+},
+"moderate": {
+"word": "MODERATE",
+"pos": "adj"
+},
+"moist": {
+"word": "MOIST",
+"pos": "adj"
+},
+"moor": {
+"word": "MOOR",
+"pos": "v"
+},
+"more": {
+"word": "MORE",
+"pos": "adj"
+},
+"most": {
+"word": "MOST",
+"pos": "adj"
+},
+"movable": {
+"word": "MOVABLE",
+"pos": "adj"
+},
+"movement": {
+"word": "MOVEMENT",
+"pos": "n"
+},
+"much": {
+"word": "MUCH",
+"pos": "adj"
+},
+"multiply": {
+"word": "MULTIPLY",
+"pos": "v"
+},
+"must": {
+"word": "MUST",
+"pos": "v"
+},
+"name": {
+"word": "NAME",
+"pos": "n"
+},
+"near": {
+"word": "NEAR",
+"pos": "adj"
+},
+"necessary": {
+"word": "NECESSARY",
+"pos": "adj"
+},
+"neutral": {
+"word": "NEUTRAL",
+"pos": "adj"
+},
+"next": {
+"word": "NEXT",
+"pos": "adj"
+},
+"noise": {
+"word": "NOISE",
+"pos": "n"
+},
+"nose": {
+"word": "NOSE",
+"pos": "n"
+},
+"notch": {
+"word": "NOTCH",
+"pos": "n"
+},
+"write": {
+"word": "WRITE",
+"pos": "v"
+},
+"number": {
+"word": "NUMBER",
+"pos": "n"
+},
+"object": {
+"word": "OBJECT",
+"pos": "n"
+},
+"see": {
+"word": "SEE",
+"pos": "v"
+},
+"occur": {
+"word": "OCCUR",
+"pos": "v"
+},
+"off": {
+"word": "OFF",
+"pos": "adj"
+},
+"used": {
+"word": "USED",
+"pos": "adj"
+},
+"on": {
+"word": "ON",
+"pos": "adj"
+},
+"only": {
+"word": "ONLY",
+"pos": "adj"
+},
+"onto": {
+"word": "ONTO",
+"pos": "prep"
+},
+"open": {
+"word": "OPEN",
+"pos": "adj"
+},
+"opening": {
+"word": "OPENING",
+"pos": "n"
+},
+"operation": {
+"word": "OPERATION",
+"pos": "n"
+},
+"opposite": {
+"word": "OPPOSITE",
+"pos": "adj"
+},
+"optional": {
+"word": "OPTIONAL",
+"pos": "adj"
+},
+"or": {
+"word": "OR",
+"pos": "conj"
+},
+"differently": {
+"word": "DIFFERENTLY",
+"pos": "adv"
+},
+"out": {
+"word": "OUT",
+"pos": "adj"
+},
+"out of": {
+"word": "OUT OF",
+"pos": "prep"
+},
+"outboard": {
+"word": "OUTBOARD",
+"pos": "adj"
+},
+"outdoors": {
+"word": "OUTDOORS",
+"pos": "adv"
+},
+"outer": {
+"word": "OUTER",
+"pos": "adj"
+},
+"output": {
+"word": "OUTPUT",
+"pos": "n"
+},
+"overlap": {
+"word": "OVERLAP",
+"pos": "n"
+},
+"override": {
+"word": "OVERRIDE",
+"pos": "v"
+},
+"paint": {
+"word": "PAINT",
+"pos": "v"
+},
+"pair": {
+"word": "PAIR",
+"pos": "n"
+},
+"parallel": {
+"word": "PARALLEL",
+"pos": "adj"
+},
+"park": {
+"word": "PARK",
+"pos": "v"
+},
+"part": {
+"word": "PART",
+"pos": "n"
+},
+"particle": {
+"word": "PARTICLE",
+"pos": "n"
+},
+"through": {
+"word": "THROUGH",
+"pos": "prep"
+},
+"paste": {
+"word": "PASTE",
+"pos": "n"
+},
+"patch": {
+"word": "PATCH",
+"pos": "n"
+},
+"personnel": {
+"word": "PERSONNEL",
+"pos": "n"
+},
+"person": {
+"word": "PERSON",
+"pos": "n"
+},
+"period": {
+"word": "PERIOD",
+"pos": "n"
+},
+"permanent": {
+"word": "PERMANENT",
+"pos": "adj"
+},
+"permitted": {
+"word": "PERMITTED",
+"pos": "adj"
+},
+"piece": {
+"word": "PIECE",
+"pos": "n"
+},
+"play": {
+"word": "PLAY",
+"pos": "n"
+},
+"seal": {
+"word": "SEAL",
+"pos": "v"
+},
+"plus": {
+"word": "PLUS",
+"pos": "prep"
+},
+"pneumatic": {
+"word": "PNEUMATIC",
+"pos": "adj"
+},
+"point": {
+"word": "POINT",
+"pos": "n"
+},
+"poisonous": {
+"word": "POISONOUS",
+"pos": "adj"
+},
+"polish": {
+"word": "POLISH",
+"pos": "v"
+},
+"protrude": {
+"word": "PROTRUDE",
+"pos": "v"
+},
+"precaution": {
+"word": "PRECAUTION",
+"pos": "n"
+},
+"precision": {
+"word": "PRECISION",
+"pos": "n"
+},
+"previous": {
+"word": "PREVIOUS",
+"pos": "adj"
+},
+"previously": {
+"word": "PREVIOUSLY",
+"pos": "adv"
+},
+"primary": {
+"word": "PRIMARY",
+"pos": "adj"
+},
+"problem": {
+"word": "PROBLEM",
+"pos": "n"
+},
+"property": {
+"word": "PROPERTY",
+"pos": "n"
+},
+"proportion": {
+"word": "PROPORTION",
+"pos": "n"
+},
+"relation": {
+"word": "RELATION",
+"pos": "n"
+},
+"protection": {
+"word": "PROTECTION",
+"pos": "n"
+},
+"protective": {
+"word": "PROTECTIVE",
+"pos": "adj"
+},
+"quantity": {
+"word": "QUANTITY",
+"pos": "n"
+},
+"quickly": {
+"word": "QUICKLY",
+"pos": "adv"
+},
+"radial": {
+"word": "RADIAL",
+"pos": "adj"
+},
+"radially": {
+"word": "RADIALLY",
+"pos": "adv"
+},
+"retract": {
+"word": "RETRACT",
+"pos": "v"
+},
+"random": {
+"word": "RANDOM",
+"pos": "adj"
+},
+"randomly": {
+"word": "RANDOMLY",
+"pos": "adv"
+},
+"range": {
+"word": "RANGE",
+"pos": "n"
+},
+"rate": {
+"word": "RATE",
+"pos": "n"
+},
+"read": {
+"word": "READ",
+"pos": "v"
+},
+"rear": {
+"word": "REAR",
+"pos": "adj"
+},
+"rearward": {
+"word": "REARWARD",
+"pos": "adv"
+},
+"because of": {
+"word": "BECAUSE OF",
+"pos": "prep"
+},
+"receive": {
+"word": "RECEIVE",
+"pos": "v"
+},
+"recess": {
+"word": "RECESS",
+"pos": "n"
+},
+"wind": {
+"word": "WIND",
+"pos": "v"
+},
+"recycle": {
+"word": "RECYCLE",
+"pos": "v"
+},
+"reflection": {
+"word": "REFLECTION",
+"pos": "n"
+},
+"refuel": {
+"word": "REFUEL",
+"pos": "v"
+},
+"regular": {
+"word": "REGULAR",
+"pos": "adj"
+},
+"regularly": {
+"word": "REGULARLY",
+"pos": "adv"
+},
+"reject": {
+"word": "REJECT",
+"pos": "v"
+},
+"remaining": {
+"word": "REMAINING",
+"pos": "adj"
+},
+"removal": {
+"word": "REMOVAL",
+"pos": "n"
+},
+"report": {
+"word": "REPORT",
+"pos": "n"
+},
+"resistant": {
+"word": "RESISTANT",
+"pos": "adj"
+},
+"retraction": {
+"word": "RETRACTION",
+"pos": "n"
+},
+"right": {
+"word": "RIGHT",
+"pos": "adj"
+},
+"rigid": {
+"word": "RIGID",
+"pos": "adj"
+},
+"rough": {
+"word": "ROUGH",
+"pos": "adj"
+},
+"rounded": {
+"word": "ROUNDED",
+"pos": "adj"
+},
+"routing": {
+"word": "ROUTING",
+"pos": "n"
+},
+"row": {
+"word": "ROW",
+"pos": "n"
+},
+"rub": {
+"word": "RUB",
+"pos": "v"
+},
+"safe": {
+"word": "SAFE",
+"pos": "adj"
+},
+"safely": {
+"word": "SAFELY",
+"pos": "adv"
+},
+"safety": {
+"word": "SAFETY",
+"pos": "n"
+},
+"sample": {
+"word": "SAMPLE",
+"pos": "n"
+},
+"schedule": {
+"word": "SCHEDULE",
+"pos": "v"
+},
+"tight": {
+"word": "TIGHT",
+"pos": "adj"
+},
+"selection": {
+"word": "SELECTION",
+"pos": "n"
+},
+"send": {
+"word": "SEND",
+"pos": "v"
+},
+"sensitive": {
+"word": "SENSITIVE",
+"pos": "adj"
+},
+"separation": {
+"word": "SEPARATION",
+"pos": "n"
+},
+"serration": {
+"word": "SERRATION",
+"pos": "n"
+},
+"servicing": {
+"word": "SERVICING",
+"pos": "n"
+},
+"stable": {
+"word": "STABLE",
+"pos": "adj"
+},
+"shake": {
+"word": "SHAKE",
+"pos": "v"
+},
+"shape": {
+"word": "SHAPE",
+"pos": "n"
+},
+"sharp": {
+"word": "SHARP",
+"pos": "adj"
+},
+"sheet": {
+"word": "SHEET",
+"pos": "n"
+},
+"shiny": {
+"word": "SHINY",
+"pos": "adj"
+},
+"shock": {
+"word": "SHOCK",
+"pos": "n"
+},
+"side": {
+"word": "SIDE",
+"pos": "n"
+},
+"simulate": {
+"word": "SIMULATE",
+"pos": "v"
+},
+"since": {
+"word": "SINCE",
+"pos": "conj"
+},
+"slope": {
+"word": "SLOPE",
+"pos": "n"
+},
+"slot": {
+"word": "SLOT",
+"pos": "n"
+},
+"slow": {
+"word": "SLOW",
+"pos": "adj"
+},
+"slowly": {
+"word": "SLOWLY",
+"pos": "adv"
+},
+"smell": {
+"word": "SMELL",
+"pos": "v"
+},
+"smoke": {
+"word": "SMOKE",
+"pos": "n"
+},
+"smooth": {
+"word": "SMOOTH",
+"pos": "adj"
+},
+"smoothly": {
+"word": "SMOOTHLY",
+"pos": "adv"
+},
+"soak": {
+"word": "SOAK",
+"pos": "v"
+},
+"soft": {
+"word": "SOFT",
+"pos": "adj"
+},
+"solid": {
+"word": "SOLID",
+"pos": "adj"
+},
+"solution": {
+"word": "SOLUTION",
+"pos": "n"
+},
+"sound": {
+"word": "SOUND",
+"pos": "n"
+},
+"spark": {
+"word": "SPARK",
+"pos": "n"
+},
+"special": {
+"word": "SPECIAL",
+"pos": "adj"
+},
+"specially": {
+"word": "SPECIALLY",
+"pos": "adv"
+},
+"speed": {
+"word": "SPEED",
+"pos": "n"
+},
+"spherical": {
+"word": "SPHERICAL",
+"pos": "adj"
+},
+"spill": {
+"word": "SPILL",
+"pos": "v"
+},
+"spray": {
+"word": "SPRAY",
+"pos": "n"
+},
+"standard": {
+"word": "STANDARD",
+"pos": "adj"
+},
+"stay": {
+"word": "STAY",
+"pos": "v"
+},
+"step": {
+"word": "STEP",
+"pos": "n"
+},
+"stow": {
+"word": "STOW",
+"pos": "v"
+},
+"straight": {
+"word": "STRAIGHT",
+"pos": "adj"
+},
+"strip": {
+"word": "STRIP",
+"pos": "n"
+},
+"stripe": {
+"word": "STRIPE",
+"pos": "n"
+},
+"structure": {
+"word": "STRUCTURE",
+"pos": "n"
+},
+"subtract": {
+"word": "SUBTRACT",
+"pos": "v"
+},
+"such": {
+"word": "SUCH",
+"pos": "adj"
+},
+"sudden": {
+"word": "SUDDEN",
+"pos": "adj"
+},
+"sufficient": {
+"word": "SUFFICIENT",
+"pos": "adj"
+},
+"sum": {
+"word": "SUM",
+"pos": "n"
+},
+"sure": {
+"word": "SURE",
+"pos": "adj"
+},
+"surface": {
+"word": "SURFACE",
+"pos": "n"
+},
+"symbol": {
+"word": "SYMBOL",
+"pos": "n"
+},
+"symptom": {
+"word": "SYMPTOM",
+"pos": "n"
+},
+"system": {
+"word": "SYSTEM",
+"pos": "n"
+},
+"tacky": {
+"word": "TACKY",
+"pos": "adj"
+},
+"tag": {
+"word": "TAG",
+"pos": "v"
+},
+"do not": {
+"word": "DO NOT",
+"pos": "v"
+},
+"tap": {
+"word": "TAP",
+"pos": "v"
+},
+"telescopic": {
+"word": "TELESCOPIC",
+"pos": "adj"
+},
+"temporary": {
+"word": "TEMPORARY",
+"pos": "adj"
+},
+"tertiary": {
+"word": "TERTIARY",
+"pos": "adj"
+},
+"test": {
+"word": "TEST",
+"pos": "n"
+},
+"than": {
+"word": "THAN",
+"pos": "conj"
+},
+"that": {
+"word": "THAT",
+"pos": "conj"
+},
+"the": {
+"word": "THE",
+"pos": "art"
+},
+"there": {
+"word": "THERE",
+"pos": "adv"
+},
+"thickness": {
+"word": "THICKNESS",
+"pos": "n"
+},
+"this": {
+"word": "THIS",
+"pos": "adj"
+},
+"thru": {
+"word": "THRU",
+"pos": "prep"
+},
+"thus": {
+"word": "THUS",
+"pos": "adv"
+},
+"tighten": {
+"word": "TIGHTEN",
+"pos": "v"
+},
+"tightly": {
+"word": "TIGHTLY",
+"pos": "adv"
+},
+"tilt": {
+"word": "TILT",
+"pos": "v"
+},
+"time": {
+"word": "TIME",
+"pos": "n"
+},
+"to": {
+"word": "TO",
+"pos": "prep"
+},
+"tolerance": {
+"word": "TOLERANCE",
+"pos": "n"
+},
+"too": {
+"word": "TOO",
+"pos": "adv"
+},
+"tool": {
+"word": "TOOL",
+"pos": "n"
+},
+"top": {
+"word": "TOP",
+"pos": "adj"
+},
+"torque": {
+"word": "TORQUE",
+"pos": "v"
+},
+"total": {
+"word": "TOTAL",
+"pos": "adj"
+},
+"tow": {
+"word": "TOW",
+"pos": "v"
+},
+"transmit": {
+"word": "TRANSMIT",
+"pos": "v"
+},
+"tune": {
+"word": "TUNE",
+"pos": "v"
+},
+"twist": {
+"word": "TWIST",
+"pos": "v"
+},
+"type": {
+"word": "TYPE",
+"pos": "n"
+},
+"typical": {
+"word": "TYPICAL",
+"pos": "adj"
+},
+"unfold": {
+"word": "UNFOLD",
+"pos": "v"
+},
+"unit": {
+"word": "UNIT",
+"pos": "n"
+},
+"unknown": {
+"word": "UNKNOWN",
+"pos": "adj"
+},
+"unless": {
+"word": "UNLESS",
+"pos": "conj"
+},
+"unlock": {
+"word": "UNLOCK",
+"pos": "v"
+},
+"torily": {
+"word": "TORILY",
+"pos": "adv"
+},
+"tory": {
+"word": "TORY",
+"pos": "adj"
+},
+"until": {
+"word": "UNTIL",
+"pos": "conj"
+},
+"unusually": {
+"word": "UNUSUALLY",
+"pos": "adv"
+},
+"unwind": {
+"word": "UNWIND",
+"pos": "v"
+},
+"up": {
+"word": "UP",
+"pos": "adj"
+},
+"upstream": {
+"word": "UPSTREAM",
+"pos": "adj"
+},
+"usual": {
+"word": "USUAL",
+"pos": "adj"
+},
+"usually": {
+"word": "USUALLY",
+"pos": "adv"
+},
+"value": {
+"word": "VALUE",
+"pos": "n"
+},
+"vertical": {
+"word": "VERTICAL",
+"pos": "adj"
+},
+"vertically": {
+"word": "VERTICALLY",
+"pos": "adv"
+},
+"vibration": {
+"word": "VIBRATION",
+"pos": "n"
+},
+"visual": {
+"word": "VISUAL",
+"pos": "adj"
+},
+"visually": {
+"word": "VISUALLY",
+"pos": "adv"
+},
+"voice": {
+"word": "VOICE",
+"pos": "n"
+},
+"volume": {
+"word": "VOLUME",
+"pos": "n"
+},
+"wait": {
+"word": "WAIT",
+"pos": "v"
+},
+"walk": {
+"word": "WALK",
+"pos": "v"
+},
+"want": {
+"word": "WANT",
+"pos": "v"
+},
+"warm": {
+"word": "WARM",
+"pos": "adj"
+},
+"weak": {
+"word": "WEAK",
+"pos": "adj"
+},
+"wear": {
+"word": "WEAR",
+"pos": "v"
+},
+"weigh": {
+"word": "WEIGH",
+"pos": "v"
+},
+"weight": {
+"word": "WEIGHT",
+"pos": "n"
+},
+"wet": {
+"word": "WET",
+"pos": "adj"
+},
+"where": {
+"word": "WHERE",
+"pos": "conj"
+},
+"wide": {
+"word": "WIDE",
+"pos": "adj"
+},
+"will": {
+"word": "WILL",
+"pos": "v"
+},
+"without": {
+"word": "WITHOUT",
+"pos": "prep"
+},
+"yes": {
+"word": "YES",
+"pos": "adv"
+},
+"your": {
+"word": "YOUR",
+"pos": "adj"
+},
+"defect": {
+"word": "DEFECT",
+"pos": "",
+"from_alt": true
+},
+"none": {
+"word": "NONE",
+"pos": "",
+"from_alt": true
+},
+"progress": {
+"word": "PROGRESS",
+"pos": "",
+"from_alt": true
+},
+"one": {
+"word": "ONE",
+"pos": "",
+"from_alt": true
+},
+"analysis": {
+"word": "ANALYSIS",
+"pos": "",
+"from_alt": true
+},
+"it": {
+"word": "IT",
+"pos": "",
+"from_alt": true
+},
+"configuration": {
+"word": "CONFIGURATION",
+"pos": "",
+"from_alt": true
+},
+"symmetrical": {
+"word": "SYMMETRICAL",
+"pos": "",
+"from_alt": true
+},
+"incorrectly": {
+"word": "INCORRECTLY",
+"pos": "",
+"from_alt": true
+},
+"bank": {
+"word": "BANK",
+"pos": "",
+"from_alt": true
+},
+"fuel": {
+"word": "FUEL",
+"pos": "",
+"from_alt": true
+},
+"two": {
+"word": "TWO",
+"pos": "",
+"from_alt": true
+},
+"brush": {
+"word": "BRUSH",
+"pos": "",
+"from_alt": true
+},
+"category": {
+"word": "CATEGORY",
+"pos": "",
+"from_alt": true
+},
+"center": {
+"word": "CENTER",
+"pos": "",
+"from_alt": true
+},
+"worn": {
+"word": "WORN",
+"pos": "",
+"from_alt": true
+},
+"channel": {
+"word": "CHANNEL",
+"pos": "",
+"from_alt": true
+},
+"chock": {
+"word": "CHOCK",
+"pos": "",
+"from_alt": true
+},
+"class": {
+"word": "CLASS",
+"pos": "",
+"from_alt": true
+},
+"synchronized": {
+"word": "SYNCHRONIZED",
+"pos": "",
+"from_alt": true
+},
+"list": {
+"word": "LIST",
+"pos": "",
+"from_alt": true
+},
+"corrosion": {
+"word": "CORROSION",
+"pos": "",
+"from_alt": true
+},
+"grease": {
+"word": "GREASE",
+"pos": "",
+"from_alt": true
+},
+"ice": {
+"word": "ICE",
+"pos": "",
+"from_alt": true
+},
+"dent": {
+"word": "DENT",
+"pos": "",
+"from_alt": true
+},
+"pressure": {
+"word": "PRESSURE",
+"pos": "",
+"from_alt": true
+},
+"momentarily": {
+"word": "MOMENTARILY",
+"pos": "",
+"from_alt": true
+},
+"disinfectant": {
+"word": "DISINFECTANT",
+"pos": "",
+"from_alt": true
+},
+"you": {
+"word": "YOU",
+"pos": "",
+"from_alt": true
+},
+"satisfactorily": {
+"word": "SATISFACTORILY",
+"pos": "",
+"from_alt": true
+},
+"force": {
+"word": "FORCE",
+"pos": "",
+"from_alt": true
+},
+"closed": {
+"word": "CLOSED",
+"pos": "",
+"from_alt": true
+},
+"accurately": {
+"word": "ACCURATELY",
+"pos": "",
+"from_alt": true
+},
+"filter": {
+"word": "FILTER",
+"pos": "",
+"from_alt": true
+},
+"focus": {
+"word": "FOCUS",
+"pos": "",
+"from_alt": true
+},
+"water": {
+"word": "WATER",
+"pos": "",
+"from_alt": true
+},
+"galling": {
+"word": "GALLING",
+"pos": "",
+"from_alt": true
+},
+"away": {
+"word": "AWAY",
+"pos": "",
+"from_alt": true
+},
+"caps": {
+"word": "CAPS",
+"pos": "",
+"from_alt": true
+},
+"gouge": {
+"word": "GOUGE",
+"pos": "",
+"from_alt": true
+},
+"graph": {
+"word": "GRAPH",
+"pos": "",
+"from_alt": true
+},
+"guard": {
+"word": "GUARD",
+"pos": "",
+"from_alt": true
+},
+"half": {
+"word": "HALF",
+"pos": "",
+"from_alt": true
+},
+"haze": {
+"word": "HAZE",
+"pos": "",
+"from_alt": true
+},
+"hum": {
+"word": "HUM",
+"pos": "",
+"from_alt": true
+},
+"idle": {
+"word": "IDLE",
+"pos": "",
+"from_alt": true
+},
+"ignition": {
+"word": "IGNITION",
+"pos": "",
+"from_alt": true
+},
+"better": {
+"word": "BETTER",
+"pos": "",
+"from_alt": true
+},
+"autothrust": {
+"word": "AUTOTHRUST",
+"pos": "",
+"from_alt": true
+},
+"accidental": {
+"word": "ACCIDENTAL",
+"pos": "",
+"from_alt": true
+},
+"software": {
+"word": "SOFTWARE",
+"pos": "",
+"from_alt": true
+},
+"independently": {
+"word": "INDEPENDENTLY",
+"pos": "",
+"from_alt": true
+},
+"intersection": {
+"word": "INTERSECTION",
+"pos": "",
+"from_alt": true
+},
+"investigation": {
+"word": "INVESTIGATION",
+"pos": "",
+"from_alt": true
+},
+"jack": {
+"word": "JACK",
+"pos": "",
+"from_alt": true
+},
+"kink": {
+"word": "KINK",
+"pos": "",
+"from_alt": true
+},
+"landing": {
+"word": "LANDING",
+"pos": "",
+"from_alt": true
+},
+"subsequently": {
+"word": "SUBSEQUENTLY",
+"pos": "",
+"from_alt": true
+},
+"motor": {
+"word": "MOTOR",
+"pos": "",
+"from_alt": true
+},
+"frequently": {
+"word": "FREQUENTLY",
+"pos": "",
+"from_alt": true
+},
+"oil": {
+"word": "OIL",
+"pos": "",
+"from_alt": true
+},
+"overhaul": {
+"word": "OVERHAUL",
+"pos": "",
+"from_alt": true
+},
+"unsatisfactory": {
+"word": "UNSATISFACTORY",
+"pos": "",
+"from_alt": true
+},
+"is": {
+"word": "IS",
+"pos": "",
+"from_alt": true
+},
+"load": {
+"word": "LOAD",
+"pos": "",
+"from_alt": true
+},
+"preservation": {
+"word": "PRESERVATION",
+"pos": "",
+"from_alt": true
+},
+"pump": {
+"word": "PUMP",
+"pos": "",
+"from_alt": true
+},
+"rope": {
+"word": "ROPE",
+"pos": "",
+"from_alt": true
+},
+"score": {
+"word": "SCORE",
+"pos": "",
+"from_alt": true
+},
+"scratch": {
+"word": "SCRATCH",
+"pos": "",
+"from_alt": true
+},
+"skid": {
+"word": "SKID",
+"pos": "",
+"from_alt": true
+},
+"tension": {
+"word": "TENSION",
+"pos": "",
+"from_alt": true
+},
+"retaining": {
+"word": "RETAINING",
+"pos": "",
+"from_alt": true
+},
+"soap": {
+"word": "SOAP",
+"pos": "",
+"from_alt": true
+},
+"span": {
+"word": "SPAN",
+"pos": "",
+"from_alt": true
+},
+"spline": {
+"word": "SPLINE",
+"pos": "",
+"from_alt": true
+},
+"continuously": {
+"word": "CONTINUOUSLY",
+"pos": "",
+"from_alt": true
+},
+"sufficiently": {
+"word": "SUFFICIENTLY",
+"pos": "",
+"from_alt": true
+},
+"scan": {
+"word": "SCAN",
+"pos": "",
+"from_alt": true
+},
+"tape": {
+"word": "TAPE",
+"pos": "",
+"from_alt": true
+},
+"thread": {
+"word": "THREAD",
+"pos": "",
+"from_alt": true
+},
+"caught": {
+"word": "CAUGHT",
+"pos": "",
+"from_alt": true
+},
+"troubleshooting": {
+"word": "TROUBLESHOOTING",
+"pos": "",
+"from_alt": true
+},
+"cover": {
+"word": "COVER",
+"pos": "",
+"from_alt": true
+},
+"zero": {
+"word": "ZERO",
+"pos": "",
+"from_alt": true
+},
+"are": {
+"word": "ARE",
+"pos": "",
+"allow": true
+},
+"was": {
+"word": "WAS",
+"pos": "",
+"allow": true
+},
+"were": {
+"word": "WERE",
+"pos": "",
+"allow": true
+},
+"been": {
+"word": "BEEN",
+"pos": "",
+"allow": true
+},
+"being": {
+"word": "BEING",
+"pos": "",
+"allow": true
+},
+"those": {
+"word": "THOSE",
+"pos": "",
+"allow": true
+}
+},
+"not_approved": {
+"abaft": {
+"word": "abaft",
+"pos": "prep",
+"alt": "AFT OF"
+},
+"abandon": {
+"word": "abandon",
+"pos": "v",
+"alt": "GO"
+},
+"abate": {
+"word": "abate",
+"pos": "v",
+"alt": "DECREASE"
+},
+"ability": {
+"word": "ability",
+"pos": "n",
+"alt": "CAN"
+},
+"able": {
+"word": "able",
+"pos": "adj",
+"alt": "CAN"
+},
+"abnormal": {
+"word": "abnormal",
+"pos": "adj",
+"alt": "UNUSUAL"
+},
+"abnormality": {
+"word": "abnormality",
+"pos": "n",
+"alt": "DEFECT"
+},
+"abrupt": {
+"word": "abrupt",
+"pos": "adj",
+"alt": "SUDDEN"
+},
+"absence": {
+"word": "absence",
+"pos": "n",
+"alt": "NONE"
+},
+"absent": {
+"word": "absent",
+"pos": "adj",
+"alt": "MISSING"
+},
+"absolutely": {
+"word": "absolutely",
+"pos": "adv",
+"alt": "FULLY"
+},
+"absorption": {
+"word": "absorption",
+"pos": "n",
+"alt": "ABSORB"
+},
+"abundant": {
+"word": "abundant",
+"pos": "adj",
+"alt": "LARGE"
+},
+"abut": {
+"word": "abut",
+"pos": "v",
+"alt": "TOUCH"
+},
+"accelerate": {
+"word": "accelerate",
+"pos": "v",
+"alt": "INCREASE"
+},
+"acceptable": {
+"word": "acceptable",
+"pos": "adj",
+"alt": "PERMITTED"
+},
+"acceptance": {
+"word": "acceptance",
+"pos": "n",
+"alt": "ACCEPT"
+},
+"accessible": {
+"word": "accessible",
+"pos": "adj",
+"alt": "ACCESS"
+},
+"accommodate": {
+"word": "accommodate",
+"pos": "v",
+"alt": "LET"
+},
+"accomplish": {
+"word": "accomplish",
+"pos": "v",
+"alt": "DO"
+},
+"account for": {
+"word": "account for",
+"pos": "v",
+"alt": "MAKE SURE"
+},
+"accumulate": {
+"word": "accumulate",
+"pos": "v",
+"alt": "COLLECT"
+},
+"accumulation": {
+"word": "accumulation",
+"pos": "n",
+"alt": "QUANTITY"
+},
+"accuracy": {
+"word": "accuracy",
+"pos": "n",
+"alt": "PRECISION"
+},
+"achieve": {
+"word": "achieve",
+"pos": "v",
+"alt": "GET"
+},
+"acquire": {
+"word": "acquire",
+"pos": "v",
+"alt": "GET"
+},
+"acrid": {
+"word": "acrid",
+"pos": "adj",
+"alt": "DANGEROUS"
+},
+"act": {
+"word": "act",
+"pos": "v",
+"alt": "U"
+},
+"action": {
+"word": "action",
+"pos": "n",
+"alt": "STEP"
+},
+"activity": {
+"word": "activity",
+"pos": "n",
+"alt": "TASK"
+},
+"actuate": {
+"word": "actuate",
+"pos": "v",
+"alt": "START"
+},
+"actuation": {
+"word": "actuation",
+"pos": "n",
+"alt": "OPERATION"
+},
+"addition": {
+"word": "addition",
+"pos": "n",
+"alt": "ADD"
+},
+"additional": {
+"word": "additional",
+"pos": "adj",
+"alt": "MORE"
+},
+"adequate": {
+"word": "adequate",
+"pos": "adj",
+"alt": "SUFFICIENT"
+},
+"adhere": {
+"word": "adhere",
+"pos": "v",
+"alt": "BOND"
+},
+"adhesion": {
+"word": "adhesion",
+"pos": "n",
+"alt": "BOND"
+},
+"adjoining": {
+"word": "adjoining",
+"pos": "adj",
+"alt": "ADJACENT"
+},
+"admit": {
+"word": "admit",
+"pos": "v",
+"alt": "LET"
+},
+"adopt": {
+"word": "adopt",
+"pos": "v",
+"alt": "USE"
+},
+"advance": {
+"word": "advance",
+"pos": "v",
+"alt": "SET"
+},
+"adverse": {
+"word": "adverse",
+"pos": "adj",
+"alt": "BAD"
+},
+"advisable": {
+"word": "advisable",
+"pos": "adj",
+"alt": "RECOMMEND"
+},
+"advise": {
+"word": "advise",
+"pos": "v",
+"alt": "TELL"
+},
+"affect": {
+"word": "affect",
+"pos": "v",
+"alt": "EFFECT"
+},
+"aggravate": {
+"word": "aggravate",
+"pos": "v",
+"alt": "INCREASE"
+},
+"agitate": {
+"word": "agitate",
+"pos": "v",
+"alt": "SHAKE"
+},
+"agitation": {
+"word": "agitation",
+"pos": "n",
+"alt": "SHAKE"
+},
+"ahead": {
+"word": "ahead",
+"pos": "adv",
+"alt": "FORWARD"
+},
+"aid": {
+"word": "aid",
+"pos": "v",
+"alt": "HELP"
+},
+"aim": {
+"word": "aim",
+"pos": "v",
+"alt": "POINT"
+},
+"air-dry": {
+"word": "air-dry",
+"pos": "v",
+"alt": "DRY"
+},
+"alert": {
+"word": "alert",
+"pos": "v",
+"alt": "TELL"
+},
+"alignment": {
+"word": "alignment",
+"pos": "n",
+"alt": "ALIGN"
+},
+"allocate": {
+"word": "allocate",
+"pos": "v",
+"alt": "GIVE"
+},
+"allow": {
+"word": "allow",
+"pos": "v",
+"alt": "LET"
+},
+"allowable": {
+"word": "allowable",
+"pos": "adj",
+"alt": "PERMITTED"
+},
+"already": {
+"word": "already",
+"pos": "adv",
+"alt": "IN PROGRESS"
+},
+"alter": {
+"word": "alter",
+"pos": "v",
+"alt": "CHANGE"
+},
+"alteration": {
+"word": "alteration",
+"pos": "n",
+"alt": "CHANGE"
+},
+"alternate": {
+"word": "alternate",
+"pos": "v",
+"alt": "THEN"
+},
+"alternately": {
+"word": "alternately",
+"pos": "adv",
+"alt": "IN ONE"
+},
+"alternatively": {
+"word": "alternatively",
+"pos": "adv",
+"alt": "ALTERNATIVE"
+},
+"amend": {
+"word": "amend",
+"pos": "v",
+"alt": "CHANGE"
+},
+"amendment": {
+"word": "amendment",
+"pos": "n",
+"alt": "CHANGE"
+},
+"among": {
+"word": "among",
+"pos": "prep",
+"alt": "IN"
+},
+"amount": {
+"word": "amount",
+"pos": "n",
+"alt": "QUANTITY"
+},
+"analyze": {
+"word": "analyze",
+"pos": "v",
+"alt": "ANALYSIS"
+},
+"anchor": {
+"word": "anchor",
+"pos": "v",
+"alt": "ATTACH"
+},
+"ancillary": {
+"word": "ancillary",
+"pos": "adj",
+"alt": "AUXILIARY"
+},
+"annotation": {
+"word": "annotation",
+"pos": "n",
+"alt": "WRITE"
+},
+"annunciate": {
+"word": "annunciate",
+"pos": "v",
+"alt": "SHOW"
+},
+"another": {
+"word": "another",
+"pos": "adj",
+"alt": "ONE"
+},
+"any": {
+"word": "any",
+"pos": "adj",
+"alt": "F"
+},
+"anytime": {
+"word": "anytime",
+"pos": "adv",
+"alt": "WHEN"
+},
+"aperture": {
+"word": "aperture",
+"pos": "n",
+"alt": "OPENING"
+},
+"apparent": {
+"word": "apparent",
+"pos": "adj",
+"alt": "SEE"
+},
+"appear": {
+"word": "appear",
+"pos": "v",
+"alt": "SHOW"
+},
+"application": {
+"word": "application",
+"pos": "n",
+"alt": "APPLY"
+},
+"appoint": {
+"word": "appoint",
+"pos": "v",
+"alt": "TELL"
+},
+"approach": {
+"word": "approach",
+"pos": "v",
+"alt": "GO NEAR IF IT"
+},
+"appropriate": {
+"word": "appropriate",
+"pos": "adj",
+"alt": "APPLICABLE"
+},
+"approve": {
+"word": "approve",
+"pos": "v",
+"alt": "APPROVAL"
+},
+"arise": {
+"word": "arise",
+"pos": "v",
+"alt": "OCCUR"
+},
+"arrange": {
+"word": "arrange",
+"pos": "v",
+"alt": "PUT"
+},
+"arrangement": {
+"word": "arrangement",
+"pos": "n",
+"alt": "CONFIGURATION"
+},
+"arrest": {
+"word": "arrest",
+"pos": "v",
+"alt": "STOP"
+},
+"arrive": {
+"word": "arrive",
+"pos": "v",
+"alt": "GET"
+},
+"article": {
+"word": "article",
+"pos": "n",
+"alt": "OBJECT"
+},
+"as": {
+"word": "as",
+"pos": "conj",
+"alt": "BECAUSE"
+},
+"ascertain": {
+"word": "ascertain",
+"pos": "v",
+"alt": "MAKE SURE"
+},
+"ask": {
+"word": "ask",
+"pos": "v",
+"alt": "TELL"
+},
+"assess": {
+"word": "assess",
+"pos": "v",
+"alt": "CALCULATE"
+},
+"assessment": {
+"word": "assessment",
+"pos": "n",
+"alt": "ESTIMATE"
+},
+"assign": {
+"word": "assign",
+"pos": "v",
+"alt": "GIVE"
+},
+"assist": {
+"word": "assist",
+"pos": "v",
+"alt": "HELP"
+},
+"assistance": {
+"word": "assistance",
+"pos": "n",
+"alt": "AID"
+},
+"associated": {
+"word": "associated",
+"pos": "adj",
+"alt": "CORRECT"
+},
+"assume": {
+"word": "assume",
+"pos": "v",
+"alt": "THINK"
+},
+"assure": {
+"word": "assure",
+"pos": "v",
+"alt": "MAKE SURE"
+},
+"as to": {
+"word": "as to",
+"pos": "prep",
+"alt": "ABOUT"
+},
+"asymmetric": {
+"word": "asymmetric",
+"pos": "adj",
+"alt": "NOT SYMMETRICAL IF THE"
+},
+"attachment": {
+"word": "attachment",
+"pos": "n",
+"alt": "ATTACH"
+},
+"attain": {
+"word": "attain",
+"pos": "v",
+"alt": "SHOW"
+},
+"attempt": {
+"word": "attempt",
+"pos": "v",
+"alt": "TRY"
+},
+"attention": {
+"word": "attention",
+"pos": "n",
+"alt": "AID"
+},
+"audible": {
+"word": "audible",
+"pos": "adj",
+"alt": "HEAR"
+},
+"augment": {
+"word": "augment",
+"pos": "v",
+"alt": "INCREASE"
+},
+"aurally": {
+"word": "aurally",
+"pos": "adv",
+"alt": "LISTEN"
+},
+"authentic": {
+"word": "authentic",
+"pos": "adj",
+"alt": "ACCURATE"
+},
+"authorized": {
+"word": "authorized",
+"pos": "adj",
+"alt": "APPROVED"
+},
+"avert": {
+"word": "avert",
+"pos": "v",
+"alt": "PREVENT"
+},
+"avoid": {
+"word": "avoid",
+"pos": "v",
+"alt": "PREVENT"
+},
+"aware": {
+"word": "aware",
+"pos": "adj",
+"alt": "KNOW"
+},
+"back": {
+"word": "back",
+"pos": "n",
+"alt": "REAR"
+},
+"back off": {
+"word": "back off",
+"pos": "v",
+"alt": "LOOSEN"
+},
+"backup": {
+"word": "backup",
+"pos": "n",
+"alt": "EMERGENCY"
+},
+"backward": {
+"word": "backward",
+"pos": "adv",
+"alt": "REARWARD"
+},
+"badly": {
+"word": "badly",
+"pos": "adv",
+"alt": "INCORRECTLY"
+},
+"bank": {
+"word": "bank",
+"pos": "v",
+"alt": "BANK"
+},
+"bared": {
+"word": "bared",
+"pos": "adj",
+"alt": "BARE"
+},
+"base": {
+"word": "base",
+"pos": "v",
+"alt": "USE"
+},
+"begin": {
+"word": "begin",
+"pos": "v",
+"alt": "START"
+},
+"beginning": {
+"word": "beginning",
+"pos": "n",
+"alt": "START"
+},
+"below": {
+"word": "below",
+"pos": "adv",
+"alt": "FOLLOW"
+},
+"beneath": {
+"word": "beneath",
+"pos": "prep",
+"alt": "BELOW"
+},
+"beside": {
+"word": "beside",
+"pos": "prep",
+"alt": "ADJACENT TO THE FUEL"
+},
+"beware": {
+"word": "beware",
+"pos": "v",
+"alt": "CAREFUL"
+},
+"beyond": {
+"word": "beyond",
+"pos": "prep",
+"alt": "MORE THAN REPLACE ALL"
+},
+"big": {
+"word": "big",
+"pos": "adj",
+"alt": "LARGE"
+},
+"bind": {
+"word": "bind",
+"pos": "v",
+"alt": "FREELY"
+},
+"blank": {
+"word": "blank",
+"pos": "v",
+"alt": "SEAL"
+},
+"blend": {
+"word": "blend",
+"pos": "v",
+"alt": "MIX"
+},
+"block": {
+"word": "block",
+"pos": "v",
+"alt": "CAUSE A BLOCKAGE MAKE"
+},
+"blot": {
+"word": "blot",
+"pos": "v",
+"alt": "DRY"
+},
+"blunted": {
+"word": "blunted",
+"pos": "adj",
+"alt": "BLUNT"
+},
+"bolt": {
+"word": "bolt",
+"pos": "v",
+"alt": "ATTACH"
+},
+"both": {
+"word": "both",
+"pos": "adj",
+"alt": "THE TWO"
+},
+"bottom": {
+"word": "bottom",
+"pos": "v",
+"alt": "TOUCH"
+},
+"bounds": {
+"word": "bounds",
+"pos": "n",
+"alt": "LIMIT"
+},
+"brace": {
+"word": "brace",
+"pos": "v",
+"alt": "HOLD"
+},
+"branch": {
+"word": "branch",
+"pos": "v",
+"alt": "DIVIDE"
+},
+"breadth": {
+"word": "breadth",
+"pos": "n",
+"alt": "WIDTH"
+},
+"break": {
+"word": "break",
+"pos": "n",
+"alt": "STOP"
+},
+"breakdown": {
+"word": "breakdown",
+"pos": "n",
+"alt": "STOP"
+},
+"brilliance": {
+"word": "brilliance",
+"pos": "n",
+"alt": "INTENSITY"
+},
+"bring": {
+"word": "bring",
+"pos": "v",
+"alt": "MOVE"
+},
+"briskly": {
+"word": "briskly",
+"pos": "adv",
+"alt": "QUICKLY"
+},
+"broadcast": {
+"word": "broadcast",
+"pos": "v",
+"alt": "TRANSMIT"
+},
+"brush": {
+"word": "brush",
+"pos": "v",
+"alt": "BRUSH"
+},
+"brush on": {
+"word": "brush on",
+"pos": "v",
+"alt": "BRUSH"
+},
+"build": {
+"word": "build",
+"pos": "v",
+"alt": "ASSEMBLE"
+},
+"bump": {
+"word": "bump",
+"pos": "v",
+"alt": "HIT"
+},
+"burst": {
+"word": "burst",
+"pos": "v",
+"alt": "BREAK"
+},
+"butt": {
+"word": "butt",
+"pos": "v",
+"alt": "TOUCH"
+},
+"by means of": {
+"word": "by means of",
+"pos": "prep",
+"alt": "WITH"
+},
+"calculation": {
+"word": "calculation",
+"pos": "n",
+"alt": "CALCULATE"
+},
+"call": {
+"word": "call",
+"pos": "v",
+"alt": "TELL"
+},
+"cap": {
+"word": "cap",
+"pos": "v",
+"alt": "SEAL"
+},
+"capability": {
+"word": "capability",
+"pos": "n",
+"alt": "FUNCTION"
+},
+"capable": {
+"word": "capable",
+"pos": "adj",
+"alt": "APPROVED"
+},
+"care": {
+"word": "care",
+"pos": "n",
+"alt": "PRECAUTION"
+},
+"carry": {
+"word": "carry",
+"pos": "v",
+"alt": "TRANSMIT"
+},
+"carry out": {
+"word": "carry out",
+"pos": "v",
+"alt": "DO"
+},
+"case": {
+"word": "case",
+"pos": "n",
+"alt": "CONDITION"
+},
+"categorize": {
+"word": "categorize",
+"pos": "v",
+"alt": "CATEGORY"
+},
+"caution": {
+"word": "caution",
+"pos": "v",
+"alt": "TELL"
+},
+"cautiously": {
+"word": "cautiously",
+"pos": "adv",
+"alt": "CAREFULLY"
+},
+"cavity": {
+"word": "cavity",
+"pos": "n",
+"alt": "HOLE"
+},
+"cease": {
+"word": "cease",
+"pos": "v",
+"alt": "STOP"
+},
+"center": {
+"word": "center",
+"pos": "v",
+"alt": "CENTER"
+},
+"centralize": {
+"word": "centralize",
+"pos": "v",
+"alt": "CENTER"
+},
+"certain": {
+"word": "certain",
+"pos": "adj",
+"alt": "SURE"
+},
+"certify": {
+"word": "certify",
+"pos": "v",
+"alt": "WRITE"
+},
+"chafe": {
+"word": "chafe",
+"pos": "v",
+"alt": "RUB"
+},
+"chafed": {
+"word": "chafed",
+"pos": "adj",
+"alt": "WORN"
+},
+"channel": {
+"word": "channel",
+"pos": "v",
+"alt": "CHANNEL"
+},
+"characteristic": {
+"word": "characteristic",
+"pos": "n",
+"alt": "PROPERTY"
+},
+"check": {
+"word": "check",
+"pos": "v",
+"alt": "MAKE SURE"
+},
+"chip": {
+"word": "chip",
+"pos": "v",
+"alt": "DAMAGED"
+},
+"chock": {
+"word": "chock",
+"pos": "v",
+"alt": "CHOCK"
+},
+"choice": {
+"word": "choice",
+"pos": "n",
+"alt": "SELECTION"
+},
+"choose": {
+"word": "choose",
+"pos": "v",
+"alt": "SELECT"
+},
+"circa": {
+"word": "circa",
+"pos": "prep",
+"alt": "APPROXIMATELY"
+},
+"circle": {
+"word": "circle",
+"pos": "v",
+"alt": "AROUND"
+},
+"circulate": {
+"word": "circulate",
+"pos": "v",
+"alt": "SUPPLY"
+},
+"clamp": {
+"word": "clamp",
+"pos": "v",
+"alt": "ATTACH"
+},
+"classification": {
+"word": "classification",
+"pos": "n",
+"alt": "CLASS"
+},
+"cleanliness": {
+"word": "cleanliness",
+"pos": "n",
+"alt": "CLEAN"
+},
+"clear": {
+"word": "clear",
+"pos": "v",
+"alt": "CLEAN"
+},
+"click": {
+"word": "click",
+"pos": "v",
+"alt": "CLICK"
+},
+"clip": {
+"word": "clip",
+"pos": "v",
+"alt": "CUT"
+},
+"close": {
+"word": "close",
+"pos": "adj",
+"alt": "NEAR"
+},
+"closely": {
+"word": "closely",
+"pos": "adv",
+"alt": "CAREFULLY"
+},
+"close to": {
+"word": "close to",
+"pos": "adv",
+"alt": "NEAR"
+},
+"coat": {
+"word": "coat",
+"pos": "v",
+"alt": "LAYER"
+},
+"coating": {
+"word": "coating",
+"pos": "n",
+"alt": "LAYER"
+},
+"cock": {
+"word": "cock",
+"pos": "v",
+"alt": "SET"
+},
+"code": {
+"word": "code",
+"pos": "v",
+"alt": "IDENTIFY"
+},
+"coil": {
+"word": "coil",
+"pos": "v",
+"alt": "WIND"
+},
+"coincide": {
+"word": "coincide",
+"pos": "v",
+"alt": "ALIGN"
+},
+"coincident": {
+"word": "coincident",
+"pos": "adj",
+"alt": "SYNCHRONIZED"
+},
+"collapse": {
+"word": "collapse",
+"pos": "v",
+"alt": "CLOSE"
+},
+"color code": {
+"word": "color code",
+"pos": "v",
+"alt": "IDENTIFY"
+},
+"colored": {
+"word": "colored",
+"pos": "adj",
+"alt": "COLOR"
+},
+"combine": {
+"word": "combine",
+"pos": "v",
+"alt": "MIX"
+},
+"combustible": {
+"word": "combustible",
+"pos": "adj",
+"alt": "FLAMMABLE"
+},
+"commence": {
+"word": "commence",
+"pos": "v",
+"alt": "START"
+},
+"common": {
+"word": "common",
+"pos": "adj",
+"alt": "SAME"
+},
+"communicate": {
+"word": "communicate",
+"pos": "v",
+"alt": "CONTACT"
+},
+"comparison": {
+"word": "comparison",
+"pos": "n",
+"alt": "COMPARE"
+},
+"compile": {
+"word": "compile",
+"pos": "v",
+"alt": "MAKE A LIST MAKE"
+},
+"complete": {
+"word": "complete",
+"pos": "adj",
+"alt": "FULL"
+},
+"completely": {
+"word": "completely",
+"pos": "adv",
+"alt": "FULLY"
+},
+"completion": {
+"word": "completion",
+"pos": "n",
+"alt": "END"
+},
+"complicated": {
+"word": "complicated",
+"pos": "adj",
+"alt": "NOT EASY THIS TEST"
+},
+"comply": {
+"word": "comply",
+"pos": "v",
+"alt": "OBEY"
+},
+"comprise": {
+"word": "comprise",
+"pos": "v",
+"alt": "HAVE"
+},
+"compulsory": {
+"word": "compulsory",
+"pos": "adj",
+"alt": "MANDATORY"
+},
+"compute": {
+"word": "compute",
+"pos": "v",
+"alt": "CALCULATE"
+},
+"concentrate": {
+"word": "concentrate",
+"pos": "v",
+"alt": "ALL"
+},
+"concern": {
+"word": "concern",
+"pos": "v",
+"alt": "APPLICABLE"
+},
+"conclusion": {
+"word": "conclusion",
+"pos": "n",
+"alt": "END"
+},
+"concurrently": {
+"word": "concurrently",
+"pos": "adj",
+"alt": "AT THE SAME TIME"
+},
+"use if": {
+"word": "Use IF",
+"pos": "conj",
+"alt": ""
+},
+"conduct": {
+"word": "conduct",
+"pos": "v",
+"alt": "DO"
+},
+"confine to": {
+"word": "confine to",
+"pos": "v",
+"alt": "ONLY"
+},
+"confirm": {
+"word": "confirm",
+"pos": "v",
+"alt": "MAKE SURE"
+},
+"conflict": {
+"word": "conflict",
+"pos": "n",
+"alt": "DIFFERENT"
+},
+"conform": {
+"word": "conform",
+"pos": "v",
+"alt": "AGREE"
+},
+"conformance": {
+"word": "conformance",
+"pos": "n",
+"alt": "AGREE"
+},
+"conformity": {
+"word": "conformity",
+"pos": "n",
+"alt": "AGREE"
+},
+"consecutive": {
+"word": "consecutive",
+"pos": "adj",
+"alt": "ONE"
+},
+"consequence": {
+"word": "consequence",
+"pos": "n",
+"alt": "BECAUSE OF"
+},
+"consider": {
+"word": "consider",
+"pos": "v",
+"alt": "THINK"
+},
+"considerable": {
+"word": "considerable",
+"pos": "adj",
+"alt": "LARGE"
+},
+"consist of": {
+"word": "consist of",
+"pos": "v",
+"alt": "HAVE"
+},
+"consistent": {
+"word": "consistent",
+"pos": "adj",
+"alt": "AGREE"
+},
+"construct": {
+"word": "construct",
+"pos": "v",
+"alt": "ASSEMBLE"
+},
+"consult": {
+"word": "consult",
+"pos": "v",
+"alt": "REFER"
+},
+"contaminant": {
+"word": "contaminant",
+"pos": "n",
+"alt": "CONTAMINATION"
+},
+"contaminated": {
+"word": "contaminated",
+"pos": "adj",
+"alt": "DIRTY"
+},
+"contiguous": {
+"word": "contiguous",
+"pos": "adj",
+"alt": "ADJACENT"
+},
+"conventional": {
+"word": "conventional",
+"pos": "adj",
+"alt": "STANDARD"
+},
+"converse": {
+"word": "converse",
+"pos": "adj",
+"alt": "OPPOSITE"
+},
+"convert": {
+"word": "convert",
+"pos": "v",
+"alt": "CHANGE"
+},
+"convey": {
+"word": "convey",
+"pos": "v",
+"alt": "MOVE"
+},
+"cool": {
+"word": "cool",
+"pos": "v",
+"alt": "DECREASE"
+},
+"coordinate": {
+"word": "coordinate",
+"pos": "v",
+"alt": "SYNCHRONIZED"
+},
+"copy": {
+"word": "copy",
+"pos": "v",
+"alt": "WRITE"
+},
+"correctness": {
+"word": "correctness",
+"pos": "n",
+"alt": "CORRECT"
+},
+"correspond": {
+"word": "correspond",
+"pos": "v",
+"alt": "AGREE"
+},
+"corrode": {
+"word": "corrode",
+"pos": "v",
+"alt": "CORROSION"
+},
+"corrosive": {
+"word": "corrosive",
+"pos": "adj",
+"alt": "CORROSION"
+},
+"couple": {
+"word": "couple",
+"pos": "v",
+"alt": "CONNECT"
+},
+"cover": {
+"word": "cover",
+"pos": "v",
+"alt": "INCLUDE"
+},
+"crack": {
+"word": "crack",
+"pos": "v",
+"alt": "OPEN"
+},
+"create": {
+"word": "create",
+"pos": "v",
+"alt": "MAKE"
+},
+"critical": {
+"word": "critical",
+"pos": "adj",
+"alt": "VERY IMPORTANT THE CONDITION"
+},
+"cross": {
+"word": "cross",
+"pos": "v",
+"alt": "ACROSS"
+},
+"curvature": {
+"word": "curvature",
+"pos": "n",
+"alt": "BEND"
+},
+"curve": {
+"word": "curve",
+"pos": "v",
+"alt": "MAKE A CURVE BEND"
+},
+"cycle": {
+"word": "cycle",
+"pos": "v",
+"alt": "CYCLE"
+},
+"damage": {
+"word": "damage",
+"pos": "v",
+"alt": "DAMAGE"
+},
+"damp": {
+"word": "damp",
+"pos": "adj",
+"alt": "MOIST"
+},
+"dampen": {
+"word": "dampen",
+"pos": "v",
+"alt": "DECREASE"
+},
+"danger": {
+"word": "danger",
+"pos": "n",
+"alt": "RISK"
+},
+"dangerously": {
+"word": "dangerously",
+"pos": "adv",
+"alt": "DANGEROUS"
+},
+"deadly": {
+"word": "deadly",
+"pos": "adj",
+"alt": "KILL"
+},
+"deaerate": {
+"word": "deaerate",
+"pos": "v",
+"alt": "BLEED"
+},
+"dearm": {
+"word": "dearm",
+"pos": "v",
+"alt": "DISARM"
+},
+"decay": {
+"word": "decay",
+"pos": "v",
+"alt": "DECREASE"
+},
+"decelerate": {
+"word": "decelerate",
+"pos": "v",
+"alt": "DECREASE"
+},
+"decide": {
+"word": "decide",
+"pos": "v",
+"alt": "SELECT"
+},
+"decrease": {
+"word": "decrease",
+"pos": "n",
+"alt": "DECREASE"
+},
+"decrement": {
+"word": "decrement",
+"pos": "n",
+"alt": "INCREMENT"
+},
+"define": {
+"word": "define",
+"pos": "v",
+"alt": "CALCULATE"
+},
+"deflect": {
+"word": "deflect",
+"pos": "v",
+"alt": "MOVE"
+},
+"deflection": {
+"word": "deflection",
+"pos": "n",
+"alt": "MOVEMENT"
+},
+"deformed": {
+"word": "deformed",
+"pos": "adj",
+"alt": "DAMAGED"
+},
+"defueling": {
+"word": "defueling",
+"pos": "n",
+"alt": "DEFUEL"
+},
+"degrease": {
+"word": "degrease",
+"pos": "v",
+"alt": "GREASE"
+},
+"de-ice": {
+"word": "de-ice",
+"pos": "v",
+"alt": "ICE"
+},
+"delay": {
+"word": "delay",
+"pos": "v",
+"alt": "AFTER"
+},
+"delete": {
+"word": "delete",
+"pos": "v",
+"alt": "ERASE"
+},
+"delicate": {
+"word": "delicate",
+"pos": "adj",
+"alt": "EASILY DAMAGED BE CAREFUL"
+},
+"deliver": {
+"word": "deliver",
+"pos": "v",
+"alt": "SUPPLY"
+},
+"delivery": {
+"word": "delivery",
+"pos": "n",
+"alt": "SUPPLY"
+},
+"demand": {
+"word": "demand",
+"pos": "v",
+"alt": "NECESSARY"
+},
+"denote": {
+"word": "denote",
+"pos": "v",
+"alt": "SHOW"
+},
+"dent": {
+"word": "dent",
+"pos": "v",
+"alt": "DENT"
+},
+"depend": {
+"word": "depend",
+"pos": "v",
+"alt": "IF"
+},
+"deplete": {
+"word": "deplete",
+"pos": "v",
+"alt": "DECREASE"
+},
+"deposit": {
+"word": "deposit",
+"pos": "n",
+"alt": "PARTICLE"
+},
+"depress": {
+"word": "depress",
+"pos": "v",
+"alt": "PUSH"
+},
+"depressurize": {
+"word": "depressurize",
+"pos": "v",
+"alt": "PRESSURE"
+},
+"describe": {
+"word": "describe",
+"pos": "v",
+"alt": "GIVE"
+},
+"deselect": {
+"word": "deselect",
+"pos": "v",
+"alt": "CANCEL"
+},
+"design": {
+"word": "design",
+"pos": "v",
+"alt": "HAVE"
+},
+"desired": {
+"word": "desired",
+"pos": "adj",
+"alt": "NECESSARY"
+},
+"destroy": {
+"word": "destroy",
+"pos": "v",
+"alt": "BREAK"
+},
+"detach": {
+"word": "detach",
+"pos": "v",
+"alt": "DISCONNECT"
+},
+"detail": {
+"word": "detail",
+"pos": "v",
+"alt": "GIVE"
+},
+"detect": {
+"word": "detect",
+"pos": "v",
+"alt": "FIND"
+},
+"determine": {
+"word": "determine",
+"pos": "v",
+"alt": "FIND"
+},
+"detrimental": {
+"word": "detrimental",
+"pos": "adj",
+"alt": "DANGEROUS"
+},
+"develop": {
+"word": "develop",
+"pos": "v",
+"alt": "START"
+},
+"deviate": {
+"word": "deviate",
+"pos": "v",
+"alt": "OBEY"
+},
+"devise": {
+"word": "devise",
+"pos": "v",
+"alt": "MAKE"
+},
+"diagnose": {
+"word": "diagnose",
+"pos": "v",
+"alt": "FIND"
+},
+"diametrically": {
+"word": "diametrically",
+"pos": "adv",
+"alt": "OPPOSITE"
+},
+"differ": {
+"word": "differ",
+"pos": "v",
+"alt": "DIFFERENT"
+},
+"differentiate": {
+"word": "differentiate",
+"pos": "v",
+"alt": "IDENTIFY"
+},
+"difficult": {
+"word": "difficult",
+"pos": "adj",
+"alt": "NOT EASY IF IT"
+},
+"difficulty": {
+"word": "difficulty",
+"pos": "n",
+"alt": "NOT EASY IF IT"
+},
+"dilute": {
+"word": "dilute",
+"pos": "v",
+"alt": "MIX"
+},
+"dim": {
+"word": "dim",
+"pos": "v",
+"alt": "DECREASE"
+},
+"diminish": {
+"word": "diminish",
+"pos": "v",
+"alt": "DECREASE"
+},
+"dip": {
+"word": "dip",
+"pos": "v",
+"alt": "MOMENTARILY"
+},
+"direct": {
+"word": "direct",
+"pos": "v",
+"alt": "POINT"
+},
+"disappear": {
+"word": "disappear",
+"pos": "v",
+"alt": "VIEW"
+},
+"discharge": {
+"word": "discharge",
+"pos": "v",
+"alt": "RELEASE"
+},
+"discontinue": {
+"word": "discontinue",
+"pos": "v",
+"alt": "STOP"
+},
+"discover": {
+"word": "discover",
+"pos": "v",
+"alt": "FIND"
+},
+"discrepancy": {
+"word": "discrepancy",
+"pos": "n",
+"alt": "DIFFERENCE"
+},
+"disinfect": {
+"word": "disinfect",
+"pos": "v",
+"alt": "DISINFECTANT"
+},
+"dismantle": {
+"word": "dismantle",
+"pos": "v",
+"alt": "DISASSEMBLE"
+},
+"dispatch": {
+"word": "dispatch",
+"pos": "v",
+"alt": "SEND"
+},
+"disperse": {
+"word": "disperse",
+"pos": "v",
+"alt": "REMOVE"
+},
+"displace": {
+"word": "displace",
+"pos": "v",
+"alt": "MOVE"
+},
+"display": {
+"word": "display",
+"pos": "v",
+"alt": "SHOW"
+},
+"dispose of": {
+"word": "dispose of",
+"pos": "v",
+"alt": "DISCARD"
+},
+"disposition": {
+"word": "disposition",
+"pos": "n",
+"alt": "LOCATION"
+},
+"disregard": {
+"word": "disregard",
+"pos": "v",
+"alt": "IGNORE"
+},
+"distinct": {
+"word": "distinct",
+"pos": "adj",
+"alt": "CLEAR"
+},
+"distinctly": {
+"word": "distinctly",
+"pos": "adv",
+"alt": "CLEARLY"
+},
+"distort": {
+"word": "distort",
+"pos": "v",
+"alt": "TWIST"
+},
+"distribute": {
+"word": "distribute",
+"pos": "v",
+"alt": "APPLY"
+},
+"distribution": {
+"word": "distribution",
+"pos": "n",
+"alt": "SUPPLY"
+},
+"disturb": {
+"word": "disturb",
+"pos": "v",
+"alt": "MOVE"
+},
+"don": {
+"word": "don",
+"pos": "v",
+"alt": "USE"
+},
+"doubt": {
+"word": "doubt",
+"pos": "n",
+"alt": "NOT SURE IF YOU"
+},
+"downward": {
+"word": "downward",
+"pos": "adv",
+"alt": "DOWN"
+},
+"drag": {
+"word": "drag",
+"pos": "v",
+"alt": "PULL"
+},
+"draw": {
+"word": "draw",
+"pos": "v",
+"alt": "MAKE"
+},
+"dress": {
+"word": "dress",
+"pos": "v",
+"alt": "USE"
+},
+"drift": {
+"word": "drift",
+"pos": "v",
+"alt": "MOVE"
+},
+"drive": {
+"word": "drive",
+"pos": "v",
+"alt": "MOVE"
+},
+"droop": {
+"word": "droop",
+"pos": "v",
+"alt": "MOVE"
+},
+"drop": {
+"word": "drop",
+"pos": "v",
+"alt": "FALL"
+},
+"due to": {
+"word": "due to",
+"pos": "prep",
+"alt": "BECAUSE OF"
+},
+"dull": {
+"word": "dull",
+"pos": "adj",
+"alt": "DIM"
+},
+"duration": {
+"word": "duration",
+"pos": "n",
+"alt": "DURING"
+},
+"dust": {
+"word": "dust",
+"pos": "v",
+"alt": "APPLY"
+},
+"early": {
+"word": "early",
+"pos": "adj",
+"alt": "SHORT"
+},
+"earth": {
+"word": "earth",
+"pos": "v",
+"alt": "GROUND"
+},
+"ease": {
+"word": "ease",
+"pos": "v",
+"alt": "CAREFULLY REMOVE CAREFULLY REMOVE"
+},
+"effect": {
+"word": "effect",
+"pos": "v",
+"alt": "DO"
+},
+"effective": {
+"word": "effective",
+"pos": "adj",
+"alt": "GOOD"
+},
+"efficacious": {
+"word": "efficacious",
+"pos": "adj",
+"alt": "GOOD"
+},
+"efficient": {
+"word": "efficient",
+"pos": "adj",
+"alt": "SATISFACTORY"
+},
+"efficiently": {
+"word": "efficiently",
+"pos": "adv",
+"alt": "SATISFACTORILY"
+},
+"efflux": {
+"word": "efflux",
+"pos": "n",
+"alt": "EXHAUST"
+},
+"effort": {
+"word": "effort",
+"pos": "n",
+"alt": "FORCE"
+},
+"either": {
+"word": "either",
+"pos": "conj",
+"alt": "OR"
+},
+"ejection": {
+"word": "ejection",
+"pos": "n",
+"alt": "EJECT"
+},
+"elapse": {
+"word": "elapse",
+"pos": "v",
+"alt": "TIME"
+},
+"eliminate": {
+"word": "eliminate",
+"pos": "v",
+"alt": "REMOVE"
+},
+"emit": {
+"word": "emit",
+"pos": "v",
+"alt": "FROM"
+},
+"employ": {
+"word": "employ",
+"pos": "v",
+"alt": "USE"
+},
+"empty": {
+"word": "empty",
+"pos": "v",
+"alt": "REMOVE"
+},
+"enable": {
+"word": "enable",
+"pos": "v",
+"alt": "LET"
+},
+"encircle": {
+"word": "encircle",
+"pos": "v",
+"alt": "AROUND"
+},
+"enclosed": {
+"word": "enclosed",
+"pos": "adj",
+"alt": "CLOSED"
+},
+"encounter": {
+"word": "encounter",
+"pos": "v",
+"alt": "BE"
+},
+"end": {
+"word": "end",
+"pos": "v",
+"alt": "STOP"
+},
+"enforce": {
+"word": "enforce",
+"pos": "v",
+"alt": "OBEY"
+},
+"engagement": {
+"word": "engagement",
+"pos": "n",
+"alt": "ENGAGE"
+},
+"enlarge": {
+"word": "enlarge",
+"pos": "v",
+"alt": "INCREASE"
+},
+"enough": {
+"word": "enough",
+"pos": "adj",
+"alt": "SUFFICIENT"
+},
+"ensue": {
+"word": "ensue",
+"pos": "v",
+"alt": "CAUSE"
+},
+"ensure": {
+"word": "ensure",
+"pos": "v",
+"alt": "MAKE SURE"
+},
+"enter": {
+"word": "enter",
+"pos": "v",
+"alt": "GO INTO DO NOT"
+},
+"entire": {
+"word": "entire",
+"pos": "adj",
+"alt": "FULL"
+},
+"entirely": {
+"word": "entirely",
+"pos": "adv",
+"alt": "FULLY"
+},
+"equal": {
+"word": "equal",
+"pos": "v",
+"alt": "SAME"
+},
+"equip": {
+"word": "equip",
+"pos": "v",
+"alt": "INSTALL"
+},
+"equipped": {
+"word": "equipped",
+"pos": "adj",
+"alt": "HAVE"
+},
+"erect": {
+"word": "erect",
+"pos": "v",
+"alt": "ASSEMBLE"
+},
+"erratic": {
+"word": "erratic",
+"pos": "adj",
+"alt": "IRREGULAR"
+},
+"escape": {
+"word": "escape",
+"pos": "v",
+"alt": "DEFLATE"
+},
+"establish": {
+"word": "establish",
+"pos": "v",
+"alt": "MAKE SURE"
+},
+"estimate": {
+"word": "estimate",
+"pos": "v",
+"alt": "ESTIMATE"
+},
+"evaluate": {
+"word": "evaluate",
+"pos": "v",
+"alt": "EXAMINE"
+},
+"evaluation": {
+"word": "evaluation",
+"pos": "n",
+"alt": "EXAMINE"
+},
+"evaporate": {
+"word": "evaporate",
+"pos": "v",
+"alt": "DRY"
+},
+"even": {
+"word": "even",
+"pos": "adj",
+"alt": "SMOOTH"
+},
+"evenly": {
+"word": "evenly",
+"pos": "adv",
+"alt": "GRADUALLY"
+},
+"event": {
+"word": "event",
+"pos": "n",
+"alt": "IF"
+},
+"eventually": {
+"word": "eventually",
+"pos": "adv",
+"alt": "SOME TIME IF THE"
+},
+"every": {
+"word": "every",
+"pos": "adj",
+"alt": "ALL"
+},
+"evidence": {
+"word": "evidence",
+"pos": "v",
+"alt": "SHOW"
+},
+"evident": {
+"word": "evident",
+"pos": "adj",
+"alt": "FIND"
+},
+"exact": {
+"word": "exact",
+"pos": "adj",
+"alt": "ACCURATE"
+},
+"exactly": {
+"word": "exactly",
+"pos": "adv",
+"alt": "ACCURATELY"
+},
+"examination": {
+"word": "examination",
+"pos": "n",
+"alt": "EXAMINE"
+},
+"exceed": {
+"word": "exceed",
+"pos": "v",
+"alt": "MORE THAN MAKE SURE"
+},
+"except": {
+"word": "except",
+"pos": "prep",
+"alt": "T"
+},
+"exception": {
+"word": "exception",
+"pos": "n",
+"alt": "T"
+},
+"exceptional": {
+"word": "exceptional",
+"pos": "adj",
+"alt": "UNUSUAL"
+},
+"exceptionally": {
+"word": "exceptionally",
+"pos": "adv",
+"alt": "UNUSUALLY"
+},
+"excess": {
+"word": "excess",
+"pos": "n",
+"alt": "TOO MUCH IF YOU"
+},
+"excessive": {
+"word": "excessive",
+"pos": "adj",
+"alt": "TOO MUCH TOO MUCH"
+},
+"excessively": {
+"word": "excessively",
+"pos": "adv",
+"alt": "TOO MUCH BE CAREFUL"
+},
+"exchange": {
+"word": "exchange",
+"pos": "v",
+"alt": "INTERCHANGE"
+},
+"exclude": {
+"word": "exclude",
+"pos": "v",
+"alt": "NOT INCLUDE THIS PROCEDURE"
+},
+"excluding": {
+"word": "excluding",
+"pos": "prep",
+"alt": "WITHOUT"
+},
+"execute": {
+"word": "execute",
+"pos": "v",
+"alt": "DO"
+},
+"exempt": {
+"word": "exempt",
+"pos": "adj",
+"alt": "NO"
+},
+"exercise": {
+"word": "exercise",
+"pos": "v",
+"alt": "MAKE SURE"
+},
+"exert": {
+"word": "exert",
+"pos": "v",
+"alt": "APPLY"
+},
+"exhale": {
+"word": "exhale",
+"pos": "v",
+"alt": "BREATHE"
+},
+"exhaust": {
+"word": "exhaust",
+"pos": "v",
+"alt": "REMOVE"
+},
+"exhaustive": {
+"word": "exhaustive",
+"pos": "adj",
+"alt": "ALL"
+},
+"exist": {
+"word": "exist",
+"pos": "v",
+"alt": "BE"
+},
+"expect": {
+"word": "expect",
+"pos": "v",
+"alt": "POSSIBLE"
+},
+"expel": {
+"word": "expel",
+"pos": "v",
+"alt": "REMOVE"
+},
+"explain": {
+"word": "explain",
+"pos": "v",
+"alt": "TELL"
+},
+"expose": {
+"word": "expose",
+"pos": "v",
+"alt": "GET"
+},
+"extent": {
+"word": "extent",
+"pos": "n",
+"alt": "DEPTH"
+},
+"exterior": {
+"word": "exterior",
+"pos": "n",
+"alt": "EXTERNAL"
+},
+"extra": {
+"word": "extra",
+"pos": "adj",
+"alt": "MORE"
+},
+"extract": {
+"word": "extract",
+"pos": "v",
+"alt": "REMOVE"
+},
+"extreme": {
+"word": "extreme",
+"pos": "adj",
+"alt": "VERY HIGH"
+},
+"extremely": {
+"word": "extremely",
+"pos": "adv",
+"alt": "VERY"
+},
+"exude": {
+"word": "exude",
+"pos": "v",
+"alt": "OUT OF"
+},
+"fabricate": {
+"word": "fabricate",
+"pos": "v",
+"alt": "MAKE"
+},
+"face": {
+"word": "face",
+"pos": "v",
+"alt": "POINT"
+},
+"facilitate": {
+"word": "facilitate",
+"pos": "v",
+"alt": "HELP"
+},
+"facility": {
+"word": "facility",
+"pos": "n",
+"alt": "B"
+},
+"factor": {
+"word": "factor",
+"pos": "n",
+"alt": "CAUSE"
+},
+"fail": {
+"word": "fail",
+"pos": "v",
+"alt": "IF"
+},
+"failed": {
+"word": "failed",
+"pos": "adj",
+"alt": "DEFECTIVE"
+},
+"failure": {
+"word": "failure",
+"pos": "n",
+"alt": "IF"
+},
+"faint": {
+"word": "faint",
+"pos": "adj",
+"alt": "DIM"
+},
+"fall": {
+"word": "fall",
+"pos": "n",
+"alt": "DECREASE"
+},
+"false": {
+"word": "false",
+"pos": "adj",
+"alt": "INCORRECT"
+},
+"falter": {
+"word": "falter",
+"pos": "v",
+"alt": "SMOOTHLY"
+},
+"familiar": {
+"word": "familiar",
+"pos": "adj",
+"alt": "KNOW"
+},
+"fashion": {
+"word": "fashion",
+"pos": "n",
+"alt": "PROCEDURE"
+},
+"fast": {
+"word": "fast",
+"pos": "adv",
+"alt": "QUICKLY"
+},
+"fasten": {
+"word": "fasten",
+"pos": "v",
+"alt": "ATTACH"
+},
+"fatal": {
+"word": "fatal",
+"pos": "adj",
+"alt": "KILL"
+},
+"faulty": {
+"word": "faulty",
+"pos": "adj",
+"alt": "DEFECTIVE"
+},
+"fear": {
+"word": "fear",
+"pos": "v",
+"alt": "THINK"
+},
+"feasible": {
+"word": "feasible",
+"pos": "adj",
+"alt": "POSSIBLE"
+},
+"feature": {
+"word": "feature",
+"pos": "v",
+"alt": "HAVE"
+},
+"feed": {
+"word": "feed",
+"pos": "v",
+"alt": "PUT"
+},
+"few": {
+"word": "few",
+"pos": "adj",
+"alt": "SMALL NUMBER"
+},
+"file": {
+"word": "file",
+"pos": "v",
+"alt": "REMOVE"
+},
+"filing": {
+"word": "filing",
+"pos": "n",
+"alt": "PARTICLE"
+},
+"film": {
+"word": "film",
+"pos": "n",
+"alt": "LAYER"
+},
+"filter": {
+"word": "filter",
+"pos": "v",
+"alt": "FILTER"
+},
+"final": {
+"word": "final",
+"pos": "adj",
+"alt": "LAST"
+},
+"finding": {
+"word": "finding",
+"pos": "n",
+"alt": "RESULT"
+},
+"fine": {
+"word": "fine",
+"pos": "adj",
+"alt": "SMALL"
+},
+"finger-tighten": {
+"word": "finger-tighten",
+"pos": "v",
+"alt": "TIGHTEN"
+},
+"finish": {
+"word": "finish",
+"pos": "v",
+"alt": "COMPLETE"
+},
+"firmly": {
+"word": "firmly",
+"pos": "adv",
+"alt": "TIGHTLY"
+},
+"fit": {
+"word": "fit",
+"pos": "v",
+"alt": "INSTALL"
+},
+"fix": {
+"word": "fix",
+"pos": "v",
+"alt": "ATTACH"
+},
+"flatness": {
+"word": "flatness",
+"pos": "n",
+"alt": "FLAT"
+},
+"flatten": {
+"word": "flatten",
+"pos": "v",
+"alt": "FLAT"
+},
+"flaw": {
+"word": "flaw",
+"pos": "n",
+"alt": "DAMAGE"
+},
+"flex": {
+"word": "flex",
+"pos": "v",
+"alt": "BEND"
+},
+"flood": {
+"word": "flood",
+"pos": "v",
+"alt": "USE TOO MUCH DO"
+},
+"fluctuate": {
+"word": "fluctuate",
+"pos": "v",
+"alt": "CONSTANT"
+},
+"focus": {
+"word": "focus",
+"pos": "v",
+"alt": "FOCUS"
+},
+"fold": {
+"word": "fold",
+"pos": "n",
+"alt": "FOLD"
+},
+"following": {
+"word": "following",
+"pos": "adj",
+"alt": "THESE"
+},
+"forbidden": {
+"word": "forbidden",
+"pos": "adj",
+"alt": "DO NOT DO NOT"
+},
+"force": {
+"word": "force",
+"pos": "v",
+"alt": "PUSH"
+},
+"forecast": {
+"word": "forecast",
+"pos": "v",
+"alt": "POSSIBLE"
+},
+"foreign": {
+"word": "foreign",
+"pos": "adj",
+"alt": "UNWANTED"
+},
+"foremost": {
+"word": "foremost",
+"pos": "adj",
+"alt": "FRONT"
+},
+"form": {
+"word": "form",
+"pos": "v",
+"alt": "BE"
+},
+"fortify": {
+"word": "fortify",
+"pos": "v",
+"alt": "STRONG"
+},
+"foul": {
+"word": "foul",
+"pos": "v",
+"alt": "CATCH"
+},
+"fouled": {
+"word": "fouled",
+"pos": "adj",
+"alt": "DIRTY"
+},
+"fragile": {
+"word": "fragile",
+"pos": "adj",
+"alt": "EASILY DAMAGED THE WATER"
+},
+"free from": {
+"word": "free from",
+"pos": "adj",
+"alt": "NO"
+},
+"free": {
+"word": "free",
+"pos": "v",
+"alt": "RELEASE"
+},
+"fresh": {
+"word": "fresh",
+"pos": "adj",
+"alt": "CLEAN"
+},
+"fuel": {
+"word": "fuel",
+"pos": "v",
+"alt": "REFUEL"
+},
+"fulfill": {
+"word": "fulfill",
+"pos": "v",
+"alt": "OBEY"
+},
+"function": {
+"word": "function",
+"pos": "v",
+"alt": "OPERATE"
+},
+"fundamental": {
+"word": "fundamental",
+"pos": "adj",
+"alt": "IMPORTANT"
+},
+"further": {
+"word": "further",
+"pos": "adv",
+"alt": "MORE"
+},
+"gain": {
+"word": "gain",
+"pos": "v",
+"alt": "GET"
+},
+"gall": {
+"word": "gall",
+"pos": "v",
+"alt": "GALLING"
+},
+"gap": {
+"word": "gap",
+"pos": "n",
+"alt": "CLEARANCE"
+},
+"garbled": {
+"word": "garbled",
+"pos": "adj",
+"alt": "CLEAR"
+},
+"garner": {
+"word": "garner",
+"pos": "v",
+"alt": "COLLECT"
+},
+"gaseous": {
+"word": "gaseous",
+"pos": "adj",
+"alt": "GAS"
+},
+"gash": {
+"word": "gash",
+"pos": "v",
+"alt": "DAMAGED"
+},
+"gather": {
+"word": "gather",
+"pos": "v",
+"alt": "COLLECT"
+},
+"gauge": {
+"word": "gauge",
+"pos": "v",
+"alt": "MEASURE"
+},
+"generally": {
+"word": "generally",
+"pos": "adv",
+"alt": "USUALLY"
+},
+"generate": {
+"word": "generate",
+"pos": "v",
+"alt": "BE"
+},
+"generous": {
+"word": "generous",
+"pos": "adj",
+"alt": "LARGE"
+},
+"generously": {
+"word": "generously",
+"pos": "adv",
+"alt": "LARGE"
+},
+"gentle": {
+"word": "gentle",
+"pos": "adj",
+"alt": "CAREFULLY"
+},
+"gently": {
+"word": "gently",
+"pos": "adv",
+"alt": "CAREFULLY"
+},
+"genuine": {
+"word": "genuine",
+"pos": "adj",
+"alt": "CORRECT"
+},
+"get": {
+"word": "get",
+"pos": "v",
+"alt": "BECOME"
+},
+"get away": {
+"word": "get away",
+"pos": "v",
+"alt": "GO AWAY BEFORE THE"
+},
+"get down": {
+"word": "get down",
+"pos": "v",
+"alt": "DECREASE"
+},
+"get into": {
+"word": "get into",
+"pos": "v",
+"alt": "GO INTO INSTALL CAPS"
+},
+"get off": {
+"word": "get off",
+"pos": "v",
+"alt": "MOVE OFF BEFORE YOU"
+},
+"get to": {
+"word": "get to",
+"pos": "v",
+"alt": "BE"
+},
+"gleam": {
+"word": "gleam",
+"pos": "v",
+"alt": "SHINY"
+},
+"glitch": {
+"word": "glitch",
+"pos": "n",
+"alt": "ERROR"
+},
+"gloss": {
+"word": "gloss",
+"pos": "n",
+"alt": "SHINY"
+},
+"glow": {
+"word": "glow",
+"pos": "v",
+"alt": "BE"
+},
+"glue": {
+"word": "glue",
+"pos": "v",
+"alt": "BOND"
+},
+"gouge": {
+"word": "gouge",
+"pos": "v",
+"alt": "GOUGE"
+},
+"govern": {
+"word": "govern",
+"pos": "v",
+"alt": "CONTROL"
+},
+"grab": {
+"word": "grab",
+"pos": "v",
+"alt": "USE"
+},
+"gradient": {
+"word": "gradient",
+"pos": "n",
+"alt": "SLOPE"
+},
+"gradual": {
+"word": "gradual",
+"pos": "adj",
+"alt": "GRADUALLY"
+},
+"graph": {
+"word": "graph",
+"pos": "v",
+"alt": "GRAPH"
+},
+"grasp": {
+"word": "grasp",
+"pos": "v",
+"alt": "HOLD"
+},
+"grave": {
+"word": "grave",
+"pos": "adj",
+"alt": "DANGEROUS"
+},
+"grease": {
+"word": "grease",
+"pos": "v",
+"alt": "LUBRICATE"
+},
+"great": {
+"word": "great",
+"pos": "adj",
+"alt": "LARGE"
+},
+"greatly": {
+"word": "greatly",
+"pos": "adv",
+"alt": "VERY MUCH THIS METHOD"
+},
+"grip": {
+"word": "grip",
+"pos": "v",
+"alt": "HOLD"
+},
+"grow": {
+"word": "grow",
+"pos": "v",
+"alt": "BECOME"
+},
+"guard": {
+"word": "guard",
+"pos": "v",
+"alt": "GUARD"
+},
+"guide": {
+"word": "guide",
+"pos": "v",
+"alt": "PUT"
+},
+"gush": {
+"word": "gush",
+"pos": "v",
+"alt": "FLOW"
+},
+"halt": {
+"word": "halt",
+"pos": "v",
+"alt": "STOP"
+},
+"halve": {
+"word": "halve",
+"pos": "v",
+"alt": "HALF"
+},
+"hamper": {
+"word": "hamper",
+"pos": "v",
+"alt": "PREVENT"
+},
+"handle": {
+"word": "handle",
+"pos": "v",
+"alt": "MOVE"
+},
+"hand-tight": {
+"word": "hand-tight",
+"pos": "adj",
+"alt": "TIGHTEN"
+},
+"hand-tighten": {
+"word": "hand-tighten",
+"pos": "v",
+"alt": "TIGHTEN"
+},
+"happen": {
+"word": "happen",
+"pos": "v",
+"alt": "OCCUR"
+},
+"harden": {
+"word": "harden",
+"pos": "v",
+"alt": "HARD"
+},
+"harm": {
+"word": "harm",
+"pos": "v",
+"alt": "INJURY"
+},
+"harmful": {
+"word": "harmful",
+"pos": "adj",
+"alt": "DANGEROUS"
+},
+"harmonize": {
+"word": "harmonize",
+"pos": "v",
+"alt": "AGREE"
+},
+"haul": {
+"word": "haul",
+"pos": "v",
+"alt": "TOW"
+},
+"have to": {
+"word": "have to",
+"pos": "v",
+"alt": "U"
+},
+"hazard": {
+"word": "hazard",
+"pos": "n",
+"alt": "DANGEROUS"
+},
+"hazardous": {
+"word": "hazardous",
+"pos": "adj",
+"alt": "DANGEROUS"
+},
+"hazy": {
+"word": "hazy",
+"pos": "adj",
+"alt": "HAZE"
+},
+"head": {
+"word": "head",
+"pos": "v",
+"alt": "POINT"
+},
+"heat": {
+"word": "heat",
+"pos": "v",
+"alt": "HEAT"
+},
+"heighten": {
+"word": "heighten",
+"pos": "v",
+"alt": "INCREASE"
+},
+"help": {
+"word": "help",
+"pos": "n",
+"alt": "AID"
+},
+"helpful": {
+"word": "helpful",
+"pos": "adj",
+"alt": "HELP"
+},
+"hesitation": {
+"word": "hesitation",
+"pos": "n",
+"alt": "SMOOTHLY"
+},
+"highly": {
+"word": "highly",
+"pos": "adv",
+"alt": "VERY"
+},
+"hinder": {
+"word": "hinder",
+"pos": "v",
+"alt": "PREVENT"
+},
+"hinge": {
+"word": "hinge",
+"pos": "v",
+"alt": "TURN"
+},
+"hitch": {
+"word": "hitch",
+"pos": "v",
+"alt": "CONNECT"
+},
+"hoist": {
+"word": "hoist",
+"pos": "v",
+"alt": "LIFT"
+},
+"hold": {
+"word": "hold",
+"pos": "n",
+"alt": "HOLD"
+},
+"hold back": {
+"word": "hold back",
+"pos": "v",
+"alt": "PREVENT"
+},
+"hold off": {
+"word": "hold off",
+"pos": "v",
+"alt": "PREVENT"
+},
+"hook": {
+"word": "hook",
+"pos": "v",
+"alt": "PUT"
+},
+"hook up": {
+"word": "hook up",
+"pos": "v",
+"alt": "CONNECT"
+},
+"house": {
+"word": "house",
+"pos": "v",
+"alt": "CONTAIN"
+},
+"however": {
+"word": "however",
+"pos": "adv",
+"alt": "BUT"
+},
+"huge": {
+"word": "huge",
+"pos": "adj",
+"alt": "LARGE"
+},
+"hum": {
+"word": "hum",
+"pos": "v",
+"alt": "HUM"
+},
+"hurt": {
+"word": "hurt",
+"pos": "v",
+"alt": "INJURY"
+},
+"identical": {
+"word": "identical",
+"pos": "adj",
+"alt": "SAME"
+},
+"idle": {
+"word": "idle",
+"pos": "v",
+"alt": "IDLE"
+},
+"ignite": {
+"word": "ignite",
+"pos": "v",
+"alt": "IGNITION"
+},
+"immediate": {
+"word": "immediate",
+"pos": "adj",
+"alt": "IMMEDIATELY"
+},
+"immerse": {
+"word": "immerse",
+"pos": "v",
+"alt": "SOAK"
+},
+"immobilize": {
+"word": "immobilize",
+"pos": "v",
+"alt": "LOCK"
+},
+"impact": {
+"word": "impact",
+"pos": "v",
+"alt": "HIT"
+},
+"impair": {
+"word": "impair",
+"pos": "v",
+"alt": "DECREASE"
+},
+"implement": {
+"word": "implement",
+"pos": "v",
+"alt": "DO"
+},
+"implementation": {
+"word": "implementation",
+"pos": "n",
+"alt": "DO"
+},
+"impossible": {
+"word": "impossible",
+"pos": "adj",
+"alt": "NOT POSSIBLE THUS"
+},
+"impregnate": {
+"word": "impregnate",
+"pos": "v",
+"alt": "SOAK"
+},
+"impression": {
+"word": "impression",
+"pos": "n",
+"alt": "THINK"
+},
+"improper": {
+"word": "improper",
+"pos": "adj",
+"alt": "INCORRECT"
+},
+"improperly": {
+"word": "improperly",
+"pos": "adv",
+"alt": "INCORRECTLY"
+},
+"improve": {
+"word": "improve",
+"pos": "v",
+"alt": "BETTER"
+},
+"impurity": {
+"word": "impurity",
+"pos": "n",
+"alt": "UNWANTED MATERIAL USE A"
+},
+"inactive": {
+"word": "inactive",
+"pos": "adj",
+"alt": "NOT ACTIVE THE AUTOTHRUST"
+},
+"inadvertent": {
+"word": "inadvertent",
+"pos": "adj",
+"alt": "ACCIDENTAL"
+},
+"inadvertently": {
+"word": "inadvertently",
+"pos": "adv",
+"alt": "ACCIDENTALLY"
+},
+"incline": {
+"word": "incline",
+"pos": "n",
+"alt": "SLOPE"
+},
+"including": {
+"word": "including",
+"pos": "prep",
+"alt": "THRU"
+},
+"incompatible": {
+"word": "incompatible",
+"pos": "adj",
+"alt": "NOT COMPATIBLE THIS SOFTWARE"
+},
+"incomplete": {
+"word": "incomplete",
+"pos": "adj",
+"alt": "NOT FULL IF THE"
+},
+"incorporate": {
+"word": "incorporate",
+"pos": "v",
+"alt": "INCLUDE"
+},
+"incorporation": {
+"word": "incorporation",
+"pos": "n",
+"alt": "INCLUDE"
+},
+"increase": {
+"word": "increase",
+"pos": "n",
+"alt": "INCREASE"
+},
+"incur": {
+"word": "incur",
+"pos": "v",
+"alt": "CAUSE"
+},
+"independent": {
+"word": "independent",
+"pos": "adj",
+"alt": "INDEPENDENTLY"
+},
+"indicate": {
+"word": "indicate",
+"pos": "v",
+"alt": "SHOW"
+},
+"induce": {
+"word": "induce",
+"pos": "v",
+"alt": "CAUSE"
+},
+"ineffective": {
+"word": "ineffective",
+"pos": "adj",
+"alt": "UNSERVICEABLE"
+},
+"inflammable": {
+"word": "inflammable",
+"pos": "adj",
+"alt": "FLAMMABLE"
+},
+"inform": {
+"word": "inform",
+"pos": "v",
+"alt": "TELL"
+},
+"ingest": {
+"word": "ingest",
+"pos": "v",
+"alt": "SWALLOW"
+},
+"ingress": {
+"word": "ingress",
+"pos": "n",
+"alt": "GO INTO IF WATER"
+},
+"inhale": {
+"word": "inhale",
+"pos": "v",
+"alt": "BREATHE"
+},
+"inhibit": {
+"word": "inhibit",
+"pos": "v",
+"alt": "PREVENT"
+},
+"initiate": {
+"word": "initiate",
+"pos": "v",
+"alt": "START"
+},
+"inject": {
+"word": "inject",
+"pos": "v",
+"alt": "PUT"
+},
+"injection": {
+"word": "injection",
+"pos": "n",
+"alt": "PUT"
+},
+"injure": {
+"word": "injure",
+"pos": "v",
+"alt": "INJURY"
+},
+"inoperative": {
+"word": "inoperative",
+"pos": "adj",
+"alt": "OFF"
+},
+"insert": {
+"word": "insert",
+"pos": "v",
+"alt": "PUT"
+},
+"inside": {
+"word": "inside",
+"pos": "prep",
+"alt": "IN"
+},
+"inspect": {
+"word": "inspect",
+"pos": "v",
+"alt": "EXAMINE"
+},
+"instead": {
+"word": "instead",
+"pos": "adv",
+"alt": "ALTERNATIVE"
+},
+"instead of": {
+"word": "instead of",
+"pos": "prep",
+"alt": "ALTERNATIVE"
+},
+"insufficient": {
+"word": "insufficient",
+"pos": "adj",
+"alt": "NOT SUFFICIENT IF THIS"
+},
+"insure": {
+"word": "insure",
+"pos": "v",
+"alt": "MAKE SURE"
+},
+"intact": {
+"word": "intact",
+"pos": "adj",
+"alt": "NOT DAMAGED MAKE SURE"
+},
+"integral": {
+"word": "integral",
+"pos": "adj",
+"alt": "PART"
+},
+"interconnect": {
+"word": "interconnect",
+"pos": "v",
+"alt": "CONNECT"
+},
+"interfere": {
+"word": "interfere",
+"pos": "v",
+"alt": "HIT"
+},
+"interference": {
+"word": "interference",
+"pos": "n",
+"alt": "HIT"
+},
+"interior": {
+"word": "interior",
+"pos": "n",
+"alt": "INTERNALLY"
+},
+"intermediate": {
+"word": "intermediate",
+"pos": "adj",
+"alt": "MIDDLE"
+},
+"interrupt": {
+"word": "interrupt",
+"pos": "v",
+"alt": "STOP"
+},
+"intersect": {
+"word": "intersect",
+"pos": "v",
+"alt": "INTERSECTION"
+},
+"investigate": {
+"word": "investigate",
+"pos": "v",
+"alt": "INVESTIGATION"
+},
+"inward": {
+"word": "inward",
+"pos": "adv",
+"alt": "IN"
+},
+"irregularity": {
+"word": "irregularity",
+"pos": "n",
+"alt": "DAMAGE"
+},
+"isolation": {
+"word": "isolation",
+"pos": "n",
+"alt": "ISOLATE"
+},
+"jack": {
+"word": "jack",
+"pos": "v",
+"alt": "JACK"
+},
+"jam": {
+"word": "jam",
+"pos": "v",
+"alt": "FREELY"
+},
+"job": {
+"word": "job",
+"pos": "n",
+"alt": "WORK"
+},
+"join": {
+"word": "join",
+"pos": "v",
+"alt": "BOND"
+},
+"just": {
+"word": "just",
+"pos": "adv",
+"alt": "IMMEDIATELY"
+},
+"key": {
+"word": "key",
+"pos": "v",
+"alt": "REFER"
+},
+"kind": {
+"word": "kind",
+"pos": "n",
+"alt": "TYPE"
+},
+"kink": {
+"word": "kink",
+"pos": "v",
+"alt": "KINK"
+},
+"knock": {
+"word": "knock",
+"pos": "v",
+"alt": "HIT"
+},
+"label": {
+"word": "label",
+"pos": "v",
+"alt": "IDENTIFY"
+},
+"lack": {
+"word": "lack",
+"pos": "n",
+"alt": "NOT SUFFICIENT DAMAGE CAN"
+},
+"land": {
+"word": "land",
+"pos": "v",
+"alt": "LANDING"
+},
+"last": {
+"word": "last",
+"pos": "v",
+"alt": "CONTINUE"
+},
+"later": {
+"word": "later",
+"pos": "adv",
+"alt": "SUBSEQUENTLY"
+},
+"lay": {
+"word": "lay",
+"pos": "v",
+"alt": "PUT"
+},
+"lead": {
+"word": "lead",
+"pos": "v",
+"alt": "PUT"
+},
+"leak": {
+"word": "leak",
+"pos": "v",
+"alt": "LEAK"
+},
+"least": {
+"word": "least",
+"pos": "adv",
+"alt": "MINIMUM"
+},
+"leave": {
+"word": "leave",
+"pos": "v",
+"alt": "KEEP"
+},
+"left-hand": {
+"word": "left-hand",
+"pos": "adj",
+"alt": "LEFT"
+},
+"legible": {
+"word": "legible",
+"pos": "adj",
+"alt": "READ"
+},
+"lengthen": {
+"word": "lengthen",
+"pos": "v",
+"alt": "INCREASE"
+},
+"lethal": {
+"word": "lethal",
+"pos": "adj",
+"alt": "KILL"
+},
+"level": {
+"word": "level",
+"pos": "v",
+"alt": "LEVEL"
+},
+"liberal": {
+"word": "liberal",
+"pos": "adj",
+"alt": "LARGE"
+},
+"liberally": {
+"word": "liberally",
+"pos": "adv",
+"alt": "LARGE"
+},
+"lie": {
+"word": "lie",
+"pos": "v",
+"alt": "BE"
+},
+"light": {
+"word": "light",
+"pos": "v",
+"alt": "COME ON MAKE SURE"
+},
+"limitation": {
+"word": "limitation",
+"pos": "n",
+"alt": "LIMIT"
+},
+"limited": {
+"word": "limited",
+"pos": "adj",
+"alt": "SMALL"
+},
+"link": {
+"word": "link",
+"pos": "v",
+"alt": "CONNECT"
+},
+"list": {
+"word": "list",
+"pos": "v",
+"alt": "RECORD"
+},
+"little": {
+"word": "little",
+"pos": "adj",
+"alt": "SMALL"
+},
+"load": {
+"word": "load",
+"pos": "v",
+"alt": "INSTALL"
+},
+"locate": {
+"word": "locate",
+"pos": "v",
+"alt": "FIND"
+},
+"log": {
+"word": "log",
+"pos": "v",
+"alt": "RECORD"
+},
+"loop": {
+"word": "loop",
+"pos": "v",
+"alt": "LOOP"
+},
+"lose": {
+"word": "lose",
+"pos": "v",
+"alt": "DECREASE"
+},
+"lost": {
+"word": "lost",
+"pos": "adj",
+"alt": "DECREASE"
+},
+"lowermost": {
+"word": "lowermost",
+"pos": "adj",
+"alt": "BOTTOM"
+},
+"lukewarm": {
+"word": "lukewarm",
+"pos": "adj",
+"alt": "WARM"
+},
+"main": {
+"word": "main",
+"pos": "adj",
+"alt": "PRIMARY"
+},
+"maintain": {
+"word": "maintain",
+"pos": "v",
+"alt": "KEEP"
+},
+"major": {
+"word": "major",
+"pos": "adj",
+"alt": "PRIMARY"
+},
+"make certain": {
+"word": "make certain",
+"pos": "v",
+"alt": "MAKE SURE"
+},
+"maladjusted": {
+"word": "maladjusted",
+"pos": "adj",
+"alt": "INCORRECTLY"
+},
+"manipulate": {
+"word": "manipulate",
+"pos": "v",
+"alt": "MOVE"
+},
+"manufacture": {
+"word": "manufacture",
+"pos": "v",
+"alt": "MAKE"
+},
+"mark": {
+"word": "mark",
+"pos": "v",
+"alt": "IDENTIFY"
+},
+"mask": {
+"word": "mask",
+"pos": "v",
+"alt": "APPLY"
+},
+"match": {
+"word": "match",
+"pos": "v",
+"alt": "ALIGN"
+},
+"mate": {
+"word": "mate",
+"pos": "v",
+"alt": "CONNECT"
+},
+"matter": {
+"word": "matter",
+"pos": "n",
+"alt": "MATERIAL"
+},
+"may": {
+"word": "may",
+"pos": "v",
+"alt": "CAN"
+},
+"medium": {
+"word": "medium",
+"pos": "adj",
+"alt": "MODERATE"
+},
+"meet": {
+"word": "meet",
+"pos": "v",
+"alt": "ENGAGE"
+},
+"mention": {
+"word": "mention",
+"pos": "v",
+"alt": "GIVE"
+},
+"mesh": {
+"word": "mesh",
+"pos": "v",
+"alt": "ENGAGE"
+},
+"mid": {
+"word": "mid",
+"pos": "adj",
+"alt": "MIDDLE"
+},
+"mild": {
+"word": "mild",
+"pos": "adj",
+"alt": "WEAK"
+},
+"minimize": {
+"word": "minimize",
+"pos": "v",
+"alt": "MINIMUM"
+},
+"minor": {
+"word": "minor",
+"pos": "adj",
+"alt": "SMALL"
+},
+"misrigged": {
+"word": "misrigged",
+"pos": "adj",
+"alt": "INCORRECTLY"
+},
+"mix": {
+"word": "mix",
+"pos": "n",
+"alt": "MIXTURE"
+},
+"modify": {
+"word": "modify",
+"pos": "v",
+"alt": "CHANGE"
+},
+"moisten": {
+"word": "moisten",
+"pos": "v",
+"alt": "MOIST"
+},
+"momentary": {
+"word": "momentary",
+"pos": "adj",
+"alt": "MOMENTARILY"
+},
+"motion": {
+"word": "motion",
+"pos": "n",
+"alt": "MOVEMENT"
+},
+"motor": {
+"word": "motor",
+"pos": "v",
+"alt": "DRY-MOTOR"
+},
+"mount": {
+"word": "mount",
+"pos": "v",
+"alt": "INSTALL"
+},
+"nearly": {
+"word": "nearly",
+"pos": "adv",
+"alt": "ALMOST"
+},
+"need": {
+"word": "need",
+"pos": "v",
+"alt": "NECESSARY"
+},
+"neither": {
+"word": "neither",
+"pos": "adj",
+"alt": "TWO"
+},
+"neutralize": {
+"word": "neutralize",
+"pos": "v",
+"alt": "NEUTRAL"
+},
+"never": {
+"word": "never",
+"pos": "adv",
+"alt": "DO NOT DO NOT"
+},
+"next": {
+"word": "next",
+"pos": "adv",
+"alt": "THEN"
+},
+"next to": {
+"word": "next to",
+"pos": "prep",
+"alt": "ADJACENT TO"
+},
+"noisy": {
+"word": "noisy",
+"pos": "adj",
+"alt": "NOISE"
+},
+"nor": {
+"word": "nor",
+"pos": "conj",
+"alt": "NOT"
+},
+"normal": {
+"word": "normal",
+"pos": "adj",
+"alt": "USUAL"
+},
+"normally": {
+"word": "normally",
+"pos": "adv",
+"alt": "USUALLY"
+},
+"note": {
+"word": "note",
+"pos": "v",
+"alt": "RECORD"
+},
+"notify": {
+"word": "notify",
+"pos": "v",
+"alt": "TELL"
+},
+"now": {
+"word": "now",
+"pos": "adv",
+"alt": "AT THIS TIME DO"
+},
+"observe": {
+"word": "observe",
+"pos": "v",
+"alt": "MONITOR"
+},
+"obstruct": {
+"word": "obstruct",
+"pos": "v",
+"alt": "CATCH"
+},
+"obstructed": {
+"word": "obstructed",
+"pos": "adj",
+"alt": "BLOCKED"
+},
+"obstruction": {
+"word": "obstruction",
+"pos": "n",
+"alt": "BLOCKAGE"
+},
+"obtain": {
+"word": "obtain",
+"pos": "v",
+"alt": "GET"
+},
+"often": {
+"word": "often",
+"pos": "adv",
+"alt": "FREQUENTLY"
+},
+"oil": {
+"word": "oil",
+"pos": "v",
+"alt": "LUBRICATE"
+},
+"oil-free": {
+"word": "oil-free",
+"pos": "adj",
+"alt": "OIL"
+},
+"old": {
+"word": "old",
+"pos": "adj",
+"alt": "REMAINING"
+},
+"omit": {
+"word": "omit",
+"pos": "v",
+"alt": "DO NOT DO DO"
+},
+"once": {
+"word": "once",
+"pos": "conj",
+"alt": "WHEN"
+},
+"opaque": {
+"word": "opaque",
+"pos": "adj",
+"alt": "NOT TRANSPARENT CLEAN THE"
+},
+"operable": {
+"word": "operable",
+"pos": "adj",
+"alt": "OPERATE"
+},
+"operational": {
+"word": "operational",
+"pos": "adj",
+"alt": "SERVICEABLE"
+},
+"opportunity": {
+"word": "opportunity",
+"pos": "n",
+"alt": "I"
+},
+"option": {
+"word": "option",
+"pos": "n",
+"alt": "ALTERNATIVE"
+},
+"order": {
+"word": "order",
+"pos": "v",
+"alt": "TELL"
+},
+"orient": {
+"word": "orient",
+"pos": "v",
+"alt": "POINT"
+},
+"origin": {
+"word": "origin",
+"pos": "n",
+"alt": "SOURCE"
+},
+"original": {
+"word": "original",
+"pos": "adj",
+"alt": "INITIAL"
+},
+"originate": {
+"word": "originate",
+"pos": "v",
+"alt": "SOURCE"
+},
+"otherwise": {
+"word": "otherwise",
+"pos": "adv",
+"alt": "IF"
+},
+"outline": {
+"word": "outline",
+"pos": "v",
+"alt": "GIVE"
+},
+"outside": {
+"word": "outside",
+"pos": "prep",
+"alt": "NEAR"
+},
+"outwards": {
+"word": "outwards",
+"pos": "adv",
+"alt": "OUT"
+},
+"over": {
+"word": "over",
+"pos": "prep",
+"alt": "ABOVE"
+},
+"overfill": {
+"word": "overfill",
+"pos": "v",
+"alt": "TOO MUCH DO NOT"
+},
+"overfull": {
+"word": "overfull",
+"pos": "adj",
+"alt": "TOO FULL IF THE"
+},
+"overhaul": {
+"word": "overhaul",
+"pos": "v",
+"alt": "OVERHAUL"
+},
+"overheat": {
+"word": "overheat",
+"pos": "v",
+"alt": "TOO HOT IF YOU"
+},
+"overlap": {
+"word": "overlap",
+"pos": "v",
+"alt": "OVERLAP"
+},
+"overtighten": {
+"word": "overtighten",
+"pos": "v",
+"alt": "TIGHTEN TOO MUCH DO"
+},
+"pack": {
+"word": "pack",
+"pos": "v",
+"alt": "PUT"
+},
+"part": {
+"word": "part",
+"pos": "v",
+"alt": "DISCONNECT"
+},
+"partial": {
+"word": "partial",
+"pos": "adj",
+"alt": "NOT FULLY IF THE"
+},
+"partially": {
+"word": "partially",
+"pos": "adv",
+"alt": "NOT FULLY IF THE"
+},
+"particular": {
+"word": "particular",
+"pos": "adj",
+"alt": "ONLY APPLICABLE THIS PROCEDURE"
+},
+"particularly": {
+"word": "particularly",
+"pos": "adv",
+"alt": "VERY"
+},
+"partly": {
+"word": "partly",
+"pos": "adv",
+"alt": "NOT FULLY IF THE"
+},
+"pass": {
+"word": "pass",
+"pos": "v",
+"alt": "GO"
+},
+"passage": {
+"word": "passage",
+"pos": "n",
+"alt": "FLOW"
+},
+"past": {
+"word": "past",
+"pos": "prep",
+"alt": "AROUND"
+},
+"penetrate": {
+"word": "penetrate",
+"pos": "v",
+"alt": "GO THROUGH IF THE"
+},
+"people": {
+"word": "people",
+"pos": "n",
+"alt": "PERSON"
+},
+"per": {
+"word": "per",
+"pos": "prep",
+"alt": "FOR EACH DO NOT"
+},
+"perforated": {
+"word": "perforated",
+"pos": "adj",
+"alt": "HOLE"
+},
+"perform": {
+"word": "perform",
+"pos": "v",
+"alt": "DO"
+},
+"periodically": {
+"word": "periodically",
+"pos": "adv",
+"alt": "INTERVAL"
+},
+"permissible": {
+"word": "permissible",
+"pos": "adj",
+"alt": "PERMITTED"
+},
+"permit": {
+"word": "permit",
+"pos": "v",
+"alt": "LET"
+},
+"persist": {
+"word": "persist",
+"pos": "v",
+"alt": "CONTINUE"
+},
+"persistent": {
+"word": "persistent",
+"pos": "adj",
+"alt": "CONTINUOUS"
+},
+"pertinent": {
+"word": "pertinent",
+"pos": "adj",
+"alt": "APPLICABLE"
+},
+"picket": {
+"word": "picket",
+"pos": "v",
+"alt": "MOOR"
+},
+"pierced": {
+"word": "pierced",
+"pos": "adj",
+"alt": "HOLE"
+},
+"placard": {
+"word": "placard",
+"pos": "v",
+"alt": "PUT"
+},
+"place": {
+"word": "place",
+"pos": "v",
+"alt": "PUT"
+},
+"plot": {
+"word": "plot",
+"pos": "v",
+"alt": "MAKE"
+},
+"plug": {
+"word": "plug",
+"pos": "v",
+"alt": "CONNECT"
+},
+"poor": {
+"word": "poor",
+"pos": "adj",
+"alt": "UNSATISFACTORY"
+},
+"pop": {
+"word": "pop",
+"pos": "v",
+"alt": "OPEN"
+},
+"port": {
+"word": "port",
+"pos": "adj",
+"alt": "LEFT"
+},
+"portion": {
+"word": "portion",
+"pos": "n",
+"alt": "PIECE"
+},
+"position": {
+"word": "position",
+"pos": "v",
+"alt": "PUT"
+},
+"potential": {
+"word": "potential",
+"pos": "adj",
+"alt": "POSSIBLE"
+},
+"pour": {
+"word": "pour",
+"pos": "v",
+"alt": "PUT"
+},
+"power": {
+"word": "power",
+"pos": "v",
+"alt": "SUPPLY"
+},
+"precede": {
+"word": "precede",
+"pos": "v",
+"alt": "BEFORE"
+},
+"precise": {
+"word": "precise",
+"pos": "adj",
+"alt": "ACCURATE"
+},
+"precisely": {
+"word": "precisely",
+"pos": "adv",
+"alt": "ACCURATELY"
+},
+"preferable": {
+"word": "preferable",
+"pos": "adj",
+"alt": "RECOMMEND"
+},
+"preferably": {
+"word": "preferably",
+"pos": "adv",
+"alt": "IF IT IS POSSIBLE"
+},
+"preheat": {
+"word": "preheat",
+"pos": "v",
+"alt": "HEAT"
+},
+"preload": {
+"word": "preload",
+"pos": "v",
+"alt": "LOAD"
+},
+"premature": {
+"word": "premature",
+"pos": "adj",
+"alt": "BEFORE"
+},
+"prematurely": {
+"word": "prematurely",
+"pos": "adv",
+"alt": "BEFORE"
+},
+"preparation": {
+"word": "preparation",
+"pos": "n",
+"alt": "PREPARE"
+},
+"prescribed": {
+"word": "prescribed",
+"pos": "adj",
+"alt": "SPECIFIED"
+},
+"presence": {
+"word": "presence",
+"pos": "n",
+"alt": "BE"
+},
+"present": {
+"word": "present",
+"pos": "v",
+"alt": "GIVE"
+},
+"preserve": {
+"word": "preserve",
+"pos": "v",
+"alt": "PRESERVATION"
+},
+"preset": {
+"word": "preset",
+"pos": "v",
+"alt": "SET"
+},
+"press": {
+"word": "press",
+"pos": "v",
+"alt": "PUSH"
+},
+"preventive": {
+"word": "preventive",
+"pos": "adj",
+"alt": "PREVENT"
+},
+"use last": {
+"word": "Use LAST",
+"pos": "adj",
+"alt": ""
+},
+"primarily": {
+"word": "primarily",
+"pos": "adv",
+"alt": "PRIMARY"
+},
+"prime": {
+"word": "prime",
+"pos": "v",
+"alt": "FILL"
+},
+"principal": {
+"word": "principal",
+"pos": "adj",
+"alt": "PRIMARY"
+},
+"prior to": {
+"word": "prior to",
+"pos": "prep",
+"alt": "BEFORE"
+},
+"priority": {
+"word": "priority",
+"pos": "n",
+"alt": "IMPORTANT"
+},
+"probability": {
+"word": "probability",
+"pos": "n",
+"alt": "RISK"
+},
+"probable": {
+"word": "probable",
+"pos": "adj",
+"alt": "VERY POSSIBLE IF YOU"
+},
+"probe": {
+"word": "probe",
+"pos": "v",
+"alt": "FIND"
+},
+"proceed": {
+"word": "proceed",
+"pos": "v",
+"alt": "CONTINUE"
+},
+"process": {
+"word": "process",
+"pos": "v",
+"alt": "DO"
+},
+"produce": {
+"word": "produce",
+"pos": "v",
+"alt": "CAUSE"
+},
+"product": {
+"word": "product",
+"pos": "n",
+"alt": "B"
+},
+"profile": {
+"word": "profile",
+"pos": "n",
+"alt": "CONTOUR"
+},
+"program": {
+"word": "program",
+"pos": "n",
+"alt": "SEQUENCE"
+},
+"progress": {
+"word": "progress",
+"pos": "v",
+"alt": "CONTINUE"
+},
+"progressive": {
+"word": "progressive",
+"pos": "adj",
+"alt": "GRADUALLY"
+},
+"progressively": {
+"word": "progressively",
+"pos": "adv",
+"alt": "GRADUALLY"
+},
+"prohibit": {
+"word": "prohibit",
+"pos": "v",
+"alt": "PREVENT"
+},
+"prolonged": {
+"word": "prolonged",
+"pos": "adj",
+"alt": "LONG"
+},
+"prompt": {
+"word": "prompt",
+"pos": "adj",
+"alt": "IMMEDIATELY"
+},
+"propagation": {
+"word": "propagation",
+"pos": "n",
+"alt": "INCREASE"
+},
+"proper": {
+"word": "proper",
+"pos": "adj",
+"alt": "CORRECT"
+},
+"properly": {
+"word": "properly",
+"pos": "adv",
+"alt": "CORRECTLY"
+},
+"proportional": {
+"word": "proportional",
+"pos": "adj",
+"alt": "RELATION"
+},
+"protect": {
+"word": "protect",
+"pos": "v",
+"alt": "PREVENT"
+},
+"provide": {
+"word": "provide",
+"pos": "v",
+"alt": "GIVE"
+},
+"proximity": {
+"word": "proximity",
+"pos": "n",
+"alt": "NEAR"
+},
+"pump": {
+"word": "pump",
+"pos": "v",
+"alt": "REMOVE"
+},
+"puncture": {
+"word": "puncture",
+"pos": "v",
+"alt": "HOLE"
+},
+"purge": {
+"word": "purge",
+"pos": "v",
+"alt": "REMOVE"
+},
+"purify": {
+"word": "purify",
+"pos": "v",
+"alt": "CLEAN"
+},
+"qualified": {
+"word": "qualified",
+"pos": "adj",
+"alt": "APPROVED"
+},
+"quarterly": {
+"word": "quarterly",
+"pos": "adv",
+"alt": "INTERVAL"
+},
+"questionable": {
+"word": "questionable",
+"pos": "adj",
+"alt": "NOT SURE IF YOU"
+},
+"quick": {
+"word": "quick",
+"pos": "adj",
+"alt": "QUICKLY"
+},
+"quit": {
+"word": "quit",
+"pos": "v",
+"alt": "GO"
+},
+"quote": {
+"word": "quote",
+"pos": "v",
+"alt": "GIVE"
+},
+"raise": {
+"word": "raise",
+"pos": "v",
+"alt": "LIFT"
+},
+"rapid": {
+"word": "rapid",
+"pos": "adj",
+"alt": "FAST"
+},
+"rapidly": {
+"word": "rapidly",
+"pos": "adv",
+"alt": "QUICKLY"
+},
+"reach": {
+"word": "reach",
+"pos": "v",
+"alt": "GET"
+},
+"reactivate": {
+"word": "reactivate",
+"pos": "v",
+"alt": "ACTIVATE"
+},
+"reading": {
+"word": "reading",
+"pos": "n",
+"alt": "INDICATION"
+},
+"readjust": {
+"word": "readjust",
+"pos": "v",
+"alt": "ADJUST"
+},
+"ready": {
+"word": "ready",
+"pos": "v",
+"alt": "PREPARE"
+},
+"real": {
+"word": "real",
+"pos": "adj",
+"alt": "AGREE"
+},
+"rear of": {
+"word": "rear of",
+"pos": "prep",
+"alt": "AFT OF THE PUMP"
+},
+"rearmost": {
+"word": "rearmost",
+"pos": "adj",
+"alt": "REAR"
+},
+"reason": {
+"word": "reason",
+"pos": "n",
+"alt": "CAUSE"
+},
+"reassemble": {
+"word": "reassemble",
+"pos": "v",
+"alt": "ASSEMBLE"
+},
+"rebuild": {
+"word": "rebuild",
+"pos": "v",
+"alt": "ASSEMBLE"
+},
+"recess": {
+"word": "recess",
+"pos": "v",
+"alt": "RECESS"
+},
+"recharge": {
+"word": "recharge",
+"pos": "v",
+"alt": "CHARGE"
+},
+"recheck": {
+"word": "recheck",
+"pos": "v",
+"alt": "MEASURE"
+},
+"reclaim": {
+"word": "reclaim",
+"pos": "v",
+"alt": "REPAIR"
+},
+"recleat": {
+"word": "recleat",
+"pos": "v",
+"alt": "ATTACH"
+},
+"reclose": {
+"word": "reclose",
+"pos": "v",
+"alt": "CLOSE"
+},
+"recoil": {
+"word": "recoil",
+"pos": "v",
+"alt": "MOVE BACK BE CAREFUL"
+},
+"recondition": {
+"word": "recondition",
+"pos": "v",
+"alt": "REPAIR"
+},
+"reconstruction": {
+"word": "reconstruction",
+"pos": "n",
+"alt": "REPAIR"
+},
+"recover": {
+"word": "recover",
+"pos": "v",
+"alt": "COLLECT"
+},
+"rectify": {
+"word": "rectify",
+"pos": "v",
+"alt": "CORRECT"
+},
+"recur": {
+"word": "recur",
+"pos": "v",
+"alt": "OCCUR"
+},
+"reduce": {
+"word": "reduce",
+"pos": "v",
+"alt": "DECREASE"
+},
+"reference": {
+"word": "reference",
+"pos": "n",
+"alt": "REFER"
+},
+"referenced": {
+"word": "referenced",
+"pos": "adj",
+"alt": "SHOW"
+},
+"refill": {
+"word": "refill",
+"pos": "v",
+"alt": "FILL"
+},
+"refit": {
+"word": "refit",
+"pos": "v",
+"alt": "INSTALL"
+},
+"reflect": {
+"word": "reflect",
+"pos": "v",
+"alt": "REFLECTION"
+},
+"register": {
+"word": "register",
+"pos": "v",
+"alt": "SHOW"
+},
+"regrease": {
+"word": "regrease",
+"pos": "v",
+"alt": "APPLY"
+},
+"regulate": {
+"word": "regulate",
+"pos": "v",
+"alt": "CONTROL"
+},
+"regulation": {
+"word": "regulation",
+"pos": "n",
+"alt": "ADJUSTMENT"
+},
+"reinflate": {
+"word": "reinflate",
+"pos": "v",
+"alt": "INFLATE"
+},
+"reinforce": {
+"word": "reinforce",
+"pos": "v",
+"alt": "MAKE"
+},
+"reinstall": {
+"word": "reinstall",
+"pos": "v",
+"alt": "INSTALL"
+},
+"reinstallation": {
+"word": "reinstallation",
+"pos": "n",
+"alt": "INSTALLATION"
+},
+"rejection": {
+"word": "rejection",
+"pos": "n",
+"alt": "REJECT"
+},
+"relate": {
+"word": "relate",
+"pos": "v",
+"alt": "RELATED"
+},
+"relay": {
+"word": "relay",
+"pos": "v",
+"alt": "SEND"
+},
+"relevant": {
+"word": "relevant",
+"pos": "adj",
+"alt": "RELATED"
+},
+"relieve": {
+"word": "relieve",
+"pos": "v",
+"alt": "RELEASE"
+},
+"remain": {
+"word": "remain",
+"pos": "v",
+"alt": "STAY"
+},
+"remnant": {
+"word": "remnant",
+"pos": "n",
+"alt": "REMAINING"
+},
+"removable": {
+"word": "removable",
+"pos": "adj",
+"alt": "REMOVE"
+},
+"render": {
+"word": "render",
+"pos": "v",
+"alt": "MAKE"
+},
+"renew": {
+"word": "renew",
+"pos": "v",
+"alt": "NEW"
+},
+"renovate": {
+"word": "renovate",
+"pos": "v",
+"alt": "REPAIR"
+},
+"repack": {
+"word": "repack",
+"pos": "v",
+"alt": "PUT"
+},
+"repaint": {
+"word": "repaint",
+"pos": "v",
+"alt": "PAINT"
+},
+"repairable": {
+"word": "repairable",
+"pos": "adj",
+"alt": "REPAIR"
+},
+"repeat": {
+"word": "repeat",
+"pos": "v",
+"alt": "AGAIN"
+},
+"repeated": {
+"word": "repeated",
+"pos": "adj",
+"alt": "AGAIN AND AGAIN IF"
+},
+"repeatedly": {
+"word": "repeatedly",
+"pos": "adv",
+"alt": "AGAIN AND AGAIN IF"
+},
+"replenish": {
+"word": "replenish",
+"pos": "v",
+"alt": "FILL"
+},
+"reposition": {
+"word": "reposition",
+"pos": "v",
+"alt": "MOVE"
+},
+"represent": {
+"word": "represent",
+"pos": "v",
+"alt": "SHOW"
+},
+"repressurize": {
+"word": "repressurize",
+"pos": "v",
+"alt": "PRESSURIZE"
+},
+"request": {
+"word": "request",
+"pos": "v",
+"alt": "TELL"
+},
+"require": {
+"word": "require",
+"pos": "v",
+"alt": "NECESSARY"
+},
+"reseal": {
+"word": "reseal",
+"pos": "v",
+"alt": "SEAL"
+},
+"reset": {
+"word": "reset",
+"pos": "v",
+"alt": "SET"
+},
+"residual": {
+"word": "residual",
+"pos": "adj",
+"alt": "REMAINING"
+},
+"residue": {
+"word": "residue",
+"pos": "n",
+"alt": "REMAINING"
+},
+"respective": {
+"word": "respective",
+"pos": "adj",
+"alt": "RELATED"
+},
+"respectively": {
+"word": "respectively",
+"pos": "adv",
+"alt": "RELATED"
+},
+"respond": {
+"word": "respond",
+"pos": "v",
+"alt": "RESULT"
+},
+"rest": {
+"word": "rest",
+"pos": "v",
+"alt": "BE"
+},
+"restart": {
+"word": "restart",
+"pos": "v",
+"alt": "START"
+},
+"restore": {
+"word": "restore",
+"pos": "v",
+"alt": "REPAIR"
+},
+"restrain": {
+"word": "restrain",
+"pos": "v",
+"alt": "HOLD"
+},
+"restrict": {
+"word": "restrict",
+"pos": "v",
+"alt": "DECREASE"
+},
+"result": {
+"word": "result",
+"pos": "v",
+"alt": "CAUSE"
+},
+"resume": {
+"word": "resume",
+"pos": "v",
+"alt": "START"
+},
+"retain": {
+"word": "retain",
+"pos": "v",
+"alt": "KEEP"
+},
+"retorque": {
+"word": "retorque",
+"pos": "v",
+"alt": "TORQUE"
+},
+"retouch": {
+"word": "retouch",
+"pos": "v",
+"alt": "APPLY"
+},
+"retractable": {
+"word": "retractable",
+"pos": "adj",
+"alt": "RETRACT"
+},
+"return": {
+"word": "return",
+"pos": "v",
+"alt": "GO"
+},
+"reusable": {
+"word": "reusable",
+"pos": "adj",
+"alt": "USE"
+},
+"reuse": {
+"word": "reuse",
+"pos": "v",
+"alt": "USE"
+},
+"reveal": {
+"word": "reveal",
+"pos": "v",
+"alt": "SHOW"
+},
+"reverse": {
+"word": "reverse",
+"pos": "v",
+"alt": "OPPOSITE"
+},
+"review": {
+"word": "review",
+"pos": "n",
+"alt": "INSPECTION"
+},
+"rewind": {
+"word": "rewind",
+"pos": "v",
+"alt": "WIND"
+},
+"rework": {
+"word": "rework",
+"pos": "v",
+"alt": "R"
+},
+"rig": {
+"word": "rig",
+"pos": "v",
+"alt": "ADJUST"
+},
+"right-hand": {
+"word": "right-hand",
+"pos": "adj",
+"alt": "RIGHT"
+},
+"rinse": {
+"word": "rinse",
+"pos": "v",
+"alt": "FLUSH"
+},
+"ripped": {
+"word": "ripped",
+"pos": "adj",
+"alt": "DAMAGED"
+},
+"rise": {
+"word": "rise",
+"pos": "v",
+"alt": "INCREASE"
+},
+"rope off": {
+"word": "rope off",
+"pos": "v",
+"alt": "ROPE"
+},
+"rotary": {
+"word": "rotary",
+"pos": "adj",
+"alt": "TURN"
+},
+"rotate": {
+"word": "rotate",
+"pos": "v",
+"alt": "TURN"
+},
+"rotation": {
+"word": "rotation",
+"pos": "n",
+"alt": "TURN"
+},
+"rotational": {
+"word": "rotational",
+"pos": "adj",
+"alt": "TURN"
+},
+"roughen": {
+"word": "roughen",
+"pos": "v",
+"alt": "ROUGH"
+},
+"roughness": {
+"word": "roughness",
+"pos": "n",
+"alt": "ROUGH"
+},
+"round": {
+"word": "round",
+"pos": "adj",
+"alt": "CIRCULAR"
+},
+"route": {
+"word": "route",
+"pos": "v",
+"alt": "PUT"
+},
+"routine": {
+"word": "routine",
+"pos": "adj",
+"alt": "USUAL"
+},
+"run": {
+"word": "run",
+"pos": "v",
+"alt": "OPERATE"
+},
+"running": {
+"word": "running",
+"pos": "adj",
+"alt": "FLUSH"
+},
+"safety-clip": {
+"word": "safety-clip",
+"pos": "v",
+"alt": "LOCK"
+},
+"safety-wire": {
+"word": "safety-wire",
+"pos": "v",
+"alt": "LOCK"
+},
+"sample": {
+"word": "sample",
+"pos": "v",
+"alt": "SAMPLE"
+},
+"saturate": {
+"word": "saturate",
+"pos": "v",
+"alt": "SOAK"
+},
+"save": {
+"word": "save",
+"pos": "v",
+"alt": "KEEP"
+},
+"scan": {
+"word": "scan",
+"pos": "v",
+"alt": "EXAMINE"
+},
+"scored": {
+"word": "scored",
+"pos": "adj",
+"alt": "SCORE"
+},
+"scrap": {
+"word": "scrap",
+"pos": "v",
+"alt": "DISCARD"
+},
+"scrape": {
+"word": "scrape",
+"pos": "v",
+"alt": "REMOVE"
+},
+"scratched": {
+"word": "scratched",
+"pos": "adj",
+"alt": "SCRATCH"
+},
+"screw": {
+"word": "screw",
+"pos": "v",
+"alt": "TURN"
+},
+"scrub": {
+"word": "scrub",
+"pos": "v",
+"alt": "CLEAN"
+},
+"search": {
+"word": "search",
+"pos": "v",
+"alt": "EXAMINE"
+},
+"seat": {
+"word": "seat",
+"pos": "v",
+"alt": "INSTALL"
+},
+"secure": {
+"word": "secure",
+"pos": "v",
+"alt": "ATTACH"
+},
+"securely": {
+"word": "securely",
+"pos": "adv",
+"alt": "CORRECTLY"
+},
+"security": {
+"word": "security",
+"pos": "n",
+"alt": "CORRECTLY"
+},
+"seek": {
+"word": "seek",
+"pos": "v",
+"alt": "GET"
+},
+"seepage": {
+"word": "seepage",
+"pos": "n",
+"alt": "LEAKAGE"
+},
+"seized": {
+"word": "seized",
+"pos": "adj",
+"alt": "CATCH"
+},
+"separable": {
+"word": "separable",
+"pos": "adj",
+"alt": "DISASSEMBLE"
+},
+"separate": {
+"word": "separate",
+"pos": "v",
+"alt": "DISCONNECT"
+},
+"separately": {
+"word": "separately",
+"pos": "adv",
+"alt": "INDEPENDENTLY"
+},
+"serious": {
+"word": "serious",
+"pos": "adj",
+"alt": "IMPORTANT"
+},
+"serrated": {
+"word": "serrated",
+"pos": "adj",
+"alt": "SERRATION"
+},
+"serve": {
+"word": "serve",
+"pos": "v",
+"alt": "U"
+},
+"service": {
+"word": "service",
+"pos": "v",
+"alt": "SERVICING"
+},
+"serviceability": {
+"word": "serviceability",
+"pos": "n",
+"alt": "SERVICEABLE"
+},
+"setting": {
+"word": "setting",
+"pos": "n",
+"alt": "ADJUSTMENT"
+},
+"settle": {
+"word": "settle",
+"pos": "v",
+"alt": "COLLECT"
+},
+"sever": {
+"word": "sever",
+"pos": "v",
+"alt": "CUT"
+},
+"several": {
+"word": "several",
+"pos": "adj",
+"alt": "SOME"
+},
+"severe": {
+"word": "severe",
+"pos": "adj",
+"alt": "DANGEROUS"
+},
+"shall": {
+"word": "shall",
+"pos": "v",
+"alt": "MUST"
+},
+"shape": {
+"word": "shape",
+"pos": "v",
+"alt": "SHAPE"
+},
+"sharply": {
+"word": "sharply",
+"pos": "adv",
+"alt": "QUICKLY"
+},
+"shear": {
+"word": "shear",
+"pos": "v",
+"alt": "BREAK"
+},
+"shield": {
+"word": "shield",
+"pos": "v",
+"alt": "PREVENT"
+},
+"shift": {
+"word": "shift",
+"pos": "v",
+"alt": "MOVE"
+},
+"shorten": {
+"word": "shorten",
+"pos": "v",
+"alt": "DECREASE"
+},
+"should": {
+"word": "should",
+"pos": "v",
+"alt": "MUST"
+},
+"shut down": {
+"word": "shut down",
+"pos": "v",
+"alt": "STOP"
+},
+"sideways": {
+"word": "sideways",
+"pos": "adv",
+"alt": "SIDE"
+},
+"sight": {
+"word": "sight",
+"pos": "v",
+"alt": "LOOK"
+},
+"significant": {
+"word": "significant",
+"pos": "adj",
+"alt": "IMPORTANT"
+},
+"silence": {
+"word": "silence",
+"pos": "v",
+"alt": "STOP"
+},
+"similar": {
+"word": "similar",
+"pos": "adj",
+"alt": "EQUIVALENT"
+},
+"simultaneous": {
+"word": "simultaneous",
+"pos": "adj",
+"alt": "AT THE SAME TIME"
+},
+"situated": {
+"word": "situated",
+"pos": "adj",
+"alt": "INSTALL"
+},
+"situation": {
+"word": "situation",
+"pos": "n",
+"alt": "CONDITION"
+},
+"size": {
+"word": "size",
+"pos": "n",
+"alt": "DIMENSION"
+},
+"skid": {
+"word": "skid",
+"pos": "v",
+"alt": "SKID"
+},
+"slack": {
+"word": "slack",
+"pos": "n",
+"alt": "TENSION"
+},
+"slacken": {
+"word": "slacken",
+"pos": "v",
+"alt": "TENSION"
+},
+"slackness": {
+"word": "slackness",
+"pos": "n",
+"alt": "TENSION"
+},
+"slave": {
+"word": "slave",
+"pos": "v",
+"alt": "CONTROL"
+},
+"slide": {
+"word": "slide",
+"pos": "v",
+"alt": "MOVE"
+},
+"slight": {
+"word": "slight",
+"pos": "adj",
+"alt": "SMALL"
+},
+"slightly": {
+"word": "slightly",
+"pos": "adv",
+"alt": "SMALL"
+},
+"slip": {
+"word": "slip",
+"pos": "v",
+"alt": "MOVE"
+},
+"slow down": {
+"word": "slow down",
+"pos": "v",
+"alt": "DECREASE"
+},
+"sluggish": {
+"word": "sluggish",
+"pos": "adj",
+"alt": "SLOW"
+},
+"smear": {
+"word": "smear",
+"pos": "v",
+"alt": "APPLY"
+},
+"smooth": {
+"word": "smooth",
+"pos": "v",
+"alt": "SMOOTH"
+},
+"snag": {
+"word": "snag",
+"pos": "v",
+"alt": "CATCH"
+},
+"snap": {
+"word": "snap",
+"pos": "v",
+"alt": "MOVE QUICKLY THE RETAINING"
+},
+"soapy": {
+"word": "soapy",
+"pos": "adj",
+"alt": "SOAP"
+},
+"soften": {
+"word": "soften",
+"pos": "v",
+"alt": "MAKE"
+},
+"soiled": {
+"word": "soiled",
+"pos": "adj",
+"alt": "DIRTY"
+},
+"solidify": {
+"word": "solidify",
+"pos": "v",
+"alt": "SOLID"
+},
+"solve": {
+"word": "solve",
+"pos": "v",
+"alt": "SOLUTION"
+},
+"soon": {
+"word": "soon",
+"pos": "adv",
+"alt": "TIME"
+},
+"sound": {
+"word": "sound",
+"pos": "v",
+"alt": "OPERATE"
+},
+"space": {
+"word": "space",
+"pos": "v",
+"alt": "DISTANCE"
+},
+"spacing": {
+"word": "spacing",
+"pos": "n",
+"alt": "DISTANCE"
+},
+"spanwise": {
+"word": "spanwise",
+"pos": "adj",
+"alt": "SPAN"
+},
+"sparingly": {
+"word": "sparingly",
+"pos": "adv",
+"alt": "QUANTITY"
+},
+"spark": {
+"word": "spark",
+"pos": "v",
+"alt": "SPARK"
+},
+"specific": {
+"word": "specific",
+"pos": "adj",
+"alt": "APPROVED"
+},
+"specifically": {
+"word": "specifically",
+"pos": "adv",
+"alt": "SPECIALLY"
+},
+"speck": {
+"word": "speck",
+"pos": "n",
+"alt": "PARTICLE"
+},
+"speech": {
+"word": "speech",
+"pos": "n",
+"alt": "VOICE"
+},
+"spillage": {
+"word": "spillage",
+"pos": "n",
+"alt": "CONTAMINATION"
+},
+"spin": {
+"word": "spin",
+"pos": "v",
+"alt": "TURN"
+},
+"splash": {
+"word": "splash",
+"pos": "v",
+"alt": "GET"
+},
+"splined": {
+"word": "splined",
+"pos": "adj",
+"alt": "SPLINE"
+},
+"split": {
+"word": "split",
+"pos": "v",
+"alt": "DIVIDE"
+},
+"spot": {
+"word": "spot",
+"pos": "v",
+"alt": "FIND"
+},
+"spread": {
+"word": "spread",
+"pos": "v",
+"alt": "APPLY"
+},
+"spring": {
+"word": "spring",
+"pos": "v",
+"alt": "MOVE"
+},
+"spurious": {
+"word": "spurious",
+"pos": "adj",
+"alt": "UNWANTED"
+},
+"stability": {
+"word": "stability",
+"pos": "n",
+"alt": "STABLE"
+},
+"stabilization": {
+"word": "stabilization",
+"pos": "n",
+"alt": "STABLE"
+},
+"stabilize": {
+"word": "stabilize",
+"pos": "v",
+"alt": "STABLE"
+},
+"stage": {
+"word": "stage",
+"pos": "n",
+"alt": "STEP"
+},
+"stained": {
+"word": "stained",
+"pos": "adj",
+"alt": "DIRTY"
+},
+"stamp": {
+"word": "stamp",
+"pos": "v",
+"alt": "PUT"
+},
+"stand": {
+"word": "stand",
+"pos": "v",
+"alt": "STAY"
+},
+"starboard": {
+"word": "starboard",
+"pos": "adj",
+"alt": "RIGHT"
+},
+"state": {
+"word": "state",
+"pos": "v",
+"alt": "TELL"
+},
+"station": {
+"word": "station",
+"pos": "v",
+"alt": "PUT"
+},
+"stationary": {
+"word": "stationary",
+"pos": "adj",
+"alt": "STABLE"
+},
+"steadily": {
+"word": "steadily",
+"pos": "adv",
+"alt": "CONTINUOUSLY"
+},
+"steady": {
+"word": "steady",
+"pos": "adj",
+"alt": "STABLE"
+},
+"stick": {
+"word": "stick",
+"pos": "v",
+"alt": "ATTACH"
+},
+"sticky": {
+"word": "sticky",
+"pos": "adj",
+"alt": "TACKY"
+},
+"stiff": {
+"word": "stiff",
+"pos": "adj",
+"alt": "MOVE"
+},
+"still": {
+"word": "still",
+"pos": "adv",
+"alt": "STAY"
+},
+"stimulate": {
+"word": "stimulate",
+"pos": "v",
+"alt": "INCREASE"
+},
+"stir": {
+"word": "stir",
+"pos": "v",
+"alt": "MIX"
+},
+"store": {
+"word": "store",
+"pos": "v",
+"alt": "KEEP"
+},
+"straighten": {
+"word": "straighten",
+"pos": "v",
+"alt": "STRAIGHT"
+},
+"strain": {
+"word": "strain",
+"pos": "v",
+"alt": "FILTER"
+},
+"strap": {
+"word": "strap",
+"pos": "v",
+"alt": "ATTACH"
+},
+"stress": {
+"word": "stress",
+"pos": "v",
+"alt": "FORCE"
+},
+"strictly": {
+"word": "strictly",
+"pos": "adv",
+"alt": "FULLY"
+},
+"strike": {
+"word": "strike",
+"pos": "v",
+"alt": "HIT"
+},
+"strip": {
+"word": "strip",
+"pos": "v",
+"alt": "REMOVE"
+},
+"striped": {
+"word": "striped",
+"pos": "adj",
+"alt": "STRIPE"
+},
+"stroke": {
+"word": "stroke",
+"pos": "n",
+"alt": "TRAVEL"
+},
+"submerge": {
+"word": "submerge",
+"pos": "v",
+"alt": "PUT"
+},
+"submit": {
+"word": "submit",
+"pos": "v",
+"alt": "SEND"
+},
+"use next": {
+"word": "Use NEXT",
+"pos": "adj",
+"alt": ""
+},
+"use then": {
+"word": "Use THEN",
+"pos": "adv",
+"alt": ""
+},
+"substance": {
+"word": "substance",
+"pos": "n",
+"alt": "MATERIAL"
+},
+"substitute": {
+"word": "substitute",
+"pos": "v",
+"alt": "REPLACE"
+},
+"successful": {
+"word": "successful",
+"pos": "adj",
+"alt": "CORRECT"
+},
+"suck": {
+"word": "suck",
+"pos": "v",
+"alt": "REMOVE"
+},
+"suitable": {
+"word": "suitable",
+"pos": "adj",
+"alt": "APPLICABLE"
+},
+"suitably": {
+"word": "suitably",
+"pos": "adv",
+"alt": "SUFFICIENTLY"
+},
+"support": {
+"word": "support",
+"pos": "v",
+"alt": "HOLD"
+},
+"surplus": {
+"word": "surplus",
+"pos": "adj",
+"alt": "UNWANTED"
+},
+"surrounding": {
+"word": "surrounding",
+"pos": "adj",
+"alt": "ADJACENT"
+},
+"survey": {
+"word": "survey",
+"pos": "v",
+"alt": "EXAMINE"
+},
+"suspect": {
+"word": "suspect",
+"pos": "v",
+"alt": "THINK"
+},
+"suspend": {
+"word": "suspend",
+"pos": "v",
+"alt": "HANG"
+},
+"swap": {
+"word": "swap",
+"pos": "v",
+"alt": "INTERCHANGE"
+},
+"sweep": {
+"word": "sweep",
+"pos": "v",
+"alt": "SCAN"
+},
+"swing": {
+"word": "swing",
+"pos": "v",
+"alt": "MOVE"
+},
+"switch": {
+"word": "switch",
+"pos": "v",
+"alt": "SET"
+},
+"switch off": {
+"word": "switch off",
+"pos": "v",
+"alt": "SET"
+},
+"switch on": {
+"word": "switch on",
+"pos": "v",
+"alt": "SET"
+},
+"synchronize": {
+"word": "synchronize",
+"pos": "v",
+"alt": "ADJUST"
+},
+"take": {
+"word": "take",
+"pos": "v",
+"alt": "REMOVE"
+},
+"take care": {
+"word": "take care",
+"pos": "v",
+"alt": "MAKE SURE"
+},
+"talk": {
+"word": "talk",
+"pos": "v",
+"alt": "SPEAK"
+},
+"tape": {
+"word": "tape",
+"pos": "v",
+"alt": "TAPE"
+},
+"taut": {
+"word": "taut",
+"pos": "adj",
+"alt": "TENSION"
+},
+"tear": {
+"word": "tear",
+"pos": "v",
+"alt": "DAMAGE"
+},
+"technique": {
+"word": "technique",
+"pos": "n",
+"alt": "METHOD"
+},
+"tension": {
+"word": "tension",
+"pos": "v",
+"alt": "TENSION"
+},
+"terminate": {
+"word": "terminate",
+"pos": "v",
+"alt": "STOP"
+},
+"test": {
+"word": "test",
+"pos": "v",
+"alt": "TEST"
+},
+"therefore": {
+"word": "therefore",
+"pos": "adv",
+"alt": "THUS"
+},
+"thin": {
+"word": "thin",
+"pos": "v",
+"alt": "LIQUID"
+},
+"thorough": {
+"word": "thorough",
+"pos": "adj",
+"alt": "FULL"
+},
+"thoroughly": {
+"word": "thoroughly",
+"pos": "adv",
+"alt": "FULLY"
+},
+"thread": {
+"word": "thread",
+"pos": "v",
+"alt": "PUT"
+},
+"threaded": {
+"word": "threaded",
+"pos": "adj",
+"alt": "THREAD"
+},
+"throughout": {
+"word": "throughout",
+"pos": "prep",
+"alt": "DURING"
+},
+"tie": {
+"word": "tie",
+"pos": "v",
+"alt": "ATTACH"
+},
+"till": {
+"word": "till",
+"pos": "conj",
+"alt": "UNTIL"
+},
+"time": {
+"word": "time",
+"pos": "v",
+"alt": "TIME"
+},
+"tip": {
+"word": "tip",
+"pos": "v",
+"alt": "TILT"
+},
+"top off": {
+"word": "top off",
+"pos": "v",
+"alt": "FILL"
+},
+"toward": {
+"word": "toward",
+"pos": "prep",
+"alt": "TO"
+},
+"toxic": {
+"word": "toxic",
+"pos": "adj",
+"alt": "POISONOUS"
+},
+"trace": {
+"word": "trace",
+"pos": "v",
+"alt": "FIND"
+},
+"track": {
+"word": "track",
+"pos": "v",
+"alt": "MONITOR"
+},
+"trained": {
+"word": "trained",
+"pos": "adj",
+"alt": "APPROVED"
+},
+"transfer": {
+"word": "transfer",
+"pos": "v",
+"alt": "MOVE"
+},
+"transition": {
+"word": "transition",
+"pos": "n",
+"alt": "CHANGE"
+},
+"transport": {
+"word": "transport",
+"pos": "v",
+"alt": "SEND"
+},
+"trapped": {
+"word": "trapped",
+"pos": "adj",
+"alt": "CAUGHT"
+},
+"travel": {
+"word": "travel",
+"pos": "v",
+"alt": "GO"
+},
+"treat": {
+"word": "treat",
+"pos": "v",
+"alt": "APPLY"
+},
+"trigger": {
+"word": "trigger",
+"pos": "v",
+"alt": "CAUSE"
+},
+"trim": {
+"word": "trim",
+"pos": "v",
+"alt": "CUT"
+},
+"trip": {
+"word": "trip",
+"pos": "v",
+"alt": "OPEN"
+},
+"troubleshoot": {
+"word": "troubleshoot",
+"pos": "v",
+"alt": "TROUBLESHOOTING"
+},
+"true": {
+"word": "true",
+"pos": "adj",
+"alt": "CORRECT"
+},
+"tuck": {
+"word": "tuck",
+"pos": "v",
+"alt": "PUT"
+},
+"turn off": {
+"word": "turn off",
+"pos": "v",
+"alt": "SET"
+},
+"turn on": {
+"word": "turn on",
+"pos": "v",
+"alt": "SET"
+},
+"turn over": {
+"word": "turn over",
+"pos": "v",
+"alt": "TURN"
+},
+"twice": {
+"word": "twice",
+"pos": "adv",
+"alt": "TWO"
+},
+"unable": {
+"word": "unable",
+"pos": "adj",
+"alt": "CANNOT"
+},
+"unauthorized": {
+"word": "unauthorized",
+"pos": "adj",
+"alt": "NOT APPROVED IF YOU"
+},
+"uncap": {
+"word": "uncap",
+"pos": "v",
+"alt": "REMOVE"
+},
+"unclip": {
+"word": "unclip",
+"pos": "v",
+"alt": "REMOVE"
+},
+"uncoil": {
+"word": "uncoil",
+"pos": "v",
+"alt": "UNWIND"
+},
+"uncouple": {
+"word": "uncouple",
+"pos": "v",
+"alt": "DISCONNECT"
+},
+"uncovered": {
+"word": "uncovered",
+"pos": "adj",
+"alt": "COVER"
+},
+"undamaged": {
+"word": "undamaged",
+"pos": "adj",
+"alt": "NOT DAMAGED MAKE SURE"
+},
+"under": {
+"word": "under",
+"pos": "prep",
+"alt": "BELOW"
+},
+"underneath": {
+"word": "underneath",
+"pos": "prep",
+"alt": "BELOW"
+},
+"underside": {
+"word": "underside",
+"pos": "n",
+"alt": "BOTTOM"
+},
+"undertake": {
+"word": "undertake",
+"pos": "v",
+"alt": "DO"
+},
+"undo": {
+"word": "undo",
+"pos": "v",
+"alt": "LOOSEN"
+},
+"undue": {
+"word": "undue",
+"pos": "adj",
+"alt": "UNWANTED"
+},
+"uneven": {
+"word": "uneven",
+"pos": "adj",
+"alt": "EQUAL"
+},
+"uniform": {
+"word": "uniform",
+"pos": "adj",
+"alt": "CONSTANT"
+},
+"uniformly": {
+"word": "uniformly",
+"pos": "adv",
+"alt": "EQUALLY"
+},
+"unintentional": {
+"word": "unintentional",
+"pos": "adj",
+"alt": "ACCIDENTAL"
+},
+"unlatch": {
+"word": "unlatch",
+"pos": "v",
+"alt": "RELEASE"
+},
+"unload": {
+"word": "unload",
+"pos": "v",
+"alt": "RELEASE"
+},
+"unnecessary": {
+"word": "unnecessary",
+"pos": "adj",
+"alt": "NOT NECESSARY REMOVE THE"
+},
+"unobstructed": {
+"word": "unobstructed",
+"pos": "adj",
+"alt": "CLOGGED"
+},
+"unpack": {
+"word": "unpack",
+"pos": "v",
+"alt": "REMOVE"
+},
+"unpainted": {
+"word": "unpainted",
+"pos": "adj",
+"alt": "BARE"
+},
+"unplug": {
+"word": "unplug",
+"pos": "v",
+"alt": "DISCONNECT"
+},
+"unprotected": {
+"word": "unprotected",
+"pos": "adj",
+"alt": "PROTECTION"
+},
+"unreel": {
+"word": "unreel",
+"pos": "v",
+"alt": "UNWIND"
+},
+"unrestricted": {
+"word": "unrestricted",
+"pos": "adj",
+"alt": "FREE"
+},
+"unsafe": {
+"word": "unsafe",
+"pos": "adj",
+"alt": "DANGEROUS"
+},
+"unscrew": {
+"word": "unscrew",
+"pos": "v",
+"alt": "LOOSEN"
+},
+"unstable": {
+"word": "unstable",
+"pos": "adj",
+"alt": "NOT STABLE IF THE"
+},
+"unused": {
+"word": "unused",
+"pos": "adj",
+"alt": "NEW"
+},
+"upon": {
+"word": "upon",
+"pos": "prep",
+"alt": "ON"
+},
+"upper": {
+"word": "upper",
+"pos": "adj",
+"alt": "MAXIMUM"
+},
+"uppermost": {
+"word": "uppermost",
+"pos": "adv",
+"alt": "UP"
+},
+"up to": {
+"word": "up to",
+"pos": "prep",
+"alt": "UNTIL"
+},
+"upward": {
+"word": "upward",
+"pos": "adv",
+"alt": "UP"
+},
+"urgently": {
+"word": "urgently",
+"pos": "adv",
+"alt": "IMMEDIATELY"
+},
+"usage": {
+"word": "usage",
+"pos": "n",
+"alt": "USE"
+},
+"use": {
+"word": "use",
+"pos": "n",
+"alt": "OPERATION"
+},
+"utilization": {
+"word": "utilization",
+"pos": "n",
+"alt": "USE"
+},
+"utilize": {
+"word": "utilize",
+"pos": "v",
+"alt": "USE"
+},
+"valid": {
+"word": "valid",
+"pos": "adj",
+"alt": "CORRECT"
+},
+"validity": {
+"word": "validity",
+"pos": "n",
+"alt": "CORRECT"
+},
+"variable": {
+"word": "variable",
+"pos": "adj",
+"alt": "CHANGE"
+},
+"various": {
+"word": "various",
+"pos": "adj",
+"alt": "DIFFERENT"
+},
+"vary": {
+"word": "vary",
+"pos": "v",
+"alt": "CHANGE"
+},
+"vent": {
+"word": "vent",
+"pos": "v",
+"alt": "RELEASE"
+},
+"ventilate": {
+"word": "ventilate",
+"pos": "v",
+"alt": "AIRFLOW"
+},
+"ventilation": {
+"word": "ventilation",
+"pos": "n",
+"alt": "AIRFLOW"
+},
+"verify": {
+"word": "verify",
+"pos": "v",
+"alt": "MAKE SURE"
+},
+"via": {
+"word": "via",
+"pos": "prep",
+"alt": "THROUGH"
+},
+"vibrate": {
+"word": "vibrate",
+"pos": "v",
+"alt": "VIBRATION"
+},
+"vicinity": {
+"word": "vicinity",
+"pos": "n",
+"alt": "NEAR"
+},
+"view": {
+"word": "view",
+"pos": "v",
+"alt": "SEE"
+},
+"vigorous": {
+"word": "vigorous",
+"pos": "adj",
+"alt": "FORCE"
+},
+"vigorously": {
+"word": "vigorously",
+"pos": "adv",
+"alt": "FORCE"
+},
+"visible": {
+"word": "visible",
+"pos": "adj",
+"alt": "SEE"
+},
+"vital": {
+"word": "vital",
+"pos": "adj",
+"alt": "MANDATORY"
+},
+"volatile": {
+"word": "volatile",
+"pos": "adj",
+"alt": "U"
+},
+"warm": {
+"word": "warm",
+"pos": "v",
+"alt": "WARM"
+},
+"warn": {
+"word": "warn",
+"pos": "v",
+"alt": "TELL"
+},
+"wash": {
+"word": "wash",
+"pos": "v",
+"alt": "CLEAN"
+},
+"watch": {
+"word": "watch",
+"pos": "v",
+"alt": "MONITOR"
+},
+"watertight": {
+"word": "watertight",
+"pos": "adj",
+"alt": "SEAL"
+},
+"way": {
+"word": "way",
+"pos": "n",
+"alt": "PROCEDURE"
+},
+"weakness": {
+"word": "weakness",
+"pos": "n",
+"alt": "WEAK"
+},
+"weep": {
+"word": "weep",
+"pos": "n",
+"alt": "LEAKAGE"
+},
+"well": {
+"word": "well",
+"pos": "adv",
+"alt": "CORRECTLY"
+},
+"whenever": {
+"word": "whenever",
+"pos": "conj",
+"alt": "WHEN"
+},
+"whether": {
+"word": "whether",
+"pos": "conj",
+"alt": "IF"
+},
+"whichever": {
+"word": "whichever",
+"pos": "adj",
+"alt": "THAT"
+},
+"whilst": {
+"word": "whilst",
+"pos": "conj",
+"alt": "WHILE"
+},
+"whole": {
+"word": "whole",
+"pos": "adj",
+"alt": "FULL"
+},
+"wholly": {
+"word": "wholly",
+"pos": "adv",
+"alt": "FULLY"
+},
+"windy": {
+"word": "windy",
+"pos": "adj",
+"alt": "WIND"
+},
+"wipe": {
+"word": "wipe",
+"pos": "v",
+"alt": "CLEAN"
+},
+"wire": {
+"word": "wire",
+"pos": "v",
+"alt": "ATTACH"
+},
+"wire-lock": {
+"word": "wire-lock",
+"pos": "v",
+"alt": "LOCK"
+},
+"withdraw": {
+"word": "withdraw",
+"pos": "v",
+"alt": "REMOVE"
+},
+"within": {
+"word": "within",
+"pos": "prep",
+"alt": "IN"
+},
+"withstand": {
+"word": "withstand",
+"pos": "v",
+"alt": "RESISTANT"
+},
+"work": {
+"word": "work",
+"pos": "v",
+"alt": "WORK"
+},
+"would": {
+"word": "would",
+"pos": "v",
+"alt": "CAN"
+},
+"wrap": {
+"word": "wrap",
+"pos": "v",
+"alt": "PUT"
+},
+"wrong": {
+"word": "wrong",
+"pos": "adj",
+"alt": "INCORRECT"
+},
+"wrongly": {
+"word": "wrongly",
+"pos": "adv",
+"alt": "INCORRECTLY"
+},
+"yet": {
+"word": "yet",
+"pos": "adv",
+"alt": "AT THIS TIME DO"
+},
+"zero": {
+"word": "zero",
+"pos": "v",
+"alt": "ZERO"
+}
+}
+}
