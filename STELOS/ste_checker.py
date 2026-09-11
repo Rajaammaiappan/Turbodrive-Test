@@ -288,14 +288,16 @@ def check_text(text, mode, strict, extra_allowed=None):
                 wl = w.lower()
                 if wl in CONTRACTIONS:
                     e = flagged_words.setdefault('c:' + wl,
-                        {'word': w, 'alt': CONTRACTIONS[wl], 'pos': '4.2', 'count': 0,
+                        {'word': w, 'alt': CONTRACTIONS[wl], 'alts': [CONTRACTIONS[wl]],
+                         'kind': 'rule', 'pos': '4.2', 'count': 0,
                          'has_alt': True, 'replacement': CONTRACTIONS[wl]})
                     e['count'] += 1
                     rule_counts['4.2'] = rule_counts.get('4.2', 0) + 1
                     continue
                 if wl in BRITISH and BRITISH[wl] != wl:
                     e = flagged_words.setdefault('b:' + wl,
-                        {'word': w, 'alt': BRITISH[wl], 'pos': '1.14', 'count': 0,
+                        {'word': w, 'alt': BRITISH[wl], 'alts': [BRITISH[wl]],
+                         'kind': 'rule', 'pos': '1.14', 'count': 0,
                          'has_alt': True, 'replacement': BRITISH[wl]})
                     e['count'] += 1
                     rule_counts['1.14'] = rule_counts.get('1.14', 0) + 1
@@ -304,18 +306,22 @@ def check_text(text, mode, strict, extra_allowed=None):
                     continue
                 na = lookup_not_approved(wl)
                 if na:
+                    alts_list = [a['alt'] for a in na.get('alts', []) if a.get('alt')]
+                    if not alts_list and na.get('alt'):
+                        alts_list = [na['alt']]
+                    disp = ' / '.join(alts_list) if alts_list else '(rewrite - no direct alternative)'
                     e = flagged_words.setdefault(na['word'].lower(),
-                        {'word': na['word'], 'alt': na['alt'] or '(rewrite required)',
-                         'pos': na['pos'], 'count': 0, 'has_alt': bool(na['alt']),
-                         'replacement': default_replacement(na['alt'])})
+                        {'word': na['word'], 'alt': disp, 'alts': alts_list, 'kind': 'dict',
+                         'pos': na['pos'], 'count': 0, 'has_alt': bool(alts_list),
+                         'replacement': default_replacement(alts_list[0]) if alts_list else ''})
                     e['count'] += 1
                     rule_counts['1.1'] = rule_counts.get('1.1', 0) + 1
                 elif (strict and not is_approved(wl) and not w[0].isupper()
                       and not in_allowed(wl, extra_allowed)):
                     e = flagged_words.setdefault('~' + wl,
                         {'word': w, 'alt': 'Not in STE dictionary - verify it is an '
-                         'approved technical noun/verb or reword.', 'pos': '?', 'count': 0,
-                         'has_alt': False, 'replacement': ''})
+                         'approved technical noun/verb or reword.', 'alts': [], 'kind': 'unknown',
+                         'pos': '?', 'count': 0, 'has_alt': False, 'replacement': ''})
                     e['count'] += 1
                     rule_counts['1.6'] = rule_counts.get('1.6', 0) + 1
 
@@ -363,8 +369,9 @@ def build_highlight(text, flagged_words, strict, extra_allowed=None):
             return '<mark class="good" title="Approved technical term">%s</mark>' % html.escape(w)
         hit = lookup_not_approved(wl)
         if hit and hit['word'].lower() in flagged_bases:
+            alts = [a['alt'] for a in hit.get('alts', []) if a.get('alt')] or ([hit['alt']] if hit.get('alt') else [])
             return '<mark class="bad" title="Use: %s">%s</mark>' % (
-                html.escape(hit['alt'] or 'rewrite'), html.escape(w))
+                html.escape(' / '.join(alts) or 'rewrite'), html.escape(w))
         if (strict and not is_approved(wl) and wl not in ALWAYS_OK
                 and not w[0].isupper() and not in_allowed(wl, extra_allowed)):
             return '<mark class="warnw" title="Not in STE dictionary">%s</mark>' % html.escape(w)
@@ -609,7 +616,7 @@ def add_term():
 
 # ---------------------------------------------------------------- template
 PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
-<title>STELOS - The ASD-STE100 Intelligence Platform</title>
+<title>STELOS (STE + Logos (language/intelligence)) - The ASD-STE100 Intelligence Platform</title>
 <link rel="icon" href="https://www.alten.com/wp-content/uploads/2019/01/favicon-alten.png">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -636,6 +643,8 @@ font-family:var(--mono);font-size:13px;resize:vertical}
 label.opt{display:flex;align-items:center;gap:6px;cursor:pointer}
 select,input[type=file],input.rep{padding:7px 9px;border:1px solid var(--border);border-radius:6px;background:#fff;font-size:13px}
 input.rep{font-family:var(--mono);width:100%;color:var(--green)}
+select.repsel{font-family:var(--mono);font-size:12px;padding:5px 6px;border:1px solid var(--border);
+border-radius:6px;background:#f0fdf4;color:#166534;margin-bottom:5px;max-width:100%}
 button{background:var(--accent2);color:#fff;border:0;padding:10px 20px;border-radius:7px;font-size:14px;
 font-weight:600;cursor:pointer}button:disabled{opacity:.5;cursor:not-allowed}
 button.sec{background:var(--surface2);color:var(--accent);border:1px solid var(--border)}
@@ -694,10 +703,10 @@ font-size:12px;font-family:var(--mono)}.chip small{color:#3f7d55;font-family:sys
     <img src="https://www.alten.com/wp-content/uploads/2019/01/favicon-alten.png" alt="ALTEN"
          onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'ALTEN',style:'font-weight:800;background:#fff;color:#1a4fad;padding:6px 10px;border-radius:6px'}))">
     <span class="brand-sep"></span>
-    <span class="brand-name">STELOS</span>
+    <span class="brand-name">STELOS </span>
   </div>
   <div class="header-title"><h1>The ASD-STE100 Intelligence Platform</h1>
-  <p class="brand-by">An ALTEN product &middot; ASD-STE100 Simplified Technical English</p></div>
+  <p class="brand-by">An ALTEN product &middot; (STE + Logos (language/intelligence))</p></div>
 </header>
 <main>
   <div class="card">
@@ -813,13 +822,23 @@ function render(d){
   const wb=document.getElementById('wordsBody');
   if(d.flagged.length===0){wb.innerHTML='<tr><td colspan="6" style="color:var(--green)">No not-approved words found. &#10003;</td></tr>';}
   else{wb.innerHTML=d.flagged.map((f,i)=>{
-     const lastcell = f.has_alt
-       ? `<td class="repcell"><input class="rep" data-i="${i}" value="${esc(f.replacement)}"
-            placeholder="type replacement..."></td>`
-       : `<td class="techcell"><label><input type="checkbox" class="techchk" data-word="${esc(f.word)}">
-            &#43; Add as tech word</label></td>`;
+     let lastcell, leftbox;
+     if(f.kind==='unknown'){
+       leftbox='';
+       lastcell=`<td class="techcell"><label><input type="checkbox" class="techchk" data-word="${esc(f.word)}">
+                  &#43; Add as tech word</label></td>`;
+     } else {
+       leftbox=`<input type="checkbox" class="rowchk" data-i="${i}" ${f.replacement?'checked':''}>`;
+       const multi=(f.alts&&f.alts.length>1);
+       const sel = multi
+         ? `<select class="repsel" data-i="${i}" onchange="onSel(${i})">
+              ${f.alts.map(a=>`<option value="${esc(a.toLowerCase())}">${esc(a)}</option>`).join('')}
+            </select> ` : '';
+       lastcell=`<td class="repcell">${sel}<input class="rep" data-i="${i}"
+                  value="${esc(f.replacement)}" placeholder="type replacement / rewrite..."></td>`;
+     }
      return `<tr>
-       <td class="chk">${f.has_alt?`<input type="checkbox" class="rowchk" data-i="${i}" checked>`:''}</td>
+       <td class="chk">${leftbox}</td>
        <td class="w">${esc(f.word)}</td><td>${esc(f.pos)}</td><td>${f.count}</td>
        <td style="color:var(--green);font-family:var(--mono)">${esc(f.alt)}</td>
        ${lastcell}</tr>`;}).join('');}
@@ -849,6 +868,13 @@ function render(d){
 }
 
 function toggleAll(cb){document.querySelectorAll('.rowchk').forEach(c=>c.checked=cb.checked);}
+function onSel(i){
+  const sel=document.querySelector('.repsel[data-i="'+i+'"]');
+  const inp=document.querySelector('.rep[data-i="'+i+'"]');
+  if(sel&&inp) inp.value=sel.value;
+  const chk=document.querySelector('.rowchk[data-i="'+i+'"]');
+  if(chk) chk.checked=true;
+}
 
 function renderLibrary(lib, user){
   document.getElementById('libUser').textContent = user ? ('you: '+user) : '';
