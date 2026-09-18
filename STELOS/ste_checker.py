@@ -613,6 +613,18 @@ def build_highlight(text, flagged_words, strict, extra_allowed=None):
     return ''.join(out).replace('\n', '<br>')
 
 # ---------------------------------------------------------------- readers
+def _iter_row_cells(row):
+    """Iterate a table row's actual cells straight from its XML, bypassing
+    python-docx's row.cells property. That property computes each cell's
+    position from the table's overall column grid and raises IndexError
+    ('list index out of range') on many real-world documents whose tables
+    have merged cells / an irregular grid - this avoids that entirely and,
+    as a side effect, doesn't repeat a merged cell once per spanned column
+    the way row.cells does."""
+    from docx.table import _Cell
+    for tc in row._tr.tc_lst:
+        yield _Cell(tc, row.table)
+
 def docx_units(doc):
     """Ordered list of 'replaceable units' (each a list of one or more
     docx Paragraph objects) matching 1:1 the paragraph numbering that
@@ -627,7 +639,7 @@ def docx_units(doc):
             units.append([p])
     for t in doc.tables:
         for row in t.rows:
-            for cell in row.cells:
+            for cell in _iter_row_cells(row):
                 if cell.text.strip():
                     units.append(list(cell.paragraphs))
     return units
@@ -1023,7 +1035,7 @@ def annotate_docx(src, dst, strict, extra):
             n += _annotate_paragraph(p, strict, extra, doc, mode)
         for t in doc.tables:
             for row in t.rows:
-                for cell in row.cells:
+                for cell in _iter_row_cells(row):
                     for p in cell.paragraphs:
                         n += _annotate_paragraph(p, strict, extra, doc, mode)
         doc.save(dst)
@@ -1044,7 +1056,7 @@ def annotate_docx(src, dst, strict, extra):
         n += _annotate_paragraph(p, strict, extra, doc, mode)
     for t in doc.tables:
         for row in t.rows:
-            for cell in row.cells:
+            for cell in _iter_row_cells(row):
                 for p in cell.paragraphs:
                     n += _annotate_paragraph(p, strict, extra, doc, mode)
     doc.save(dst)
