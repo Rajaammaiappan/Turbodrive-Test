@@ -937,10 +937,108 @@ def _annotate_paragraph(p, strict, extra, doc, mode):
         n += _mark_run_inline(run, hits_map)
     return n
 
+def _com_add_comments_for_terms(word_doc, terms):
+    """terms: list of (find_text, comment_text). Mirrors the AuditSTE_Tool
+    VBA macro's own pattern exactly: for each term, loop Word's native Find
+    over the whole document and add a real comment at every match, then
+    collapse to the end of that match and keep searching forward."""
+    WD_FIND_STOP, WD_COLLAPSE_END = 0, 0
+    n = 0
+    for find_text, comment_text in terms:
+        if not find_text:
+            continue
+        rng = word_doc.Content
+        f = rng.Find
+        f.ClearFormatting()
+        f.Text = find_text
+        f.MatchWholeWord = True
+        f.MatchCase = False
+        f.Forward = True
+        f.Wrap = WD_FIND_STOP
+        while f.Execute():
+            try:
+                word_doc.Comments.Add(Range=rng, Text=comment_text)
+                n += 1
+            except Exception:
+                pass
+            rng.Collapse(WD_COLLAPSE_END)
+    return n
+
+def annotate_docx_com(src, dst, strict, extra):
+    """Add real Word comments via Word's own COM automation (win32com) -
+    the exact same object model (doc.Comments.Add + Range.Find) as the
+    working AuditSTE_Tool VBA macro. Used when the installed python-docx is
+    too old for native add_comment support (< 1.1) but real Word is
+    installed on the machine - true anywhere the VBA macro already runs."""
+    import win32com.client as win32
+    import pythoncom
+
+    text = extract_text_from(src, '.docx')
+    result = check_text(text, 'procedural', strict, extra)
+    wg = check_writing_guidance(text)
+
+    terms, seen = [], set()
+    for f in result['flagged']:
+        if f['word'].lower() in seen:
+            continue
+        seen.add(f['word'].lower())
+        terms.append((f['word'], 'STE: %s -> %s' % (f['word'], f['alt'])))
+    for f in wg:
+        if f['word'].lower() in seen:
+            continue
+        seen.add(f['word'].lower())
+        note = 'Writing Guidance: %s -> %s' % (f['word'], f['alt'])
+        if f.get('reason'):
+            note += ' (%s)' % f['reason'][:150]
+        terms.append((f['word'], note))
+
+    pythoncom.CoInitialize()
+    word = None
+    try:
+        word = win32.DispatchEx('Word.Application')
+        word.Visible = False
+        word.DisplayAlerts = 0
+        word_doc = word.Documents.Open(os.path.abspath(src), ReadOnly=False,
+                                        AddToRecentFiles=False, ConfirmConversions=False)
+        WD_FORMAT_XML_DOCUMENT = 12  # .docx
+        try:
+            n = _com_add_comments_for_terms(word_doc, terms)
+            word_doc.SaveAs(os.path.abspath(dst), FileFormat=WD_FORMAT_XML_DOCUMENT)
+        finally:
+            word_doc.Close(SaveChanges=False)
+        return n
+    finally:
+        if word is not None:
+            word.Quit()
+        pythoncom.CoUninitialize()
+
 def annotate_docx(src, dst, strict, extra):
     from docx import Document
     doc = Document(src)
-    mode = ['native' if hasattr(doc, 'add_comment') else 'fallback']
+
+    if hasattr(doc, 'add_comment'):
+        mode = ['native']
+        n = 0
+        for p in doc.paragraphs:
+            n += _annotate_paragraph(p, strict, extra, doc, mode)
+        for t in doc.tables:
+            for row in t.rows:
+                for cell in row.cells:
+                    for p in cell.paragraphs:
+                        n += _annotate_paragraph(p, strict, extra, doc, mode)
+        doc.save(dst)
+        return n, mode[0]
+
+    # python-docx is too old for native comments - try driving real Word via
+    # COM (win32com), same approach as the working AuditSTE_Tool VBA macro,
+    # before falling back to inline highlight+note marking.
+    try:
+        n = annotate_docx_com(src, dst, strict, extra)
+        return n, 'com'
+    except Exception:
+        pass
+
+    mode = ['fallback']
     n = 0
     for p in doc.paragraphs:
         n += _annotate_paragraph(p, strict, extra, doc, mode)
@@ -1748,6 +1846,10 @@ async function annotateDoc(){
       msg.textContent='Downloaded '+nm+' with '+nn+' mark(s), but this Python has an old python-docx '+
         '(no native Word comments) so words are highlighted with an inline [STE: ...] note instead of a real '+
         'comment. Run: pip install --upgrade python-docx  to get real comments.';
+    } else if(cmode==='com'){
+      msg.className='ok-msg';
+      msg.textContent='Annotated document with '+nn+' real Word comment(s) downloaded: '+nm+
+        ' (added via Word automation, since python-docx here is too old for native comments).';
     } else {
       msg.className='ok-msg';msg.textContent='Annotated document with '+nn+' mark(s) downloaded: '+nm;
     }
