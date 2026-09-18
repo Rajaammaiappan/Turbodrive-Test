@@ -14,6 +14,7 @@ Ships with ste_dictionary.json (ASD-STE100 Issue 9, 2025-01-15) in the SAME fold
 import os, re, json, csv, threading, webbrowser, time, traceback, html, uuid, tempfile
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template_string, send_file
+from werkzeug.exceptions import RequestEntityTooLarge
 
 app = Flask(__name__)
 PORT = 5002
@@ -21,6 +22,18 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(HERE, 'ste_dictionary.json')
 TMPDIR = os.path.join(tempfile.gettempdir(), 'ste_checker')
 os.makedirs(TMPDIR, exist_ok=True)
+
+# Flask has no upload size cap by default, which risks an unbounded upload
+# hanging the server / exhausting memory. Cap it generously (engineering
+# docs with embedded images can be large) and return a JSON error the UI
+# can show, instead of Flask's default HTML error page.
+MAX_UPLOAD_MB = int(os.environ.get('STE_MAX_UPLOAD_MB', '200'))
+app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_MB * 1024 * 1024
+
+@app.errorhandler(RequestEntityTooLarge)
+def _too_large(_e):
+    return jsonify({'error': 'File is too large (max %d MB). Split the document or '
+                              'raise STE_MAX_UPLOAD_MB.' % MAX_UPLOAD_MB}), 413
 
 # ---------------------------------------------------------------- load data
 with open(DATA_PATH, 'r', encoding='utf-8') as f:
@@ -830,57 +843,114 @@ def annotate_txt(src, dst, strict, extra):
         fh.write(WORD_RE.sub(repl, text))
     return n[0]
 
-def _annotate_paragraph(p, strict, extra, doc, use_native_comments):
-    """Flag each occurrence of a not-approved word with a real Word comment
-    anchored to just that run, so the visible text is left exactly as-is
-    and the reviewer sees/actions one comment per occurrence (not one
-    highlight covering the whole paragraph)."""
+def _mark_run_inline(run, hits_map):
+    """Fallback for python-docx builds without native comment support
+    (< 1.1, e.g. the 0.8.6 seen in some locked-down environments): split
+    `run` so ONLY the actually-flagged words get highlighted, each with its
+    own short inline note right next to it - instead of highlighting the
+    entire run and appending one giant list of every flagged word in it at
+    the end (which is unreadable for long paragraphs)."""
+    from docx.text.run import Run
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    from docx.enum.text import WD_COLOR_INDEX
+    from docx.shared import RGBColor
+    from copy import deepcopy
+
+    text = run.text
+    words_sorted = sorted(hits_map.keys(), key=len, reverse=True)
+    pat = re.compile(r"(?<![A-Za-z'])(" + '|'.join(re.escape(w) for w in words_sorted) +
+                      r")(?![A-Za-z'])", re.IGNORECASE)
+    matches = list(pat.finditer(text))
+    if not matches:
+        return 0
+
+    rPr_src = run._r.find(qn('w:rPr'))
+    anchor = run._r
+    parent = anchor.getparent()
+
+    pieces, last = [], 0
+    for m in matches:
+        if m.start() > last:
+            pieces.append(('text', text[last:m.start()], None))
+        word = m.group(0)
+        pieces.append(('flag', word, hits_map[word.lower()]))
+        last = m.end()
+    if last < len(text):
+        pieces.append(('text', text[last:], None))
+
+    XML_SPACE = qn('xml:space')
+
+    def _text_run(value):
+        r = OxmlElement('w:r')
+        if rPr_src is not None:
+            r.append(deepcopy(rPr_src))
+        t = OxmlElement('w:t')
+        t.set(XML_SPACE, 'preserve')
+        t.text = value
+        r.append(t)
+        return r
+
+    inserted = []
+    for kind, value, sugg in pieces:
+        r = _text_run(value)
+        anchor.addprevious(r)
+        inserted.append((kind, r, sugg))
+    parent.remove(anchor)
+
     n = 0
-    for run in p.runs:
+    for kind, r, sugg in inserted:
+        if kind != 'flag':
+            continue
+        Run(r, run.part).font.highlight_color = WD_COLOR_INDEX.YELLOW
+        note_r = _text_run(' [STE: %s]' % sugg)
+        r.addnext(note_r)
+        note_run = Run(note_r, run.part)
+        note_run.italic = True
+        note_run.font.color.rgb = RGBColor(0xB0, 0x00, 0x00)
+        n += 1
+    return n
+
+def _annotate_paragraph(p, strict, extra, doc, mode):
+    """Flag each occurrence of a not-approved word with a real Word comment
+    anchored to just that run (mode[0] == 'native'), so the visible text is
+    left exactly as-is and the reviewer sees/actions one comment per
+    occurrence. Falls back to inline marking (see _mark_run_inline) when the
+    installed python-docx is too old to support comments (< 1.1)."""
+    n = 0
+    for run in list(p.runs):
         if not run.text.strip():
             continue
         run_hits = _found_in_text(run.text, strict, extra)
         if not run_hits:
             continue
-        note = '; '.join('%s -> %s' % (w, s) for w, s in run_hits)
-        if use_native_comments:
+        if mode[0] == 'native':
+            note = '; '.join('%s -> %s' % (w, s) for w, s in run_hits)
             try:
                 doc.add_comment(runs=[run], text='STE: ' + note,
                                  author='STELOS', initials='STE')
+                n += len(run_hits)
+                continue
             except Exception:
-                use_native_comments = False
-        if not use_native_comments:
-            # Fallback for python-docx versions without native comment support:
-            # mark only this run (not the whole paragraph) and note it inline.
-            try:
-                from docx.enum.text import WD_COLOR_INDEX
-                run.font.highlight_color = WD_COLOR_INDEX.YELLOW
-            except Exception:
-                pass
-            r = p.add_run('  <<STE: %s>>' % note)
-            try:
-                from docx.shared import RGBColor
-                r.font.color.rgb = RGBColor(0xB0, 0x00, 0x00)
-                r.italic = True
-            except Exception:
-                pass
-        n += len(run_hits)
+                mode[0] = 'fallback'
+        hits_map = {w.lower(): s for w, s in run_hits}
+        n += _mark_run_inline(run, hits_map)
     return n
 
 def annotate_docx(src, dst, strict, extra):
     from docx import Document
     doc = Document(src)
-    use_native_comments = hasattr(doc, 'add_comment')
+    mode = ['native' if hasattr(doc, 'add_comment') else 'fallback']
     n = 0
     for p in doc.paragraphs:
-        n += _annotate_paragraph(p, strict, extra, doc, use_native_comments)
+        n += _annotate_paragraph(p, strict, extra, doc, mode)
     for t in doc.tables:
         for row in t.rows:
             for cell in row.cells:
                 for p in cell.paragraphs:
-                    n += _annotate_paragraph(p, strict, extra, doc, use_native_comments)
+                    n += _annotate_paragraph(p, strict, extra, doc, mode)
     doc.save(dst)
-    return n
+    return n, mode[0]
 
 def annotate_xlsx(src, dst, strict, extra):
     import openpyxl
@@ -906,7 +976,7 @@ def annotate_xlsx(src, dst, strict, extra):
     return n
 @app.route('/')
 def index():
-    return render_template_string(PAGE, meta=META, rules=RULES)
+    return render_template_string(PAGE, meta=META, rules=RULES, max_upload_mb=MAX_UPLOAD_MB)
 
 @app.route('/check', methods=['POST'])
 def check():
@@ -1022,8 +1092,9 @@ def annotate():
         out_name = '%s_STE_annotated_%s%s' % (stem, ts, ext)
         dst = os.path.join(TMPDIR, out_name)
 
+        mode = 'native'
         if ext == '.docx':
-            n = annotate_docx(src, dst, strict, extra)
+            n, mode = annotate_docx(src, dst, strict, extra)
         elif ext in ('.xlsx', '.xlsm'):
             n = annotate_xlsx(src, dst, strict, extra)
         else:
@@ -1035,7 +1106,9 @@ def annotate():
             resp = send_file(dst, as_attachment=True, attachment_filename=out_name)
         resp.headers['X-STE-Annotations'] = str(n)
         resp.headers['X-STE-Outfile'] = out_name
-        resp.headers['Access-Control-Expose-Headers'] = 'X-STE-Annotations, X-STE-Outfile'
+        resp.headers['X-STE-Comment-Mode'] = mode
+        resp.headers['Access-Control-Expose-Headers'] = \
+            'X-STE-Annotations, X-STE-Outfile, X-STE-Comment-Mode'
         return resp
     except Exception as e:
         traceback.print_exc()
@@ -1218,7 +1291,7 @@ border-radius:6px;padding:6px 10px;display:flex;align-items:flex-start;gap:8px}
       <label class="opt"><input type="checkbox" id="strict" checked>
         Full ASD-STE100 check (flag <b>every</b> word not in the approved dictionary)</label>
     </div>
-    <p class="note">Accepted files: Word (.docx), Excel (.xlsx / .xlsm), text (.txt / .md).
+    <p class="note">Accepted files: Word (.docx), Excel (.xlsx / .xlsm), text (.txt / .md), up to {{max_upload_mb}} MB.
     The original file is never changed &mdash; replacements are written to a downloaded copy.
     STE is a closed vocabulary: with the full check on, any word outside the approved list is
     flagged as <i>"Not in STE dictionary - verify it is an approved technical noun/verb or reword."</i>
@@ -1667,9 +1740,17 @@ async function annotateDoc(){
         terms:document.getElementById('terms').value})});
     if(!r.ok){const d=await r.json();msg.className='err';msg.textContent=d.error||'Error';return;}
     const nm=r.headers.get('X-STE-Outfile')||'annotated';const nn=r.headers.get('X-STE-Annotations');
+    const cmode=r.headers.get('X-STE-Comment-Mode');
     const blob=await r.blob();const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);a.download=nm;a.click();
-    msg.className='ok-msg';msg.textContent='Annotated document with '+nn+' mark(s) downloaded: '+nm;
+    if(cmode==='fallback'){
+      msg.className='err';
+      msg.textContent='Downloaded '+nm+' with '+nn+' mark(s), but this Python has an old python-docx '+
+        '(no native Word comments) so words are highlighted with an inline [STE: ...] note instead of a real '+
+        'comment. Run: pip install --upgrade python-docx  to get real comments.';
+    } else {
+      msg.className='ok-msg';msg.textContent='Annotated document with '+nn+' mark(s) downloaded: '+nm;
+    }
   }catch(e){msg.className='err';msg.textContent=e.message;}
   finally{btn.disabled=false;btn.innerHTML='&#8681; Download annotated document (same format as input)';}
 }
