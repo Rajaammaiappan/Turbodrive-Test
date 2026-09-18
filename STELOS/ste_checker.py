@@ -489,11 +489,14 @@ def replace_in_docx(src, dst, pats):
             for cell in row.cells:
                 for p in cell.paragraphs:
                     _replace_paragraph(p, pats, counter)
-    # headers / footers too
-    for section in doc.sections:
-        for hf in (section.header, section.footer):
-            for p in hf.paragraphs:
-                _replace_paragraph(p, pats, counter)
+    # headers / footers too (guarded: older python-docx lacks Section.header)
+    try:
+        for section in doc.sections:
+            for hf in (section.header, section.footer):
+                for p in hf.paragraphs:
+                    _replace_paragraph(p, pats, counter)
+    except (AttributeError, Exception):
+        pass
     doc.save(dst)
     return counter[0]
 
@@ -511,7 +514,110 @@ def replace_in_xlsx(src, dst, pats):
     wb.save(dst)
     return counter[0]
 
-# ---------------------------------------------------------------- routes
+# ---------------------------------------------------------------- annotation
+def word_suggestion(w, strict, extra_allowed):
+    """Suggestion string for one word, mirroring the on-screen check, or None."""
+    wl = w.lower()
+    if wl in CONTRACTIONS:
+        return CONTRACTIONS[wl]
+    if wl in BRITISH and BRITISH[wl] != wl:
+        return BRITISH[wl]
+    if wl in ALWAYS_OK or in_allowed(wl, extra_allowed):
+        return None
+    na = lookup_not_approved(wl)
+    if na:
+        alts = [a['alt'] for a in na.get('alts', []) if a.get('alt')] or \
+               ([na['alt']] if na.get('alt') else [])
+        return ' / '.join(alts) if alts else 'rewrite'
+    if strict and not is_approved(wl) and not w[0].isupper():
+        return 'verify: technical term or reword'
+    return None
+
+def _found_in_text(text, strict, extra):
+    found, seen = [], set()
+    for w in WORD_RE.findall(text):
+        s = word_suggestion(w, strict, extra)
+        if s and w.lower() not in seen:
+            seen.add(w.lower())
+            found.append((w, s))
+    return found
+
+def annotate_txt(src, dst, strict, extra):
+    with open(src, 'rb') as fh:
+        text = fh.read().decode('utf-8', errors='replace')
+    n = [0]
+    def repl(m):
+        w = m.group(0)
+        s = word_suggestion(w, strict, extra)
+        if s:
+            n[0] += 1
+            return '%s [STE: %s]' % (w, s)
+        return w
+    with open(dst, 'w', encoding='utf-8') as fh:
+        fh.write(WORD_RE.sub(repl, text))
+    return n[0]
+
+def _annotate_paragraph(p, strict, extra):
+    text = p.text
+    if not text.strip():
+        return 0
+    found = _found_in_text(text, strict, extra)
+    if not found:
+        return 0
+    try:
+        from docx.enum.text import WD_COLOR_INDEX
+        flagset = {f[0].lower() for f in found}
+        for run in p.runs:
+            if {x.lower() for x in WORD_RE.findall(run.text)} & flagset:
+                run.font.highlight_color = WD_COLOR_INDEX.YELLOW
+    except Exception:
+        pass
+    note = '  <<STE: ' + '; '.join('%s -> %s' % (w, s) for w, s in found) + '>>'
+    r = p.add_run(note)
+    try:
+        from docx.shared import RGBColor
+        r.font.color.rgb = RGBColor(0xB0, 0x00, 0x00)
+        r.italic = True
+    except Exception:
+        pass
+    return len(found)
+
+def annotate_docx(src, dst, strict, extra):
+    from docx import Document
+    doc = Document(src)
+    n = 0
+    for p in doc.paragraphs:
+        n += _annotate_paragraph(p, strict, extra)
+    for t in doc.tables:
+        for row in t.rows:
+            for cell in row.cells:
+                for p in cell.paragraphs:
+                    n += _annotate_paragraph(p, strict, extra)
+    doc.save(dst)
+    return n
+
+def annotate_xlsx(src, dst, strict, extra):
+    import openpyxl
+    from openpyxl.comments import Comment
+    from openpyxl.styles import PatternFill
+    fill = PatternFill('solid', fgColor='FFF3B0')
+    wb = openpyxl.load_workbook(src)
+    n = 0
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str) and cell.value:
+                    found = _found_in_text(cell.value, strict, extra)
+                    if found:
+                        note = 'STE: ' + '; '.join('%s -> %s' % (w, s) for w, s in found)
+                        try:
+                            cell.comment = Comment(note, 'STELOS')
+                            cell.fill = fill
+                        except Exception:
+                            pass
+                        n += len(found)
+    wb.save(dst)
+    return n
 @app.route('/')
 def index():
     return render_template_string(PAGE, meta=META, rules=RULES)
@@ -597,6 +703,50 @@ def apply():
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
+@app.route('/annotate', methods=['POST'])
+def annotate():
+    """Produce an annotated copy of the ORIGINAL file (same format) with STE
+    suggestions marked in-line. The original is never changed."""
+    try:
+        data = request.get_json(force=True)
+        token = data.get('token')
+        strict = bool(data.get('strict', True))
+        raw_terms = data.get('terms', '') or ''
+        if token not in UPLOADS:
+            return jsonify({'error': 'Session expired - run the check again.'}), 400
+        extra = set()
+        for t in re.split(r'[\n,;]+', raw_terms):
+            t = t.strip().lower()
+            if t:
+                extra.add(t)
+        extra |= set(load_terms().keys())
+
+        info = UPLOADS[token]
+        src, ext = info['path'], info['ext']
+        stem = os.path.splitext(os.path.basename(info['filename']))[0]
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        out_name = '%s_STE_annotated_%s%s' % (stem, ts, ext)
+        dst = os.path.join(TMPDIR, out_name)
+
+        if ext == '.docx':
+            n = annotate_docx(src, dst, strict, extra)
+        elif ext in ('.xlsx', '.xlsm'):
+            n = annotate_xlsx(src, dst, strict, extra)
+        else:
+            n = annotate_txt(src, dst, strict, extra)
+
+        try:
+            resp = send_file(dst, as_attachment=True, download_name=out_name)
+        except TypeError:
+            resp = send_file(dst, as_attachment=True, attachment_filename=out_name)
+        resp.headers['X-STE-Annotations'] = str(n)
+        resp.headers['X-STE-Outfile'] = out_name
+        resp.headers['Access-Control-Expose-Headers'] = 'X-STE-Annotations, X-STE-Outfile'
+        return resp
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/terms', methods=['GET'])
 def terms():
     return jsonify({'library': load_terms(), 'user': CURRENT_USER})
@@ -616,7 +766,7 @@ def add_term():
 
 # ---------------------------------------------------------------- template
 PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
-<title>STELOS (STE + Logos (language/intelligence)) - The ASD-STE100 Intelligence Platform</title>
+<title>STELOS - The ASD-STE100 Intelligence Platform</title>
 <link rel="icon" href="https://www.alten.com/wp-content/uploads/2019/01/favicon-alten.png">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -703,10 +853,10 @@ font-size:12px;font-family:var(--mono)}.chip small{color:#3f7d55;font-family:sys
     <img src="https://www.alten.com/wp-content/uploads/2019/01/favicon-alten.png" alt="ALTEN"
          onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'ALTEN',style:'font-weight:800;background:#fff;color:#1a4fad;padding:6px 10px;border-radius:6px'}))">
     <span class="brand-sep"></span>
-    <span class="brand-name">STELOS </span>
+    <span class="brand-name">STELOS</span>
   </div>
   <div class="header-title"><h1>The ASD-STE100 Intelligence Platform</h1>
-  <p class="brand-by">An ALTEN product &middot; (STE + Logos (language/intelligence))</p></div>
+  <p class="brand-by">An ALTEN product &middot; ASD-STE100 Simplified Technical English</p></div>
 </header>
 <main>
   <div class="card">
@@ -779,7 +929,13 @@ font-size:12px;font-family:var(--mono)}.chip small{color:#3f7d55;font-family:sys
       <p class="note"><mark class="bad">red</mark> = not approved (hover for alternative) &nbsp;
       <mark class="warnw">amber</mark> = not in dictionary (strict mode)</p>
       <div class="doc" id="doc"></div>
-      <div class="row"><button class="sec" onclick="dl()">&#8681; Download report (.html)</button></div>
+      <div class="row">
+        <button class="sec" onclick="dl()">&#8681; Download report (.html)</button>
+        <button class="sec" onclick="annotateDoc()" id="annBtn">&#8681; Download annotated document (same format as input)</button>
+        <span id="annMsg"></span>
+      </div>
+      <p class="note">The annotated document is a copy of your original file with each flagged word marked and its
+      STE suggestion added in-line (Word: highlighted + note; Excel: cell comment; text: [STE: ...]). Your original is never changed.</p>
     </div>
   </div>
 </main>
@@ -930,6 +1086,23 @@ async function applyRepl(){
     msg.className='ok-msg';msg.textContent='Done - '+n+' replacement(s) written to a copy: '+name;
   }catch(e){msg.className='err';msg.textContent=e.message;}
   finally{btn.disabled=false;btn.innerHTML='&#10003; Apply ticked replacements &amp; download copy';}
+}
+
+async function annotateDoc(){
+  const msg=document.getElementById('annMsg');msg.className='';msg.textContent='';
+  if(!TOKEN){msg.className='err';msg.textContent='Run a check first.';return;}
+  const btn=document.getElementById('annBtn');btn.disabled=true;btn.textContent='Building...';
+  try{
+    const r=await fetch('/annotate',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token:TOKEN,strict:document.getElementById('strict').checked,
+        terms:document.getElementById('terms').value})});
+    if(!r.ok){const d=await r.json();msg.className='err';msg.textContent=d.error||'Error';return;}
+    const nm=r.headers.get('X-STE-Outfile')||'annotated';const nn=r.headers.get('X-STE-Annotations');
+    const blob=await r.blob();const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);a.download=nm;a.click();
+    msg.className='ok-msg';msg.textContent='Annotated document with '+nn+' mark(s) downloaded: '+nm;
+  }catch(e){msg.className='err';msg.textContent=e.message;}
+  finally{btn.disabled=false;btn.innerHTML='&#8681; Download annotated document (same format as input)';}
 }
 
 function dl(){
