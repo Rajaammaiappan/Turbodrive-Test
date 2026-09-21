@@ -1,0 +1,160 @@
+[
+  {
+    "id": "tpcr",
+    "tool_name": "TPCR",
+    "category": "Engineering",
+    "icon": "📐",
+    "description": "Technical Process Change Request tool for engineering documentation workflows.",
+    "owner": "Raja",
+    "version": "3.2",
+    "last_updated": "2026-08-10",
+    "status": "active",
+    "tool_url": "http://127.0.0.1:5000",
+    "guide_url": "http://127.0.0.1:5000/static/guides/tpcr_guide.pdf",
+    "db_type": "sqlite",
+    "db_path": "",
+    "hours_saved_per_use": 0.5,
+    "purpose": "Standardise and speed up technical process change requests across engineering teams.",
+    "features": [
+      "Template-driven change requests",
+      "Approval routing",
+      "Automatic revision numbering",
+      "Excel export of change log"
+    ],
+    "benefits": [
+      "Removes manual formatting work",
+      "Ensures consistent documentation",
+      "Full audit trail of changes"
+    ],
+    "scope": "Used by Engineering and Quality teams for all process change documentation.",
+    "contact": "raja@company.com",
+    "change_history": [
+      {
+        "version": "3.2",
+        "date": "2026-08-10",
+        "notes": "Added Excel export and revision auto-numbering."
+      },
+      {
+        "version": "3.0",
+        "date": "2026-04-02",
+        "notes": "Migrated to new UI theme."
+      },
+      {
+        "version": "2.1",
+        "date": "2025-11-15",
+        "notes": "Initial internal rollout."
+      }
+    ]
+  },
+  {
+    "id": "bdc_downloader",
+    "tool_name": "BDC Downloader",
+    "category": "Automation",
+    "icon": "⬇️",
+    "description": "Automates bulk downloading of BDC files from the supplier portal.",
+    "owner": "Raja",
+    "version": "1.4",
+    "last_updated": "2026-07-22",
+    "status": "active",
+    "tool_url": "http://127.0.0.1:5001",
+    "guide_url": "http://127.0.0.1:5001/static/guides/bdc_downloader_guide.pdf",
+    "db_type": "sqlite",
+    "db_path": "",
+    "hours_saved_per_use": 0.25,
+    "purpose": "Eliminate manual, repetitive downloading of BDC drawing packages.",
+    "features": [
+      "Batch download by TV number",
+      "Automatic retry on failure",
+      "Usage logging for savings tracking"
+    ],
+    "benefits": [
+      "Saves hours of manual download time weekly",
+      "Consistent file naming and folder structure"
+    ],
+    "scope": "Used by the Engineering automation team.",
+    "contact": "raja@company.com",
+    "change_history": [
+      {
+        "version": "1.4",
+        "date": "2026-07-22",
+        "notes": "Added retry logic and better error messages."
+      },
+      {
+        "version": "1.0",
+        "date": "2026-02-01",
+        "notes": "First release."
+      }
+    ]
+  },
+  {
+    "id": "bdc_usage_viewer",
+    "tool_name": "BDC Usage Log Viewer",
+    "category": "Analytics",
+    "icon": "📊",
+    "description": "Read-only viewer for the BDC Downloader usage log, with export to Excel.",
+    "owner": "Raja",
+    "version": "1.0",
+    "last_updated": "2026-07-22",
+    "status": "active",
+    "tool_url": "http://127.0.0.1:5002",
+    "guide_url": "http://127.0.0.1:5002/static/guides/usage_viewer_guide.pdf",
+    "db_type": "sqlite",
+    "db_path": "bdc_usage_log.db",
+    "db_viewer_url": "http://127.0.0.1:5002",
+    "hours_saved_per_use": 0.1,
+    "purpose": "Give management visibility into automation usage and savings for the BDC Downloader.",
+    "features": [
+      "Search and filter usage log",
+      "Excel export",
+      "Summary stats for reporting"
+    ],
+    "benefits": [
+      "Supports the year-end savings story with real data",
+      "No manual log compilation needed"
+    ],
+    "scope": "Used by management and the automation team for reporting.",
+    "contact": "raja@company.com",
+    "change_history": [
+      {
+        "version": "1.0",
+        "date": "2026-07-22",
+        "notes": "First release, read-only viewer."
+      }
+    ]
+  },
+  {
+    "id": "cairo",
+    "tool_name": "CAIRO Assistant",
+    "category": "AI",
+    "icon": "🤖",
+    "description": "AI-based inspection automation assistant.",
+    "owner": "Raja",
+    "version": "1.0",
+    "last_updated": "2026-06-15",
+    "status": "active",
+    "tool_url": "http://localhost:8501",
+    "guide_url": "/guides/cairo.pdf",
+    "db_type": "sqlite",
+    "db_path": "",
+    "hours_saved_per_use": 1.0,
+    "purpose": "AI-powered inspection assistant that speeds up quality inspection review.",
+    "features": [
+      "AI-assisted defect flagging",
+      "Inspection report generation",
+      "History of past inspections"
+    ],
+    "benefits": [
+      "Reduces inspection review time",
+      "Improves consistency of defect classification"
+    ],
+    "scope": "Used by the Quality Inspection team.",
+    "contact": "raja@company.com",
+    "change_history": [
+      {
+        "version": "1.0",
+        "date": "2026-06-15",
+        "notes": "Initial release."
+      }
+    ]
+  }
+]
