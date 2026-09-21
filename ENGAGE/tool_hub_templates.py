@@ -380,15 +380,28 @@ function openTool(id) {
   if (!t) return;
   if (t.status !== 'active') { toast('This tool is currently disabled.'); return; }
   logEvent(id, 'open');
-  window.open(t.tool_url, '_blank');
-  setTimeout(loadEverything, 400);
+  fetch('/api/resolve_open', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({tool_id:id, field:'tool_url'})})
+    .then(r=>r.json()).then(function(j){
+      if (!j.ok) { toast(j.error || 'Could not open this tool.'); return; }
+      if (j.mode === 'url') window.open(j.url, '_blank');
+      else toast('Launching ' + t.tool_name + '…');
+    })
+    .catch(function(){ toast('Could not reach the hub server.'); });
+  setTimeout(loadEverything, 600);
 }
 function openGuide(id) {
   var t = ALL_TOOLS.find(x=>x.id===id);
   if (!t) return;
   logEvent(id, 'guide');
-  if (t.guide_url) window.open(t.guide_url, '_blank');
-  else toast('No user guide configured for this tool yet.');
+  fetch('/api/resolve_open', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({tool_id:id, field:'guide_url'})})
+    .then(r=>r.json()).then(function(j){
+      if (!j.ok) { toast(j.error || 'No user guide configured for this tool yet.'); return; }
+      if (j.mode === 'url') window.open(j.url, '_blank');
+      else toast('Opening user guide…');
+    })
+    .catch(function(){ toast('Could not reach the hub server.'); });
 }
 
 function openAbout(id) {
@@ -867,8 +880,8 @@ table.admin-tbl td { padding:8px 10px; border-bottom:1px solid var(--border); }
           <div><label>Owner</label><input name="owner"></div>
           <div><label>Version</label><input name="version" placeholder="1.0"></div>
           <div><label>Estimated Hours Saved / Use</label><input name="hours_saved_per_use" type="number" step="0.1"></div>
-          <div><label>Tool URL (hardcoded launch link)</label><input name="tool_url" placeholder="http://127.0.0.1:5010"></div>
-          <div><label>User Guide URL</label><input name="guide_url" placeholder="http://.../guide.pdf"></div>
+          <div><label>Tool URL (http(s):// link, OR a local/UNC path to a .bat/.exe — opens with OS default handler)</label><input name="tool_url" placeholder="http://127.0.0.1:5010  or  \\\\server\\share\\run_tool.bat"></div>
+          <div><label>User Guide (http(s):// link, OR a local/UNC path to .pdf/.docx/.html)</label><input name="guide_url" placeholder="http://.../guide.pdf  or  \\\\server\\share\\guide.pdf"></div>
           <div class="full"><label>SQLite DB path for built-in Data Dashboard (relative to hub folder, optional)</label>
             <input name="db_path" placeholder="e.g. bdc_usage_log.db"></div>
           <div class="full"><label>External DB Viewer URL (optional — if set, icon 3 opens this instead of the built-in dashboard)</label>
