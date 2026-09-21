@@ -539,7 +539,7 @@ PAGE_DASHBOARD = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NGAGE — Engineering Gateway for Automation, Guidance & Enterprise Tools</title>
+<title>ENGAGE — Engineering Gateway for Automation, Guidance & Enterprise Tools</title>
 <style>""" + BASE_CSS + """
 .notif-wrap { position:relative; }
 #notifPanel {
@@ -556,7 +556,7 @@ PAGE_DASHBOARD = """<!DOCTYPE html>
     {% if alten_logo %}<img class="logo-alten-img" src="{{ alten_logo }}" alt="ALTEN">{% else %}<div class="logo-alten">ALTEN</div>{% endif %}
   </div>
   <div class="header-title">
-    <h1>NGAGE <span class="brand-tagline">Launch. Automate. Accelerate.</span></h1>
+    <h1>ENGAGE <span class="brand-tagline">Launch. Automate. Accelerate.</span></h1>
     <p>Engineering Gateway for Automation, Guidance &amp; Enterprise Tools — Internal Use Only</p>
   </div>
   <div class="header-actions">
@@ -817,7 +817,7 @@ PAGE_ADMIN = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>NGAGE — Admin</title>
+<title>ENGAGE — Admin</title>
 <style>""" + BASE_CSS + """
 .form-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
 .form-grid .full { grid-column:1 / -1; }
@@ -853,7 +853,7 @@ table.admin-tbl td { padding:8px 10px; border-bottom:1px solid var(--border); }
     {% if rr_logo %}<img class="logo-rr-img" src="{{ rr_logo }}" alt="Rolls-Royce">{% else %}<div class="logo-rr">RR</div>{% endif %}
     {% if alten_logo %}<img class="logo-alten-img" src="{{ alten_logo }}" alt="ALTEN">{% else %}<div class="logo-alten">ALTEN</div>{% endif %}
   </div>
-  <div class="header-title"><h1>NGAGE <span class="brand-tagline">Launch. Automate. Accelerate.</span></h1><p>Admin — Manage tools, URLs, guides, and view usage metrics</p></div>
+  <div class="header-title"><h1>ENGAGE <span class="brand-tagline">Launch. Automate. Accelerate.</span></h1><p>Admin — Manage tools, URLs, guides, and view usage metrics</p></div>
   <div class="header-actions"><a class="icon-btn" href="/">\u2190 Back to Hub</a></div>
 </header>
 <main>
