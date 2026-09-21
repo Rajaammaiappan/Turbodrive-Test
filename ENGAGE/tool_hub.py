@@ -1,7 +1,7 @@
 """
 tool_hub.py
 =========================================================================
-NGAGE - Engineering Gateway for Automation, Guidance & Enterprise Tools
+ENGAGE - Engineering Gateway for Automation, Guidance & Enterprise Tools
 (RR / ALTEN internal tool)   Tagline: "Launch. Automate. Accelerate."
 
 Single entry point / dashboard for all internally developed engineering
@@ -248,6 +248,9 @@ def diff_tool_fields(old, new):
         if old_val != new_val:
             changes.append({"field": field, "old": old_val, "new": new_val})
     return changes
+
+
+def log_event(tool_id, action, user):
     con = get_hub_con()
     con.execute(
         "INSERT INTO usage_events (tool_id, action, user, ts) VALUES (?,?,?,?)",
@@ -261,6 +264,45 @@ def diff_tool_fields(old, new):
 # ------------------------------------------------------------------ #
 #  Stats / analytics helpers
 # ------------------------------------------------------------------ #
+def get_tool_db_usage(tool):
+    """Read the REAL usage count (and, if possible, distinct users)
+    straight from the tool's own database — the authoritative record of
+    how many times the tool actually ran, not just how many times
+    someone clicked 'Open' inside the hub. Returns (count, users) where
+    both are None if the tool has no reachable/configured db, so
+    callers can fall back to the hub's own click log for that tool."""
+    path = resolve_db_path(tool)
+    if not path or not path.exists():
+        return None, None
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=5)
+    except sqlite3.Error:
+        return None, None
+    table = pick_best_table(con)
+    if not table:
+        con.close()
+        return None, None
+    try:
+        total = con.execute(f'SELECT COUNT(*) FROM "{table}"').fetchone()[0]
+    except sqlite3.Error:
+        con.close()
+        return None, None
+    cols = [r[1] for r in con.execute(f'PRAGMA table_info("{table}")').fetchall()]
+    user_col = next((c for c in cols if c.lower() in
+                      ("downloaded_by", "user", "username", "created_by",
+                       "requested_by", "owner", "processed_by")), None)
+    users = set()
+    if user_col:
+        try:
+            users = {r[0] for r in con.execute(
+                f'SELECT DISTINCT "{user_col}" FROM "{table}" '
+                f'WHERE "{user_col}" IS NOT NULL AND "{user_col}" != \'\'').fetchall()}
+        except sqlite3.Error:
+            users = set()
+    con.close()
+    return total, users
+
+
 def build_stats_and_analytics():
     tools = load_tools()
     tool_map = {t["id"]: t for t in tools}
@@ -270,21 +312,37 @@ def build_stats_and_analytics():
 
     total_tools = len(tools)
     active_tools = len([t for t in tools if t.get("status", "active") == "active"])
-    distinct_users = {r["user"] for r in rows if r["user"]}
     open_events = [r for r in rows if r["action"] == "open"]
-
-    hours_saved = 0.0
-    per_tool_counts = {}
+    hub_click_counts = {}
     for r in open_events:
-        per_tool_counts[r["tool_id"]] = per_tool_counts.get(r["tool_id"], 0) + 1
-        t = tool_map.get(r["tool_id"])
-        if t:
-            hours_saved += float(t.get("hours_saved_per_use", 0) or 0)
+        hub_click_counts[r["tool_id"]] = hub_click_counts.get(r["tool_id"], 0) + 1
+
+    distinct_users = {r["user"] for r in rows if r["user"]}
+
+    # Real usage count per tool: prefer the actual record count from the
+    # tool's own database (its true number of runs) over the hub's click
+    # log, since not every "Open" click necessarily ran the tool and not
+    # every run of the tool necessarily went through the hub. Hours saved
+    # is then simply (real usage count x hours saved per use), summed.
+    per_tool_counts = {}
+    hours_saved = 0.0
+    for t in tools:
+        db_count, db_users = get_tool_db_usage(t)
+        if db_count is not None:
+            count = db_count
+            if db_users:
+                distinct_users |= db_users
+        else:
+            count = hub_click_counts.get(t["id"], 0)
+        per_tool_counts[t["id"]] = count
+        hours_saved += count * float(t.get("hours_saved_per_use", 0) or 0)
+
+    total_automations = sum(per_tool_counts.values())
 
     most_used = sorted(per_tool_counts.items(), key=lambda kv: kv[1], reverse=True)[:8]
     most_used_named = [
         {"tool_id": tid, "tool_name": tool_map.get(tid, {}).get("tool_name", tid), "count": c}
-        for tid, c in most_used
+        for tid, c in most_used if c > 0
     ]
 
     recent = sorted(rows, key=lambda r: r["ts"], reverse=True)[:25]
@@ -302,7 +360,8 @@ def build_stats_and_analytics():
     for t in tools:
         cat_counts[t.get("category", "Other")] = cat_counts.get(t.get("category", "Other"), 0) + 1
 
-    # usage over last 14 days (all actions)
+    # usage over last 14 days (hub click activity only - per-tool DBs don't
+    # all expose a reliable per-day timestamp column across every tool)
     since = datetime.now() - timedelta(days=14)
     daily = {}
     for r in rows:
@@ -323,7 +382,7 @@ def build_stats_and_analytics():
         "total_tools": total_tools,
         "active_tools": active_tools,
         "active_users": len(distinct_users),
-        "total_automations": len(open_events),
+        "total_automations": total_automations,
         "hours_saved": round(hours_saved, 1),
     }
     analytics = {
@@ -826,7 +885,7 @@ if __name__ == "__main__":
     if not CONFIG_PATH.exists():
         save_tools([])
     threading.Timer(1.5, lambda: webbrowser.open(f"http://127.0.0.1:{PORT}")).start()
-    print(f"NGAGE - Engineering Gateway for Automation, Guidance & Enterprise Tools")
+    print(f"ENGAGE - Engineering Gateway for Automation, Guidance & Enterprise Tools")
     print(f"        \"Launch. Automate. Accelerate.\"")
     print(f"        http://127.0.0.1:{PORT}")
     print(f"Admin page:           http://127.0.0.1:{PORT}/admin")
