@@ -26,7 +26,10 @@ import csv
 import io
 import json
 import mimetypes
+import os
+import platform
 import sqlite3
+import subprocess
 import threading
 import time
 import traceback
@@ -122,6 +125,46 @@ def next_tool_id(tools, tool_name):
         n += 1
         candidate = f"{base}_{n}"
     return candidate
+
+
+# ------------------------------------------------------------------ #
+#  Opening tools / guides - two kinds of "location" are supported:
+#    1. A real web link (http:// or https://)      -> opened via the
+#       browser (window.open) - unchanged behaviour.
+#    2. A local path or UNC network path (.bat, .exe, .pdf, .docx,
+#       .html, a SharePoint-synced folder path, etc.) -> a browser
+#       CANNOT launch these directly (window.open only works for real
+#       URLs, never for backslash paths or local executables - this is
+#       a browser security restriction, not a bug in the hub). Since
+#       this hub runs locally on the user's own machine (127.0.0.1),
+#       the Flask backend opens these the same way Explorer would when
+#       you double-click them: with the OS's default handler. That
+#       means .bat/.exe get launched, and .pdf/.docx/.html open in
+#       whatever app is set as default for that file type.
+# ------------------------------------------------------------------ #
+def looks_like_web_url(value):
+    v = (value or "").strip().lower()
+    return v.startswith("http://") or v.startswith("https://")
+
+
+def open_local_path(path):
+    """Open a local/UNC path with the OS default handler, exactly like
+    double-clicking it in Explorer. Returns (ok, error_message)."""
+    path = (path or "").strip()
+    if not path:
+        return False, "No location configured for this tool."
+    try:
+        if platform.system() == "Windows":
+            os.startfile(path)  # type: ignore[attr-defined]  (Windows-only)
+        elif platform.system() == "Darwin":
+            subprocess.Popen(["open", path])
+        else:
+            subprocess.Popen(["xdg-open", path])
+        return True, None
+    except FileNotFoundError:
+        return False, f"Path not found or not reachable from this PC: {path}"
+    except OSError as exc:
+        return False, f"Could not open this path ({exc})."
 
 
 TOOL_DEFAULTS = {
@@ -444,6 +487,33 @@ def api_log():
         return jsonify(ok=False, error="Invalid log request"), 400
     log_event(tool_id, action, user)
     return jsonify(ok=True)
+
+
+@app.route("/api/resolve_open", methods=["POST"])
+def api_resolve_open():
+    """Used by the 'Open Tool' and 'User Guide' buttons. If the tool's
+    configured location is a real web link, hands it back so the
+    frontend opens it in a new tab. If it's a local/UNC path, opens it
+    here on the backend with the OS default handler (see open_local_path)."""
+    data = request.get_json(force=True, silent=True) or {}
+    tool_id = data.get("tool_id")
+    field = data.get("field")
+    if field not in ("tool_url", "guide_url"):
+        return jsonify(ok=False, error="Invalid field"), 400
+    tools = load_tools()
+    tool = next((t for t in tools if t["id"] == tool_id), None)
+    if not tool:
+        return jsonify(ok=False, error="Unknown tool"), 404
+    target = (tool.get(field) or "").strip()
+    label = "Tool URL" if field == "tool_url" else "User Guide"
+    if not target:
+        return jsonify(ok=False, error=f"No {label} configured for this tool yet.")
+    if looks_like_web_url(target):
+        return jsonify(ok=True, mode="url", url=target)
+    ok, err = open_local_path(target)
+    if ok:
+        return jsonify(ok=True, mode="local")
+    return jsonify(ok=False, error=err)
 
 
 @app.route("/api/favorites")
