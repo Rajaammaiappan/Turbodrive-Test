@@ -11,9 +11,10 @@ Replacement:  tick the words to fix -> tool writes a corrected COPY and offers i
 
 Ships with ste_dictionary.json (ASD-STE100 Issue 9, 2025-01-15) in the SAME folder.
 """
-import os, re, json, threading, webbrowser, time, traceback, html, uuid, tempfile, sqlite3, platform
+import os, re, json, csv, sqlite3, threading, webbrowser, time, traceback, html, uuid, tempfile
 from datetime import datetime
 from flask import Flask, request, jsonify, render_template_string, send_file
+from werkzeug.exceptions import RequestEntityTooLarge
 
 app = Flask(__name__)
 PORT = 5002
@@ -21,6 +22,18 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DATA_PATH = os.path.join(HERE, 'ste_dictionary.json')
 TMPDIR = os.path.join(tempfile.gettempdir(), 'ste_checker')
 os.makedirs(TMPDIR, exist_ok=True)
+
+# Flask has no upload size cap by default, which risks an unbounded upload
+# hanging the server / exhausting memory. Cap it generously (engineering
+# docs with embedded images can be large) and return a JSON error the UI
+# can show, instead of Flask's default HTML error page.
+MAX_UPLOAD_MB = int(os.environ.get('STE_MAX_UPLOAD_MB', '200'))
+app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_MB * 1024 * 1024
+
+@app.errorhandler(RequestEntityTooLarge)
+def _too_large(_e):
+    return jsonify({'error': 'File is too large (max %d MB). Split the document or '
+                              'raise STE_MAX_UPLOAD_MB.' % MAX_UPLOAD_MB}), 413
 
 # ---------------------------------------------------------------- load data
 with open(DATA_PATH, 'r', encoding='utf-8') as f:
@@ -41,6 +54,46 @@ UPLOADS = {}
 TERMS_FILE = os.environ.get('STE_TERMS_FILE', os.path.join(HERE, 'tech_terms.json'))
 TERMS_LOCK = threading.Lock()
 CURRENT_USER = os.environ.get('USERNAME') or os.environ.get('USER') or 'user'
+CURRENT_MACHINE = os.environ.get('COMPUTERNAME') or os.environ.get('HOSTNAME') or 'machine'
+
+# ---- usage log (SQLite, same shared-log pattern as the manual-comparison
+# tool's stelos_log.db - tracks who checked/downloaded what and how many
+# documents, for usage/adoption tracking, not for the STE rules themselves) ----
+LOG_DB_FILE = os.environ.get('STE_LOG_DB', os.path.join(HERE, 'stelos_log.db'))
+LOG_LOCK = threading.Lock()
+
+def _log_db():
+    conn = sqlite3.connect(LOG_DB_FILE, timeout=10)
+    conn.execute('''CREATE TABLE IF NOT EXISTS usage_log(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT, doc_type TEXT, action TEXT, user TEXT, machine TEXT,
+            task_no TEXT, task_title TEXT, documents TEXT, doc_count INTEGER,
+            mode TEXT, words INTEGER, sentences INTEGER, unapproved INTEGER,
+            rule_findings INTEGER, replacements INTEGER, annotations INTEGER,
+            rows INTEGER, note TEXT)''')
+    return conn
+
+def log_usage(action, documents='', doc_count=1, mode='', words=0, sentences=0,
+              unapproved=0, rule_findings=0, replacements=0, annotations=0, note=''):
+    """Append one row to the shared usage log. Logging failures never break
+    the actual check/download - they're only recorded on a best-effort basis."""
+    try:
+        with LOG_LOCK:
+            conn = _log_db()
+            conn.execute(
+                '''INSERT INTO usage_log
+                   (timestamp, doc_type, action, user, machine, task_no, task_title,
+                    documents, doc_count, mode, words, sentences, unapproved,
+                    rule_findings, replacements, annotations, rows, note)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                (datetime.now().strftime('%Y-%m-%d %H:%M:%S'), 'STE Check', action,
+                 CURRENT_USER, CURRENT_MACHINE, '', '', documents, doc_count, mode,
+                 words, sentences, unapproved, rule_findings, replacements,
+                 annotations, 0, note))
+            conn.commit()
+            conn.close()
+    except Exception:
+        traceback.print_exc()
 
 def load_terms():
     """Read the shared library fresh from disk so other users' additions show."""
@@ -68,59 +121,114 @@ def add_terms(words, by):
             os.replace(tmp, TERMS_FILE)
         return d, added
 
-# ---- usage-log database ("calculations"/audit trail; safe for a shared drive) ----
-# Point STE_LOG_DB at a shared drive so all users write to one audit database.
-LOG_DB = os.environ.get('STE_LOG_DB', os.path.join(HERE, 'stelos_log.db'))
-LOG_LOCK = threading.Lock()
-MACHINE = os.environ.get('COMPUTERNAME') or platform.node() or ''
-LOG_COLS = ['timestamp', 'doc_type', 'action', 'user', 'machine', 'task_no', 'task_title',
-            'documents', 'doc_count', 'mode', 'words', 'sentences', 'unapproved',
-            'rule_findings', 'replacements', 'annotations', 'rows', 'note']
+# ---- shared Lesson Learned / Writing Guidance rules (editable CSV, separate
+# from the STE100 dictionary above - this is the Rolls-Royce house style /
+# writing-guidelines rule set, not ASD-STE100) ----
+WG_FILE = os.environ.get('WG_RULES_FILE', os.path.join(HERE, 'writing_guidelines.csv'))
+WG_LOCK = threading.Lock()
+WG_FIELDS = ['Category', 'Incorrect', 'Correct', 'Reason']
 
-def init_log_db():
+def load_writing_guidelines():
+    """Read the shared Lesson Learned / Writing Guidance rules fresh from disk
+    (CSV, editable in Excel) so anyone's additions show up immediately."""
+    rules = []
     try:
-        con = sqlite3.connect(LOG_DB, timeout=5)
-        con.execute('''CREATE TABLE IF NOT EXISTS usage_log(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            timestamp TEXT, doc_type TEXT, action TEXT, user TEXT, machine TEXT,
-            task_no TEXT, task_title TEXT, documents TEXT, doc_count INTEGER,
-            mode TEXT, words INTEGER, sentences INTEGER, unapproved INTEGER,
-            rule_findings INTEGER, replacements INTEGER, annotations INTEGER,
-            rows INTEGER, note TEXT)''')
-        con.commit(); con.close()
-    except Exception:
-        traceback.print_exc()
+        with open(WG_FILE, 'r', encoding='utf-8-sig', newline='') as fh:
+            for row in csv.DictReader(fh):
+                incorrect = (row.get('Incorrect') or '').strip()
+                if not incorrect:
+                    continue
+                rules.append({
+                    'category': (row.get('Category') or '').strip() or 'General',
+                    'incorrect': incorrect,
+                    'correct': (row.get('Correct') or '').strip(),
+                    'reason': (row.get('Reason') or '').strip(),
+                })
+    except (FileNotFoundError, OSError):
+        pass
+    return rules
 
-def log_usage(**f):
-    f.setdefault('timestamp', datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
-    f.setdefault('user', CURRENT_USER)
-    f.setdefault('machine', MACHINE)
-    vals = [f.get(c) for c in LOG_COLS]
+def add_writing_guideline(category, incorrect, correct, reason, by):
+    """Append a new rule to the shared CSV (atomic write) so the whole team's
+    tool picks it up on their next check - this is how the list is meant to
+    grow over time as new Lessons Learned / Writing Guidance items come in."""
+    incorrect = (incorrect or '').strip()
+    if not incorrect:
+        return load_writing_guidelines()
+    with WG_LOCK:
+        rows = []
+        try:
+            with open(WG_FILE, 'r', encoding='utf-8-sig', newline='') as fh:
+                rows = list(csv.DictReader(fh))
+        except (FileNotFoundError, OSError):
+            pass
+        rows.append({'Category': category or 'General', 'Incorrect': incorrect,
+                      'Correct': correct or '', 'Reason': reason or ('Added by %s' % by)})
+        tmp = WG_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8', newline='') as fh:
+            w = csv.DictWriter(fh, fieldnames=WG_FIELDS)
+            w.writeheader()
+            w.writerows(rows)
+        os.replace(tmp, WG_FILE)
+        return load_writing_guidelines()
+
+# ---- shared Lessons Learned library (editable CSV) - past issues logged as
+# ID/Type/Keywords/KeyLearning. These are reference notes, not find/replace
+# rules: if a document mentions a lesson's keyword, the tool surfaces the
+# related past learning so the author can check it applies. ----
+LL_FILE = os.environ.get('LL_LOG_FILE', os.path.join(HERE, 'lessons_learned.csv'))
+LL_LOCK = threading.Lock()
+LL_FIELDS = ['ID', 'Type', 'Keywords', 'KeyLearning']
+
+def load_lessons_learned():
+    """Read the shared Lessons Learned log fresh from disk (CSV, editable in
+    Excel) so anyone's additions show up immediately."""
+    lessons = []
     try:
-        with LOG_LOCK:
-            con = sqlite3.connect(LOG_DB, timeout=5)
-            con.execute('INSERT INTO usage_log (%s) VALUES (%s)' %
-                        (','.join(LOG_COLS), ','.join(['?'] * len(LOG_COLS))), vals)
-            con.commit(); con.close()
-    except Exception:
-        traceback.print_exc()
+        with open(LL_FILE, 'r', encoding='utf-8-sig', newline='') as fh:
+            for row in csv.DictReader(fh):
+                keywords = [k.strip() for k in (row.get('Keywords') or '').split(',') if k.strip()]
+                if not keywords:
+                    continue
+                lessons.append({
+                    'id': (row.get('ID') or '').strip() or '(no id)',
+                    'type': (row.get('Type') or '').strip(),
+                    'keywords': keywords,
+                    'key_learning': (row.get('KeyLearning') or '').strip(),
+                })
+    except (FileNotFoundError, OSError):
+        pass
+    return lessons
 
-def recent_log(limit=15):
-    try:
-        con = sqlite3.connect(LOG_DB, timeout=5)
-        con.row_factory = sqlite3.Row
-        rows = con.execute('SELECT id,timestamp,action,doc_type,mode,documents,words,'
-                           'sentences,unapproved,rule_findings,replacements,annotations,'
-                           'task_no,task_title,user,note FROM usage_log ORDER BY id DESC LIMIT ?',
-                           (limit,)).fetchall()
-        con.close()
-        return [dict(r) for r in rows]
-    except Exception:
-        traceback.print_exc()
-        return []
-
-DOC_TYPE = {'.docx': 'Word', '.xlsx': 'Excel', '.xlsm': 'Excel', '.txt': 'Text', '.md': 'Text'}
-init_log_db()
+def add_lesson_learned(lesson_id, lesson_type, keywords, key_learning):
+    """Append a new lesson to the shared CSV (atomic write) so it is
+    surfaced for everyone from their next check onward."""
+    keywords = (keywords or '').strip()
+    key_learning = (key_learning or '').strip()
+    if not keywords or not key_learning:
+        return load_lessons_learned()
+    with LL_LOCK:
+        rows = []
+        try:
+            with open(LL_FILE, 'r', encoding='utf-8-sig', newline='') as fh:
+                rows = list(csv.DictReader(fh))
+        except (FileNotFoundError, OSError):
+            pass
+        if lesson_id and lesson_id.strip():
+            auto_id = lesson_id.strip()
+        else:
+            nums = [int(m.group(1)) for r in rows
+                    for m in [re.match(r'LL(\d+)$', (r.get('ID') or '').strip())] if m]
+            auto_id = 'LL%04d' % (max(nums) + 1 if nums else 1)
+        rows.append({'ID': auto_id, 'Type': lesson_type or 'General',
+                      'Keywords': keywords, 'KeyLearning': key_learning})
+        tmp = LL_FILE + '.tmp'
+        with open(tmp, 'w', encoding='utf-8', newline='') as fh:
+            w = csv.DictWriter(fh, fieldnames=LL_FIELDS)
+            w.writeheader()
+            w.writerows(rows)
+        os.replace(tmp, LL_FILE)
+        return load_lessons_learned()
 
 # ---------------------------------------------------------------- word logic
 def deinflect(w):
@@ -140,6 +248,13 @@ def lookup_not_approved(word):
 
 def is_approved(word):
     return any(f in APPROVED for f in deinflect(word))
+
+def is_self_reference(word, alts_list):
+    """True when the dictionary's only 'alternative' is the same word
+    (case-insensitive) - i.e. it is just marking the approved form,
+    not asking for an actual replacement."""
+    wl = word.strip().lower()
+    return len(alts_list) == 1 and alts_list[0].strip().lower() == wl
 
 # ---------------------------------------------------------------- rule engine
 BRITISH = {
@@ -284,12 +399,14 @@ WORD_RE = re.compile(r"[A-Za-z][A-Za-z'\-]*")
 
 def split_sentences(text):
     out = []
-    for para_i, para in enumerate(re.split(r'\n\s*\n', text)):
+    para_i = 0
+    for para in re.split(r'\n\s*\n', text):
         para = para.strip()
         if not para:
             continue
         sents = [s.strip() for s in SENT_SPLIT.split(para) if s.strip()]
-        out.append((para_i, sents))
+        out.append((para_i, para, sents))
+        para_i += 1
     return out
 
 def default_replacement(alt):
@@ -300,6 +417,22 @@ def default_replacement(alt):
 
 def in_allowed(word, extra_allowed):
     return any(f in extra_allowed for f in deinflect(word))
+
+def _para_snippet(para_text, word, radius=160):
+    """Return the paragraph, or a window around the first match of `word`
+    if the paragraph is long, so the review dropdown stays readable."""
+    m = re.search(r"(?<![A-Za-z'])" + re.escape(word) + r"(?![A-Za-z'])",
+                  para_text, re.IGNORECASE)
+    if len(para_text) <= 2 * radius or not m:
+        return para_text
+    start = max(0, m.start() - radius)
+    end = min(len(para_text), m.end() + radius)
+    snippet = para_text[start:end]
+    if start > 0:
+        snippet = '...' + snippet
+    if end < len(para_text):
+        snippet = snippet + '...'
+    return snippet
 
 def check_text(text, mode, strict, extra_allowed=None):
     extra_allowed = extra_allowed or set()
@@ -314,7 +447,10 @@ def check_text(text, mode, strict, extra_allowed=None):
         rule_findings.append({'rule': rule, 'severity': sev, 'msg': msg, 'context': context})
         rule_counts[rule] = rule_counts.get(rule, 0) + 1
 
-    for para_i, sents in paras:
+    paragraphs_text = {}
+
+    for para_i, para_text, sents in paras:
+        paragraphs_text[para_i] = para_text
         if len(sents) > RULES['para_max_sentences']:
             issues.append({'type': 'paragraph', 'severity': 'warn',
                            'msg': 'Paragraph has %d sentences (max %d).' %
@@ -344,16 +480,18 @@ def check_text(text, mode, strict, extra_allowed=None):
                     e = flagged_words.setdefault('c:' + wl,
                         {'word': w, 'alt': CONTRACTIONS[wl], 'alts': [CONTRACTIONS[wl]],
                          'kind': 'rule', 'pos': '4.2', 'count': 0,
-                         'has_alt': True, 'replacement': CONTRACTIONS[wl]})
+                         'has_alt': True, 'replacement': CONTRACTIONS[wl], 'paras': set()})
                     e['count'] += 1
+                    e['paras'].add(para_i)
                     rule_counts['4.2'] = rule_counts.get('4.2', 0) + 1
                     continue
                 if wl in BRITISH and BRITISH[wl] != wl:
                     e = flagged_words.setdefault('b:' + wl,
                         {'word': w, 'alt': BRITISH[wl], 'alts': [BRITISH[wl]],
                          'kind': 'rule', 'pos': '1.14', 'count': 0,
-                         'has_alt': True, 'replacement': BRITISH[wl]})
+                         'has_alt': True, 'replacement': BRITISH[wl], 'paras': set()})
                     e['count'] += 1
+                    e['paras'].add(para_i)
                     rule_counts['1.14'] = rule_counts.get('1.14', 0) + 1
                     continue
                 if wl in ALWAYS_OK:
@@ -363,23 +501,32 @@ def check_text(text, mode, strict, extra_allowed=None):
                     alts_list = [a['alt'] for a in na.get('alts', []) if a.get('alt')]
                     if not alts_list and na.get('alt'):
                         alts_list = [na['alt']]
+                    if alts_list and is_self_reference(na['word'], alts_list):
+                        continue
                     disp = ' / '.join(alts_list) if alts_list else '(rewrite - no direct alternative)'
                     e = flagged_words.setdefault(na['word'].lower(),
                         {'word': na['word'], 'alt': disp, 'alts': alts_list, 'kind': 'dict',
                          'pos': na['pos'], 'count': 0, 'has_alt': bool(alts_list),
-                         'replacement': default_replacement(alts_list[0]) if alts_list else ''})
+                         'replacement': default_replacement(alts_list[0]) if alts_list else '',
+                         'paras': set()})
                     e['count'] += 1
+                    e['paras'].add(para_i)
                     rule_counts['1.1'] = rule_counts.get('1.1', 0) + 1
                 elif (strict and not is_approved(wl) and not w[0].isupper()
                       and not in_allowed(wl, extra_allowed)):
                     e = flagged_words.setdefault('~' + wl,
                         {'word': w, 'alt': 'Not in STE dictionary - verify it is an '
                          'approved technical noun/verb or reword.', 'alts': [], 'kind': 'unknown',
-                         'pos': '?', 'count': 0, 'has_alt': False, 'replacement': ''})
+                         'pos': '?', 'count': 0, 'has_alt': False, 'replacement': '', 'paras': set()})
                     e['count'] += 1
+                    e['paras'].add(para_i)
                     rule_counts['1.6'] = rule_counts.get('1.6', 0) + 1
 
     flagged = sorted(flagged_words.values(), key=lambda x: (-x['count'], x['word'].lower()))
+    for f in flagged:
+        para_ids = sorted(f.pop('paras', set()))
+        f['occurrences'] = [{'para': i + 1, 'text': _para_snippet(paragraphs_text[i], f['word'])}
+                             for i in para_ids]
     rule_findings.sort(key=lambda x: (x['rule']))
 
     # coverage report over the whole standard
@@ -408,6 +555,73 @@ def check_text(text, mode, strict, extra_allowed=None):
             'rule_findings': rule_findings, 'coverage': coverage,
             'highlighted': build_highlight(text, flagged_words, strict, extra_allowed)}
 
+def check_writing_guidance(text):
+    """Check text against the shared Lesson Learned / Writing Guidance rules
+    (writing_guidelines.csv) - a separate, house-style rule set (RR writing
+    guidelines / lessons learnt), independent from the ASD-STE100 dictionary."""
+    rules = load_writing_guidelines()
+    if not rules:
+        return []
+    paras = split_sentences(text)
+    paragraphs_text = {i: t for i, t, _ in paras}
+    flagged = {}
+    for para_i, para_text, _sents in paras:
+        for rule in rules:
+            key = rule['incorrect'].lower()
+            if not build_pattern(rule['incorrect']).search(para_text):
+                continue
+            e = flagged.setdefault(key, {
+                'word': rule['incorrect'], 'alt': rule['correct'] or '(see reason)',
+                'alts': [rule['correct']] if rule['correct'] else [],
+                'kind': 'wg', 'pos': rule['category'], 'count': 0,
+                'has_alt': bool(rule['correct']), 'replacement': rule['correct'],
+                'reason': rule['reason'], 'paras': set(),
+            })
+            hits = len(build_pattern(rule['incorrect']).findall(para_text))
+            e['count'] += hits
+            e['paras'].add(para_i)
+    out = sorted(flagged.values(), key=lambda x: (-x['count'], x['word'].lower()))
+    for f in out:
+        para_ids = sorted(f.pop('paras', set()))
+        f['occurrences'] = [{'para': i + 1, 'text': _para_snippet(paragraphs_text[i], f['word'])}
+                             for i in para_ids]
+    return out
+
+def check_lessons_learned(text):
+    """Scan text for keyword combinations from the shared Lessons Learned log
+    (lessons_learned.csv). These are reference notes, not find/replace rules:
+    a lesson is only surfaced when at least 2 of its keywords (or all of them,
+    if it only has 1) appear together in the SAME paragraph - a single
+    coincidental keyword match (shared topic, not a repeat of the mistake)
+    is not enough, to keep this from flooding every check with loose
+    topic overlaps."""
+    lessons = load_lessons_learned()
+    if not lessons:
+        return []
+    paras = split_sentences(text)
+    paragraphs_text = {i: t for i, t, _ in paras}
+    flagged = {}
+    for para_i, para_text, _sents in paras:
+        for lesson in lessons:
+            hits = [kw for kw in lesson['keywords'] if build_pattern(kw).search(para_text)]
+            threshold = min(2, len(lesson['keywords']))
+            if len(hits) < threshold:
+                continue
+            e = flagged.setdefault(lesson['id'], {
+                'word': lesson['id'], 'alt': lesson['key_learning'],
+                'alts': [], 'kind': 'll', 'pos': lesson['type'], 'count': 0,
+                'has_alt': False, 'replacement': '', 'matched_keyword': hits[0],
+                'reason': lesson['key_learning'], 'paras': set(),
+            })
+            e['count'] += 1
+            e['paras'].add((para_i, hits[0]))
+    out = sorted(flagged.values(), key=lambda x: (-x['count'], x['word']))
+    for f in out:
+        para_hits = sorted(f.pop('paras', set()))
+        f['occurrences'] = [{'para': i + 1, 'text': _para_snippet(paragraphs_text[i], kw)}
+                             for i, kw in para_hits]
+    return out
+
 def build_highlight(text, flagged_words, strict, extra_allowed=None):
     extra_allowed = extra_allowed or set()
     flagged_bases = {e['word'].lower() for e in flagged_words.values()}
@@ -424,6 +638,8 @@ def build_highlight(text, flagged_words, strict, extra_allowed=None):
         hit = lookup_not_approved(wl)
         if hit and hit['word'].lower() in flagged_bases:
             alts = [a['alt'] for a in hit.get('alts', []) if a.get('alt')] or ([hit['alt']] if hit.get('alt') else [])
+            if alts and is_self_reference(hit['word'], alts):
+                return html.escape(w)
             return '<mark class="bad" title="Use: %s">%s</mark>' % (
                 html.escape(' / '.join(alts) or 'rewrite'), html.escape(w))
         if (strict and not is_approved(wl) and wl not in ALWAYS_OK
@@ -437,15 +653,69 @@ def build_highlight(text, flagged_words, strict, extra_allowed=None):
     return ''.join(out).replace('\n', '<br>')
 
 # ---------------------------------------------------------------- readers
+def _iter_row_cells(row):
+    """Iterate a table row's actual cells straight from its XML, bypassing
+    python-docx's row.cells property. That property computes each cell's
+    position from the table's overall column grid and raises IndexError
+    ('list index out of range') on many real-world documents whose tables
+    have merged cells / an irregular grid - this avoids that entirely and,
+    as a side effect, doesn't repeat a merged cell once per spanned column
+    the way row.cells does."""
+    from docx.table import _Cell
+    for tc in row._tr.tc_lst:
+        yield _Cell(tc, row.table)
+
+def docx_units(doc):
+    """Ordered list of 'replaceable units' (each a list of one or more
+    docx Paragraph objects) matching 1:1 the paragraph numbering that
+    check_text/split_sentences hand to the review UI: every top-level
+    paragraph, then every table cell (a cell's paragraphs count as ONE
+    unit, same as cell.text being one block). Empty ones are skipped.
+    This exact order must be used everywhere a docx is opened so that
+    unit index N always refers to the same location in the file."""
+    units = []
+    for p in doc.paragraphs:
+        if p.text.strip():
+            units.append([p])
+    for t in doc.tables:
+        for row in t.rows:
+            for cell in _iter_row_cells(row):
+                if cell.text.strip():
+                    units.append(list(cell.paragraphs))
+    return units
+
+def xlsx_units(wb):
+    """Ordered list of non-empty string cells, in the same worksheet/row/
+    column order extract_text_from walks them for xlsx - so unit index N
+    always means the same cell."""
+    units = []
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if isinstance(cell.value, str) and cell.value.strip():
+                    units.append(cell)
+    return units
+
+PARA_SPLIT = re.compile(r'(\n\s*\n)')
+
+def txt_paragraph_blocks(text):
+    """Split raw text/markdown into blocks, tagging each non-empty block
+    with the paragraph index check_text/split_sentences would give it
+    (blank-line separators and empty blocks are untagged)."""
+    blocks, para_i = [], 0
+    for i, part in enumerate(PARA_SPLIT.split(text)):
+        if i % 2 == 1 or not part.strip():
+            blocks.append({'text': part, 'para_i': None})
+        else:
+            blocks.append({'text': part, 'para_i': para_i})
+            para_i += 1
+    return blocks
+
 def extract_text_from(path, ext):
     if ext == '.docx':
         from docx import Document
         doc = Document(path)
-        parts = [p.text for p in doc.paragraphs]
-        for t in doc.tables:
-            for row in t.rows:
-                for cell in row.cells:
-                    parts.append(cell.text)
+        parts = ['\n'.join(pp.text for pp in unit) for unit in docx_units(doc)]
         return '\n\n'.join(parts)
     if ext in ('.txt', '.md'):
         with open(path, 'rb') as fh:
@@ -472,15 +742,16 @@ def cased(orig, repl):
         return repl[:1].upper() + repl[1:]
     return repl
 
-def build_patterns(pairs):
-    """pairs: list of (find_word, replace_with). Returns compiled whole-word patterns."""
-    pats = []
-    for find, rep in pairs:
-        if not find or not rep:
-            continue
-        pats.append((re.compile(r"(?<![A-Za-z'])" + re.escape(find) + r"(?![A-Za-z'])",
-                                 re.IGNORECASE), rep))
-    return pats
+def build_pattern(find):
+    return re.compile(r"(?<![A-Za-z'])" + re.escape(find) + r"(?![A-Za-z'])", re.IGNORECASE)
+
+def pats_for_unit(reps, unit_i):
+    """reps: list of {'find','replace','paras': set-of-int|None}. Returns the
+    compiled (pattern, replacement) pairs that apply to paragraph/unit
+    `unit_i` - i.e. reps with no paragraph restriction (apply everywhere)
+    plus reps explicitly ticked for this unit."""
+    return [(build_pattern(r['find']), r['replace']) for r in reps
+            if r['find'] and r['replace'] and (r['paras'] is None or unit_i in r['paras'])]
 
 def sub_text(text, pats, counter):
     for pat, rep in pats:
@@ -490,13 +761,20 @@ def sub_text(text, pats, counter):
         text = pat.sub(_r, text)
     return text
 
-def replace_in_txt(src, dst, pats):
+def replace_in_txt(src, dst, reps):
     counter = [0]
     with open(src, 'rb') as fh:
         text = fh.read().decode('utf-8', errors='replace')
-    text = sub_text(text, pats, counter)
+    blocks = txt_paragraph_blocks(text)
+    out = []
+    for b in blocks:
+        if b['para_i'] is None:
+            out.append(b['text'])
+            continue
+        pats = pats_for_unit(reps, b['para_i'])
+        out.append(sub_text(b['text'], pats, counter) if pats else b['text'])
     with open(dst, 'w', encoding='utf-8') as fh:
-        fh.write(text)
+        fh.write(''.join(out))
     return counter[0]
 
 def _replace_paragraph(p, pats, counter):
@@ -532,39 +810,43 @@ def _replace_paragraph(p, pats, counter):
             if r.text:
                 r.text = sub_text(r.text, pats, counter)
 
-def replace_in_docx(src, dst, pats):
+def replace_in_docx(src, dst, reps):
     from docx import Document
     counter = [0]
     doc = Document(src)
-    for p in doc.paragraphs:
-        _replace_paragraph(p, pats, counter)
-    for t in doc.tables:
-        for row in t.rows:
-            for cell in row.cells:
-                for p in cell.paragraphs:
-                    _replace_paragraph(p, pats, counter)
-    # headers / footers too (guarded: older python-docx lacks Section.header)
-    try:
-        for section in doc.sections:
-            for hf in (section.header, section.footer):
-                for p in hf.paragraphs:
-                    _replace_paragraph(p, pats, counter)
-    except (AttributeError, Exception):
-        pass
+    for unit_i, paras in enumerate(docx_units(doc)):
+        pats = pats_for_unit(reps, unit_i)
+        if not pats:
+            continue
+        for p in paras:
+            _replace_paragraph(p, pats, counter)
+    # headers/footers aren't part of the paragraph numbering the review UI
+    # shows, so only apply replacements that were NOT restricted to specific
+    # paragraphs (i.e. "replace every occurrence") there.
+    global_pats = [(build_pattern(r['find']), r['replace']) for r in reps
+                   if r['find'] and r['replace'] and r['paras'] is None]
+    if global_pats:
+        try:
+            for section in doc.sections:
+                for hf in (section.header, section.footer):
+                    for p in hf.paragraphs:
+                        _replace_paragraph(p, global_pats, counter)
+        except (AttributeError, Exception):
+            pass
     doc.save(dst)
     return counter[0]
 
-def replace_in_xlsx(src, dst, pats):
+def replace_in_xlsx(src, dst, reps):
     import openpyxl
     counter = [0]
     wb = openpyxl.load_workbook(src)  # keep_vba false; formatting preserved
-    for ws in wb.worksheets:
-        for row in ws.iter_rows():
-            for cell in row:
-                if isinstance(cell.value, str) and cell.value:
-                    new = sub_text(cell.value, pats, counter)
-                    if new != cell.value:
-                        cell.value = new
+    for unit_i, cell in enumerate(xlsx_units(wb)):
+        pats = pats_for_unit(reps, unit_i)
+        if not pats:
+            continue
+        new = sub_text(cell.value, pats, counter)
+        if new != cell.value:
+            cell.value = new
     wb.save(dst)
     return counter[0]
 
@@ -582,6 +864,8 @@ def word_suggestion(w, strict, extra_allowed):
     if na:
         alts = [a['alt'] for a in na.get('alts', []) if a.get('alt')] or \
                ([na['alt']] if na.get('alt') else [])
+        if alts and is_self_reference(na['word'], alts):
+            return None
         return ' / '.join(alts) if alts else 'rewrite'
     if strict and not is_approved(wl) and not w[0].isupper():
         return 'verify: technical term or reword'
@@ -611,44 +895,212 @@ def annotate_txt(src, dst, strict, extra):
         fh.write(WORD_RE.sub(repl, text))
     return n[0]
 
-def _annotate_paragraph(p, strict, extra):
-    text = p.text
-    if not text.strip():
+def _mark_run_inline(run, hits_map):
+    """Fallback for python-docx builds without native comment support
+    (< 1.1, e.g. the 0.8.6 seen in some locked-down environments): split
+    `run` so ONLY the actually-flagged words get highlighted, each with its
+    own short inline note right next to it - instead of highlighting the
+    entire run and appending one giant list of every flagged word in it at
+    the end (which is unreadable for long paragraphs)."""
+    from docx.text.run import Run
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+    from docx.enum.text import WD_COLOR_INDEX
+    from docx.shared import RGBColor
+    from copy import deepcopy
+
+    text = run.text
+    words_sorted = sorted(hits_map.keys(), key=len, reverse=True)
+    pat = re.compile(r"(?<![A-Za-z'])(" + '|'.join(re.escape(w) for w in words_sorted) +
+                      r")(?![A-Za-z'])", re.IGNORECASE)
+    matches = list(pat.finditer(text))
+    if not matches:
         return 0
-    found = _found_in_text(text, strict, extra)
-    if not found:
-        return 0
+
+    rPr_src = run._r.find(qn('w:rPr'))
+    anchor = run._r
+    parent = anchor.getparent()
+
+    pieces, last = [], 0
+    for m in matches:
+        if m.start() > last:
+            pieces.append(('text', text[last:m.start()], None))
+        word = m.group(0)
+        pieces.append(('flag', word, hits_map[word.lower()]))
+        last = m.end()
+    if last < len(text):
+        pieces.append(('text', text[last:], None))
+
+    XML_SPACE = qn('xml:space')
+
+    def _text_run(value):
+        r = OxmlElement('w:r')
+        if rPr_src is not None:
+            r.append(deepcopy(rPr_src))
+        t = OxmlElement('w:t')
+        t.set(XML_SPACE, 'preserve')
+        t.text = value
+        r.append(t)
+        return r
+
+    inserted = []
+    for kind, value, sugg in pieces:
+        r = _text_run(value)
+        anchor.addprevious(r)
+        inserted.append((kind, r, sugg))
+    parent.remove(anchor)
+
+    n = 0
+    for kind, r, sugg in inserted:
+        if kind != 'flag':
+            continue
+        Run(r, run.part).font.highlight_color = WD_COLOR_INDEX.YELLOW
+        note_r = _text_run(' [STE: %s]' % sugg)
+        r.addnext(note_r)
+        note_run = Run(note_r, run.part)
+        note_run.italic = True
+        note_run.font.color.rgb = RGBColor(0xB0, 0x00, 0x00)
+        n += 1
+    return n
+
+def _annotate_paragraph(p, strict, extra, doc, mode):
+    """Flag each occurrence of a not-approved word with a real Word comment
+    anchored to just that run (mode[0] == 'native'), so the visible text is
+    left exactly as-is and the reviewer sees/actions one comment per
+    occurrence. Falls back to inline marking (see _mark_run_inline) when the
+    installed python-docx is too old to support comments (< 1.1)."""
+    n = 0
+    for run in list(p.runs):
+        if not run.text.strip():
+            continue
+        run_hits = _found_in_text(run.text, strict, extra)
+        if not run_hits:
+            continue
+        if mode[0] == 'native':
+            note = '; '.join('%s -> %s' % (w, s) for w, s in run_hits)
+            try:
+                doc.add_comment(runs=[run], text='STE: ' + note,
+                                 author='STELOS', initials='STE')
+                n += len(run_hits)
+                continue
+            except Exception:
+                mode[0] = 'fallback'
+        hits_map = {w.lower(): s for w, s in run_hits}
+        n += _mark_run_inline(run, hits_map)
+    return n
+
+def _com_add_comments_for_terms(word_doc, terms):
+    """terms: list of (find_text, comment_text). Mirrors the AuditSTE_Tool
+    VBA macro's own pattern exactly: for each term, loop Word's native Find
+    over the whole document and add a real comment at every match, then
+    collapse to the end of that match and keep searching forward."""
+    WD_FIND_STOP, WD_COLLAPSE_END = 0, 0
+    n = 0
+    for find_text, comment_text in terms:
+        if not find_text:
+            continue
+        rng = word_doc.Content
+        f = rng.Find
+        f.ClearFormatting()
+        f.Text = find_text
+        f.MatchWholeWord = True
+        f.MatchCase = False
+        f.Forward = True
+        f.Wrap = WD_FIND_STOP
+        while f.Execute():
+            try:
+                word_doc.Comments.Add(Range=rng, Text=comment_text)
+                n += 1
+            except Exception:
+                pass
+            rng.Collapse(WD_COLLAPSE_END)
+    return n
+
+def annotate_docx_com(src, dst, strict, extra):
+    """Add real Word comments via Word's own COM automation (win32com) -
+    the exact same object model (doc.Comments.Add + Range.Find) as the
+    working AuditSTE_Tool VBA macro. Used when the installed python-docx is
+    too old for native add_comment support (< 1.1) but real Word is
+    installed on the machine - true anywhere the VBA macro already runs."""
+    import win32com.client as win32
+    import pythoncom
+
+    text = extract_text_from(src, '.docx')
+    result = check_text(text, 'procedural', strict, extra)
+    wg = check_writing_guidance(text)
+
+    terms, seen = [], set()
+    for f in result['flagged']:
+        if f['word'].lower() in seen:
+            continue
+        seen.add(f['word'].lower())
+        terms.append((f['word'], 'STE: %s -> %s' % (f['word'], f['alt'])))
+    for f in wg:
+        if f['word'].lower() in seen:
+            continue
+        seen.add(f['word'].lower())
+        note = 'Writing Guidance: %s -> %s' % (f['word'], f['alt'])
+        if f.get('reason'):
+            note += ' (%s)' % f['reason'][:150]
+        terms.append((f['word'], note))
+
+    pythoncom.CoInitialize()
+    word = None
     try:
-        from docx.enum.text import WD_COLOR_INDEX
-        flagset = {f[0].lower() for f in found}
-        for run in p.runs:
-            if {x.lower() for x in WORD_RE.findall(run.text)} & flagset:
-                run.font.highlight_color = WD_COLOR_INDEX.YELLOW
-    except Exception:
-        pass
-    note = '  <<STE: ' + '; '.join('%s -> %s' % (w, s) for w, s in found) + '>>'
-    r = p.add_run(note)
-    try:
-        from docx.shared import RGBColor
-        r.font.color.rgb = RGBColor(0xB0, 0x00, 0x00)
-        r.italic = True
-    except Exception:
-        pass
-    return len(found)
+        word = win32.DispatchEx('Word.Application')
+        word.Visible = False
+        word.DisplayAlerts = 0
+        word_doc = word.Documents.Open(os.path.abspath(src), ReadOnly=False,
+                                        AddToRecentFiles=False, ConfirmConversions=False)
+        WD_FORMAT_XML_DOCUMENT = 12  # .docx
+        try:
+            n = _com_add_comments_for_terms(word_doc, terms)
+            word_doc.SaveAs(os.path.abspath(dst), FileFormat=WD_FORMAT_XML_DOCUMENT)
+        finally:
+            word_doc.Close(SaveChanges=False)
+        return n
+    finally:
+        if word is not None:
+            word.Quit()
+        pythoncom.CoUninitialize()
 
 def annotate_docx(src, dst, strict, extra):
     from docx import Document
     doc = Document(src)
+
+    if hasattr(doc, 'add_comment'):
+        mode = ['native']
+        n = 0
+        for p in doc.paragraphs:
+            n += _annotate_paragraph(p, strict, extra, doc, mode)
+        for t in doc.tables:
+            for row in t.rows:
+                for cell in _iter_row_cells(row):
+                    for p in cell.paragraphs:
+                        n += _annotate_paragraph(p, strict, extra, doc, mode)
+        doc.save(dst)
+        return n, mode[0]
+
+    # python-docx is too old for native comments - try driving real Word via
+    # COM (win32com), same approach as the working AuditSTE_Tool VBA macro,
+    # before falling back to inline highlight+note marking.
+    try:
+        n = annotate_docx_com(src, dst, strict, extra)
+        return n, 'com'
+    except Exception:
+        pass
+
+    mode = ['fallback']
     n = 0
     for p in doc.paragraphs:
-        n += _annotate_paragraph(p, strict, extra)
+        n += _annotate_paragraph(p, strict, extra, doc, mode)
     for t in doc.tables:
         for row in t.rows:
-            for cell in row.cells:
+            for cell in _iter_row_cells(row):
                 for p in cell.paragraphs:
-                    n += _annotate_paragraph(p, strict, extra)
+                    n += _annotate_paragraph(p, strict, extra, doc, mode)
     doc.save(dst)
-    return n
+    return n, mode[0]
 
 def annotate_xlsx(src, dst, strict, extra):
     import openpyxl
@@ -674,7 +1126,7 @@ def annotate_xlsx(src, dst, strict, extra):
     return n
 @app.route('/')
 def index():
-    return render_template_string(PAGE, meta=META, rules=RULES)
+    return render_template_string(PAGE, meta=META, rules=RULES, max_upload_mb=MAX_UPLOAD_MB)
 
 @app.route('/check', methods=['POST'])
 def check():
@@ -682,8 +1134,6 @@ def check():
         mode = request.form.get('mode', 'procedural')
         strict = request.form.get('strict', 'true') == 'true'
         raw_terms = request.form.get('terms', '') or ''
-        task_no = (request.form.get('task_no', '') or '').strip()
-        task_title = (request.form.get('task_title', '') or '').strip()
         extra_allowed = set()
         for t in re.split(r'[\n,;]+', raw_terms):
             t = t.strip().lower()
@@ -716,17 +1166,13 @@ def check():
         result['token'] = token
         result['library'] = library
         result['user'] = CURRENT_USER
+        result['wg_flagged'] = check_writing_guidance(text)
+        result['ll_flagged'] = check_lessons_learned(text)
+        doc_name = UPLOADS[token]['filename'] if token in UPLOADS else 'pasted text'
         s = result['summary']
-        docname = UPLOADS[token]['filename'] if token in UPLOADS else 'pasted_text'
-        dtype = DOC_TYPE.get(UPLOADS[token]['ext'], 'Pasted') if token in UPLOADS else 'Pasted'
-        if dtype == 'Text' and docname == 'pasted_text.txt':
-            dtype = 'Pasted'
-        log_usage(action='check', doc_type=dtype, documents=docname, doc_count=1, mode=mode,
-                  task_no=task_no, task_title=task_title,
-                  words=s['words'], sentences=s['sentences'], unapproved=s['unapproved_total'],
-                  rule_findings=s['rule_issues'], rows=s['words'],
-                  note='%d not-approved, %d rule findings, %d/%d long sentences/paras' %
-                       (s['unapproved_total'], s['rule_issues'], s['length_issues'], s['paragraph_issues']))
+        log_usage('check', documents=doc_name, mode=mode, words=s['words'],
+                   sentences=s['sentences'], unapproved=s['unapproved_total'],
+                   rule_findings=s['rule_issues'])
         return jsonify(result)
     except Exception as e:
         traceback.print_exc()
@@ -737,11 +1183,17 @@ def apply():
     try:
         data = request.get_json(force=True)
         token = data.get('token')
-        pairs = [(p.get('find', ''), p.get('replace', '')) for p in data.get('replacements', [])]
+        reps = []
+        for p in data.get('replacements', []):
+            find, rep = p.get('find', ''), p.get('replace', '')
+            if not find or not rep:
+                continue
+            paras = p.get('paras')  # list of paragraph indices to restrict to, or falsy = everywhere
+            reps.append({'find': find, 'replace': rep,
+                         'paras': set(paras) if paras else None})
         if token not in UPLOADS:
             return jsonify({'error': 'Session expired - run the check again.'}), 400
-        pats = build_patterns(pairs)
-        if not pats:
+        if not reps:
             return jsonify({'error': 'No replacements selected (tick words and set a replacement).'}), 400
 
         info = UPLOADS[token]
@@ -752,11 +1204,11 @@ def apply():
         dst = os.path.join(TMPDIR, out_name)
 
         if ext == '.docx':
-            n = replace_in_docx(src, dst, pats)
+            n = replace_in_docx(src, dst, reps)
         elif ext in ('.xlsx', '.xlsm'):
-            n = replace_in_xlsx(src, dst, pats)
+            n = replace_in_xlsx(src, dst, reps)
         else:
-            n = replace_in_txt(src, dst, pats)
+            n = replace_in_txt(src, dst, reps)
 
         try:
             resp = send_file(dst, as_attachment=True, download_name=out_name)      # Flask 2.x
@@ -765,10 +1217,7 @@ def apply():
         resp.headers['X-STE-Replacements'] = str(n)
         resp.headers['X-STE-Outfile'] = out_name
         resp.headers['Access-Control-Expose-Headers'] = 'X-STE-Replacements, X-STE-Outfile'
-        log_usage(action='apply', doc_type=DOC_TYPE.get(ext, 'Text'), documents=info['filename'],
-                  doc_count=1, task_no=(data.get('task_no') or '').strip(),
-                  task_title=(data.get('task_title') or '').strip(),
-                  replacements=n, rows=n, note='%d replacement(s) -> %s' % (n, out_name))
+        log_usage('download', documents=info['filename'], replacements=n)
         return resp
     except Exception as e:
         traceback.print_exc()
@@ -799,8 +1248,9 @@ def annotate():
         out_name = '%s_STE_annotated_%s%s' % (stem, ts, ext)
         dst = os.path.join(TMPDIR, out_name)
 
+        mode = 'native'
         if ext == '.docx':
-            n = annotate_docx(src, dst, strict, extra)
+            n, mode = annotate_docx(src, dst, strict, extra)
         elif ext in ('.xlsx', '.xlsm'):
             n = annotate_xlsx(src, dst, strict, extra)
         else:
@@ -812,11 +1262,10 @@ def annotate():
             resp = send_file(dst, as_attachment=True, attachment_filename=out_name)
         resp.headers['X-STE-Annotations'] = str(n)
         resp.headers['X-STE-Outfile'] = out_name
-        resp.headers['Access-Control-Expose-Headers'] = 'X-STE-Annotations, X-STE-Outfile'
-        log_usage(action='annotate', doc_type=DOC_TYPE.get(ext, 'Text'), documents=info['filename'],
-                  doc_count=1, task_no=(data.get('task_no') or '').strip(),
-                  task_title=(data.get('task_title') or '').strip(),
-                  annotations=n, rows=n, note='%d annotation(s) -> %s' % (n, out_name))
+        resp.headers['X-STE-Comment-Mode'] = mode
+        resp.headers['Access-Control-Expose-Headers'] = \
+            'X-STE-Annotations, X-STE-Outfile, X-STE-Comment-Mode'
+        log_usage('annotate', documents=info['filename'], annotations=n)
         return resp
     except Exception as e:
         traceback.print_exc()
@@ -834,18 +1283,52 @@ def add_term():
         if not words:
             return jsonify({'error': 'No words selected.'}), 400
         library, added = add_terms(words, CURRENT_USER)
-        if added:
-            log_usage(action='add_term', doc_type='Library', documents=', '.join(added),
-                      doc_count=len(added), rows=len(added),
-                      note='added technical terms: ' + ', '.join(added))
         return jsonify({'ok': True, 'added': added, 'library': library, 'user': CURRENT_USER})
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
 
-@app.route('/log', methods=['GET'])
-def log():
-    return jsonify({'rows': recent_log(20), 'db': os.path.basename(LOG_DB)})
+@app.route('/wg_rules', methods=['GET'])
+def wg_rules():
+    return jsonify({'rules': load_writing_guidelines(), 'user': CURRENT_USER})
+
+@app.route('/add_wg_rule', methods=['POST'])
+def add_wg_rule():
+    """Add a new Lesson Learned / Writing Guidance rule to the shared CSV so
+    the whole team's tool picks it up - this is how the standard grows."""
+    try:
+        data = request.get_json(force=True)
+        incorrect = (data.get('incorrect') or '').strip()
+        if not incorrect:
+            return jsonify({'error': 'Enter the incorrect form/word to flag.'}), 400
+        rules = add_writing_guideline(data.get('category', ''), incorrect,
+                                       data.get('correct', ''), data.get('reason', ''),
+                                       CURRENT_USER)
+        return jsonify({'ok': True, 'rules': rules, 'user': CURRENT_USER})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/lessons', methods=['GET'])
+def lessons():
+    return jsonify({'lessons': load_lessons_learned(), 'user': CURRENT_USER})
+
+@app.route('/add_lesson', methods=['POST'])
+def add_lesson():
+    """Add a new Lesson Learned entry to the shared CSV so it is surfaced
+    for everyone from their next check onward - this is how the log grows."""
+    try:
+        data = request.get_json(force=True)
+        keywords = (data.get('keywords') or '').strip()
+        key_learning = (data.get('key_learning') or '').strip()
+        if not keywords or not key_learning:
+            return jsonify({'error': 'Enter at least one keyword and the key learning text.'}), 400
+        lessons = add_lesson_learned(data.get('id', ''), data.get('type', ''),
+                                      keywords, key_learning)
+        return jsonify({'ok': True, 'lessons': lessons, 'user': CURRENT_USER})
+    except Exception as e:
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 # ---------------------------------------------------------------- template
 PAGE = r"""<!doctype html><html><head><meta charset="utf-8">
@@ -930,6 +1413,15 @@ button.tech{background:var(--green)}
 .chip{background:#dcfce7;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:2px 10px;
 font-size:12px;font-family:var(--mono)}.chip small{color:#3f7d55;font-family:system-ui}
 .rowdone{opacity:.55}
+.paratoggle{background:none;border:1px solid var(--border);border-radius:4px;color:var(--accent);
+font-size:11px;padding:1px 5px;cursor:pointer;margin-right:4px}
+.paralistrow td{border-bottom:1px solid var(--border);background:var(--surface2);padding:8px 10px 10px 10px}
+.paralist{display:flex;flex-direction:column;gap:6px}
+.paraitem{font-size:12.5px;line-height:1.6;background:var(--surface);border:1px solid var(--border);
+border-radius:6px;padding:6px 10px;display:flex;align-items:flex-start;gap:8px}
+.paraitem b{color:var(--muted);font-weight:600;margin-right:4px}
+.paraitemchk{display:flex;align-items:center;padding-top:2px;cursor:pointer}
+.paraitem.unchecked{opacity:.45}
 </style></head><body>
 <header>
   <div class="header-logo">
@@ -953,15 +1445,10 @@ font-size:12px;font-family:var(--mono)}.chip small{color:#3f7d55;font-family:sys
           <option value="descriptive">Descriptive (max {{rules.desc_sentence_max}} words/sentence)</option>
         </select>
       </label>
+      <label class="opt"><input type="checkbox" id="strict" checked>
+        Full ASD-STE100 check (flag <b>every</b> word not in the approved dictionary)</label>
     </div>
-    <div class="row">
-      <label class="opt">Task No <input id="task_no" placeholder="e.g. 72-32-00-200-801"
-        style="padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:190px"></label>
-      <label class="opt">Task title <input id="task_title" placeholder="e.g. INSPECTION/CHECK"
-        style="padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-size:13px;width:230px"></label>
-      <span class="note" style="margin:0">Optional &mdash; saved with each check in the usage database.</span>
-    </div>
-    <p class="note">Accepted files: Word (.docx), Excel (.xlsx / .xlsm), text (.txt / .md).
+    <p class="note">Accepted files: Word (.docx), Excel (.xlsx / .xlsm), text (.txt / .md), up to {{max_upload_mb}} MB.
     The original file is never changed &mdash; replacements are written to a downloaded copy.
     STE is a closed vocabulary: with the full check on, any word outside the approved list is
     flagged as <i>"Not in STE dictionary - verify it is an approved technical noun/verb or reword."</i>
@@ -1003,6 +1490,54 @@ font-size:12px;font-family:var(--mono)}.chip small{color:#3f7d55;font-family:sys
       </div>
     </div>
 
+    <div class="card"><h2>3B &middot; Lesson Learned / Writing Guidance</h2>
+      <p class="note">Rolls-Royce house-style rules (uppercase/lowercase, spacing, punctuation, abbreviations,
+      spellings...) - independent of the ASD-STE100 dictionary above. This list is a shared, editable CSV
+      (<code>writing_guidelines.csv</code>) that anyone on the team can keep growing as new lessons come in;
+      add one below and everyone's next check picks it up.</p>
+      <table><thead><tr>
+        <th class="chk"><input type="checkbox" id="wgAllChk" onclick="toggleAllWg(this)"></th>
+        <th>Incorrect form</th><th>Category</th><th>Count</th><th>Correct form</th><th>Replace with</th>
+      </tr></thead><tbody id="wgBody"></tbody></table>
+      <div class="row">
+        <button class="go" id="wgApplyBtn" onclick="applyWgRepl()">&#10003; Apply ticked replacements &amp; download copy</button>
+        <span id="wgApplyMsg"></span>
+      </div>
+      <div class="lib">
+        <h4>Add a new Lesson Learned / Writing Guidance rule</h4>
+        <div class="row">
+          <input type="text" id="wgNewCategory" placeholder="Category (e.g. Punctuation)" style="min-width:170px">
+          <input type="text" id="wgNewIncorrect" placeholder="Incorrect form (required)" style="min-width:170px">
+          <input type="text" id="wgNewCorrect" placeholder="Correct form" style="min-width:170px">
+          <input type="text" id="wgNewReason" placeholder="Reason" style="min-width:220px;flex:1">
+          <button class="tech" onclick="addWgRule()">&#43; Add rule</button>
+        </div>
+        <span id="wgAddMsg"></span>
+      </div>
+    </div>
+
+    <div class="card"><h2>3C &middot; Related Lessons Learned</h2>
+      <p class="note">Reference notes, not text fixes: a lesson is only shown when at least 2 of its keywords (or its
+      one keyword, for narrow single-keyword lessons) appear together in the same paragraph - a single coincidental
+      word match doesn't count, so this tries to catch the same mistake recurring rather than any shared topic.
+      Backed by a shared, editable CSV (<code>lessons_learned.csv</code>) - log a new one below and everyone's next
+      check will surface it.</p>
+      <div id="llList"></div>
+      <div class="lib">
+        <h4>Log a new Lesson Learned</h4>
+        <div class="row">
+          <input type="text" id="llNewId" placeholder="ID (optional, e.g. LL0020)" style="min-width:150px">
+          <input type="text" id="llNewType" placeholder="Type (e.g. Process compliance)" style="min-width:170px">
+          <input type="text" id="llNewKeywords" placeholder="Keywords, comma-separated (required)" style="min-width:220px;flex:1">
+        </div>
+        <div class="row">
+          <textarea id="llNewLearning" placeholder="Key Learning (required)" style="min-height:50px;flex:1"></textarea>
+          <button class="tech" onclick="addLesson()">&#43; Add lesson</button>
+        </div>
+        <span id="llAddMsg"></span>
+      </div>
+    </div>
+
     <div class="card"><h2>4 &middot; Rule findings (Part 1 writing rules)</h2>
       <p class="note">Each finding shows the ASD-STE100 rule number. Errors break a rule outright;
       warnings and advisories need a quick check.</p>
@@ -1022,20 +1557,10 @@ font-size:12px;font-family:var(--mono)}.chip small{color:#3f7d55;font-family:sys
         <button class="sec" onclick="annotateDoc()" id="annBtn">&#8681; Download annotated document (same format as input)</button>
         <span id="annMsg"></span>
       </div>
-      <p class="note">The annotated document is a copy of your original file with each flagged word marked and its
-      STE suggestion added in-line (Word: highlighted + note; Excel: cell comment; text: [STE: ...]). Your original is never changed.</p>
+      <p class="note">The annotated document is a copy of your original file, text unchanged, with a reviewable
+      comment added on each flagged occurrence (Word: native comment on that word, right-click to resolve/delete
+      per occurrence; Excel: cell comment; text: inline [STE: ...]). Your original is never changed.</p>
     </div>
-  </div>
-
-  <div class="card">
-    <h2>Usage database <span id="logDb" class="tag"></span></h2>
-    <p class="note">Every check, replacement, annotation and library update is saved to a shared SQLite database
-    (audit trail / saved calculations). Point <b>STE_LOG_DB</b> at a network path to share it across the team.</p>
-    <div class="row" style="margin-top:0">
-      <button class="sec" onclick="loadLog()">&#8635; Refresh</button>
-      <span id="logMsg" class="note" style="margin:0"></span>
-    </div>
-    <div id="logWrap" style="overflow-x:auto;margin-top:10px"></div>
   </div>
 </main>
 <footer>STELOS &mdash; The ASD-STE100 Intelligence Platform &nbsp;&middot;&nbsp; &copy; 2026 ALTEN. All rights reserved. Confidential &ndash; Internal Use Only.</footer>
@@ -1044,6 +1569,17 @@ let LAST=null, TOKEN=null;
 function clearAll(){document.getElementById('text').value='';document.getElementById('file').value='';
 document.getElementById('results').classList.add('hidden');document.getElementById('err').textContent='';}
 function esc(x){const e=document.createElement('div');e.textContent=x==null?'':x;return e.innerHTML;}
+function escMark(text, word){
+  const e=esc(text);
+  const re=new RegExp('('+esc(word).replace(/[.*+?^${}()|[\]\\]/g,'\\$&')+')','gi');
+  return e.replace(re,'<mark class="bad">$1</mark>');
+}
+function toggleParas(i, btn){
+  const row=document.getElementById('paras-'+i);
+  if(!row) return;
+  const nowOpen=row.classList.toggle('hidden')===false;
+  if(btn) btn.innerHTML=btn.innerHTML.replace(nowOpen?'▸':'▾', nowOpen?'▾':'▸');
+}
 
 async function run(){
   const err=document.getElementById('err');err.textContent='';
@@ -1053,14 +1589,12 @@ async function run(){
   fd.append('mode',document.getElementById('mode').value);
   fd.append('strict',document.getElementById('strict').checked?'true':'false');
   fd.append('terms',document.getElementById('terms').value);
-  fd.append('task_no',document.getElementById('task_no').value);
-  fd.append('task_title',document.getElementById('task_title').value);
   const f=document.getElementById('file').files[0];if(f)fd.append('file',f);
   try{
     const r=await fetch('/check',{method:'POST',body:fd});
     const d=await r.json();
     if(!r.ok){err.textContent=d.error||'Error';return;}
-    LAST=d;TOKEN=d.token;render(d);loadLog();
+    LAST=d;TOKEN=d.token;render(d);
   }catch(e){err.textContent=e.message;}
   finally{btn.disabled=false;btn.innerHTML='&#9654; Check text';}
 }
@@ -1094,11 +1628,21 @@ function render(d){
        lastcell=`<td class="repcell">${sel}<input class="rep" data-i="${i}"
                   value="${esc(f.replacement)}" placeholder="type replacement / rewrite..."></td>`;
      }
+     const canRestrict = f.kind !== 'unknown';
+     const occ = canRestrict ? (f.occurrences||[]) : [];
+     const wordCell = occ.length
+       ? `<button type="button" class="paratoggle" onclick="toggleParas(${i},this)">&#9656; ${occ.length} para${occ.length>1?'s':''}</button> ${esc(f.word)}`
+       : esc(f.word);
+     const paraRows = occ.length ? `<tr id="paras-${i}" class="hidden paralistrow"><td></td>
+       <td colspan="5"><div class="paralist">${occ.map(o=>
+         `<div class="paraitem"><label class="paraitemchk"><input type="checkbox" class="parachk" data-i="${i}" data-para="${o.para-1}" checked
+             onchange="this.closest('.paraitem').classList.toggle('unchecked', !this.checked)"></label><b>Para ${o.para}:</b> ${escMark(o.text, f.word)}</div>`).join('')}
+       </div></td></tr>` : '';
      return `<tr>
        <td class="chk">${leftbox}</td>
-       <td class="w">${esc(f.word)}</td><td>${esc(f.pos)}</td><td>${f.count}</td>
+       <td class="w">${wordCell}</td><td>${esc(f.pos)}</td><td>${f.count}</td>
        <td style="color:var(--green);font-family:var(--mono)">${esc(f.alt)}</td>
-       ${lastcell}</tr>`;}).join('');}
+       ${lastcell}</tr>${paraRows}`;}).join('');}
   renderLibrary(d.library, d.user);
   const iss=document.getElementById('issues');
   const rf=d.rule_findings||[];
@@ -1122,6 +1666,153 @@ function render(d){
       return `<div class="covitem ${cls}"><b>${esc(r.num)}</b> ${esc(r.title)}
               <span class="covtag">${tag}</span></div>`;}).join('')}</div></div>`).join('');
   document.getElementById('doc').innerHTML=d.highlighted;
+  renderWg(d.wg_flagged||[]);
+  renderLL(d.ll_flagged||[]);
+}
+
+function renderLL(list){
+  const box=document.getElementById('llList');
+  if(!list || list.length===0){
+    box.innerHTML='<p class="note">No related Lessons Learned found for this text.</p>';
+    return;
+  }
+  box.innerHTML=list.map((f,i)=>{
+    const occ=f.occurrences||[];
+    const toggle = occ.length
+      ? `<button type="button" class="paratoggle" onclick="toggleParasLL(${i},this)">&#9656; ${occ.length} mention${occ.length>1?'s':''}</button>`
+      : '';
+    const paraRows = occ.length ? `<div id="llparas-${i}" class="hidden paralist" style="margin-top:8px">${occ.map(o=>
+        `<div class="paraitem"><b>Para ${o.para}:</b> ${esc(o.text)}</div>`).join('')}
+      </div>` : '';
+    return `<div class="issue" style="border-left-color:var(--accent2);background:#eff6ff">
+      <span class="rulebadge">${esc(f.word)}</span>
+      <span class="sevtag advisory">${esc(f.pos)}</span>
+      ${toggle}
+      <div style="margin-top:6px">${esc(f.alt)}</div>
+      ${paraRows}
+    </div>`;
+  }).join('');
+}
+
+function toggleParasLL(i, btn){
+  const row=document.getElementById('llparas-'+i);
+  if(!row) return;
+  const nowOpen=row.classList.toggle('hidden')===false;
+  if(btn) btn.innerHTML=btn.innerHTML.replace(nowOpen?'▸':'▾', nowOpen?'▾':'▸');
+}
+
+async function addLesson(){
+  const msg=document.getElementById('llAddMsg');msg.className='';msg.textContent='';
+  const keywords=document.getElementById('llNewKeywords').value.trim();
+  const keyLearning=document.getElementById('llNewLearning').value.trim();
+  if(!keywords || !keyLearning){msg.className='err';msg.textContent='Enter keywords and the key learning text.';return;}
+  try{
+    const r=await fetch('/add_lesson',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        id:document.getElementById('llNewId').value.trim(),
+        type:document.getElementById('llNewType').value.trim(),
+        keywords, key_learning:keyLearning
+      })});
+    const d=await r.json();
+    if(!r.ok){msg.className='err';msg.textContent=d.error||'Error';return;}
+    msg.className='ok-msg';msg.textContent='Lesson added to the shared log. Re-checking...';
+    document.getElementById('llNewId').value='';
+    document.getElementById('llNewType').value='';
+    document.getElementById('llNewKeywords').value='';
+    document.getElementById('llNewLearning').value='';
+    if(TOKEN) run();
+  }catch(e){msg.className='err';msg.textContent=e.message;}
+}
+
+function renderWg(list){
+  document.getElementById('wgApplyMsg').textContent='';
+  const wb=document.getElementById('wgBody');
+  if(!list || list.length===0){
+    wb.innerHTML='<tr><td colspan="6" style="color:var(--green)">No Writing Guidance issues found. &#10003;</td></tr>';
+    return;
+  }
+  wb.innerHTML=list.map((f,i)=>{
+    const leftbox=`<input type="checkbox" class="wgrowchk" data-i="${i}" ${f.replacement?'checked':''}>`;
+    const lastcell=`<td class="repcell"><input class="wgrep" data-i="${i}"
+       value="${esc(f.replacement)}" placeholder="type replacement..."></td>`;
+    const occ=f.occurrences||[];
+    const wordCell = occ.length
+      ? `<button type="button" class="paratoggle" onclick="toggleParasWg(${i},this)">&#9656; ${occ.length} para${occ.length>1?'s':''}</button> ${esc(f.word)}`
+      : esc(f.word);
+    const paraRows = occ.length ? `<tr id="wgparas-${i}" class="hidden paralistrow"><td></td>
+      <td colspan="5"><div class="paralist">${occ.map(o=>
+        `<div class="paraitem"><label class="paraitemchk"><input type="checkbox" class="wgparachk" data-i="${i}" data-para="${o.para-1}" checked
+            onchange="this.closest('.paraitem').classList.toggle('unchecked', !this.checked)"></label><b>Para ${o.para}:</b> ${escMark(o.text, f.word)}</div>`).join('')}
+      </div></td></tr>` : '';
+    return `<tr title="${esc(f.reason||'')}">
+      <td class="chk">${leftbox}</td>
+      <td class="w">${wordCell}</td><td>${esc(f.pos)}</td><td>${f.count}</td>
+      <td style="color:var(--green);font-family:var(--mono)">${esc(f.alt)}</td>
+      ${lastcell}</tr>${paraRows}`;
+  }).join('');
+}
+
+function toggleAllWg(cb){document.querySelectorAll('.wgrowchk').forEach(c=>c.checked=cb.checked);}
+function toggleParasWg(i, btn){
+  const row=document.getElementById('wgparas-'+i);
+  if(!row) return;
+  const nowOpen=row.classList.toggle('hidden')===false;
+  if(btn) btn.innerHTML=btn.innerHTML.replace(nowOpen?'▸':'▾', nowOpen?'▾':'▸');
+}
+
+async function applyWgRepl(){
+  const msg=document.getElementById('wgApplyMsg');msg.className='';msg.textContent='';
+  if(!TOKEN){msg.className='err';msg.textContent='Run a check first.';return;}
+  const reps=[];
+  document.querySelectorAll('.wgrowchk').forEach(chk=>{
+    if(chk.checked){
+      const i=chk.dataset.i;const f=(LAST.wg_flagged||[])[i];
+      const rep=document.querySelector('.wgrep[data-i="'+i+'"]').value.trim();
+      if(!rep) return;
+      const entry={find:f.word,replace:rep};
+      const occChecks=[...document.querySelectorAll('.wgparachk[data-i="'+i+'"]')];
+      if(occChecks.length){
+        const chosen=occChecks.filter(c=>c.checked).map(c=>parseInt(c.dataset.para,10));
+        if(chosen.length<occChecks.length) entry.paras=chosen;
+      }
+      reps.push(entry);
+    }
+  });
+  if(reps.length===0){msg.className='err';msg.textContent='Tick at least one rule that has a replacement.';return;}
+  const btn=document.getElementById('wgApplyBtn');btn.disabled=true;btn.textContent='Working...';
+  try{
+    const r=await fetch('/apply',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({token:TOKEN,replacements:reps})});
+    if(!r.ok){const d=await r.json();msg.className='err';msg.textContent=d.error||'Error';return;}
+    const n=r.headers.get('X-STE-Replacements');const name=r.headers.get('X-STE-Outfile')||'corrected';
+    const blob=await r.blob();const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);a.download=name;a.click();
+    msg.className='ok-msg';msg.textContent='Done - '+n+' replacement(s) written to a copy: '+name;
+  }catch(e){msg.className='err';msg.textContent=e.message;}
+  finally{btn.disabled=false;btn.innerHTML='&#10003; Apply ticked replacements &amp; download copy';}
+}
+
+async function addWgRule(){
+  const msg=document.getElementById('wgAddMsg');msg.className='';msg.textContent='';
+  const incorrect=document.getElementById('wgNewIncorrect').value.trim();
+  if(!incorrect){msg.className='err';msg.textContent='Enter the incorrect form.';return;}
+  try{
+    const r=await fetch('/add_wg_rule',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        category:document.getElementById('wgNewCategory').value.trim(),
+        incorrect,
+        correct:document.getElementById('wgNewCorrect').value.trim(),
+        reason:document.getElementById('wgNewReason').value.trim()
+      })});
+    const d=await r.json();
+    if(!r.ok){msg.className='err';msg.textContent=d.error||'Error';return;}
+    msg.className='ok-msg';msg.textContent='Rule added to the shared list. Re-checking...';
+    document.getElementById('wgNewCategory').value='';
+    document.getElementById('wgNewIncorrect').value='';
+    document.getElementById('wgNewCorrect').value='';
+    document.getElementById('wgNewReason').value='';
+    if(TOKEN) run();
+  }catch(e){msg.className='err';msg.textContent=e.message;}
 }
 
 function toggleAll(cb){document.querySelectorAll('.rowchk').forEach(c=>c.checked=cb.checked);}
@@ -1172,21 +1863,26 @@ async function applyRepl(){
     if(chk.checked){
       const i=chk.dataset.i;const f=LAST.flagged[i];
       const rep=document.querySelector('.rep[data-i="'+i+'"]').value.trim();
-      if(rep) reps.push({find:f.word,replace:rep});
+      if(!rep) return;
+      const entry={find:f.word,replace:rep};
+      const occChecks=[...document.querySelectorAll('.parachk[data-i="'+i+'"]')];
+      if(occChecks.length){
+        const chosen=occChecks.filter(c=>c.checked).map(c=>parseInt(c.dataset.para,10));
+        if(chosen.length<occChecks.length) entry.paras=chosen;  // restrict to ticked paragraphs only
+      }
+      reps.push(entry);
     }
   });
   if(reps.length===0){msg.className='err';msg.textContent='Tick at least one word that has a replacement.';return;}
   const btn=document.getElementById('applyBtn');btn.disabled=true;btn.textContent='Working...';
   try{
     const r=await fetch('/apply',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({token:TOKEN,replacements:reps,
-        task_no:document.getElementById('task_no').value,
-        task_title:document.getElementById('task_title').value})});
+      body:JSON.stringify({token:TOKEN,replacements:reps})});
     if(!r.ok){const d=await r.json();msg.className='err';msg.textContent=d.error||'Error';return;}
     const n=r.headers.get('X-STE-Replacements');const name=r.headers.get('X-STE-Outfile')||'corrected';
     const blob=await r.blob();const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);a.download=name;a.click();
-    msg.className='ok-msg';msg.textContent='Done - '+n+' replacement(s) written to a copy: '+name;loadLog();
+    msg.className='ok-msg';msg.textContent='Done - '+n+' replacement(s) written to a copy: '+name;
   }catch(e){msg.className='err';msg.textContent=e.message;}
   finally{btn.disabled=false;btn.innerHTML='&#10003; Apply ticked replacements &amp; download copy';}
 }
@@ -1198,14 +1894,24 @@ async function annotateDoc(){
   try{
     const r=await fetch('/annotate',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({token:TOKEN,strict:document.getElementById('strict').checked,
-        terms:document.getElementById('terms').value,
-        task_no:document.getElementById('task_no').value,
-        task_title:document.getElementById('task_title').value})});
+        terms:document.getElementById('terms').value})});
     if(!r.ok){const d=await r.json();msg.className='err';msg.textContent=d.error||'Error';return;}
     const nm=r.headers.get('X-STE-Outfile')||'annotated';const nn=r.headers.get('X-STE-Annotations');
+    const cmode=r.headers.get('X-STE-Comment-Mode');
     const blob=await r.blob();const a=document.createElement('a');
     a.href=URL.createObjectURL(blob);a.download=nm;a.click();
-    msg.className='ok-msg';msg.textContent='Annotated document with '+nn+' mark(s) downloaded: '+nm;loadLog();
+    if(cmode==='fallback'){
+      msg.className='err';
+      msg.textContent='Downloaded '+nm+' with '+nn+' mark(s), but this Python has an old python-docx '+
+        '(no native Word comments) so words are highlighted with an inline [STE: ...] note instead of a real '+
+        'comment. Run: pip install --upgrade python-docx  to get real comments.';
+    } else if(cmode==='com'){
+      msg.className='ok-msg';
+      msg.textContent='Annotated document with '+nn+' real Word comment(s) downloaded: '+nm+
+        ' (added via Word automation, since python-docx here is too old for native comments).';
+    } else {
+      msg.className='ok-msg';msg.textContent='Annotated document with '+nn+' mark(s) downloaded: '+nm;
+    }
   }catch(e){msg.className='err';msg.textContent=e.message;}
   finally{btn.disabled=false;btn.innerHTML='&#8681; Download annotated document (same format as input)';}
 }
@@ -1235,23 +1941,7 @@ function dl(){
   const b=new Blob([h],{type:'text/html'});const a=document.createElement('a');
   a.href=URL.createObjectURL(b);a.download='STE_report_'+Date.now()+'.html';a.click();
 }
-async function loadLog(){
-  try{
-    const r=await fetch('/log');const d=await r.json();
-    document.getElementById('logDb').textContent=d.db||'';
-    const rows=d.rows||[];
-    const box=document.getElementById('logWrap');
-    if(rows.length===0){box.innerHTML='<span class="note">No entries yet.</span>';return;}
-    const th=['Time','Action','Type','Mode','Document','Words','Unappr.','Rules','Repl.','Annot.','Task No','User'];
-    const keys=['timestamp','action','doc_type','mode','documents','words','unapproved','rule_findings','replacements','annotations','task_no','user'];
-    box.innerHTML='<table><thead><tr>'+th.map(h=>`<th>${h}</th>`).join('')+'</tr></thead><tbody>'+
-      rows.map(r=>'<tr>'+keys.map(k=>{let v=r[k];v=(v==null?'':(''+v));
-        if(k==='documents'&&v.length>34)v=v.slice(0,34)+'...';
-        return `<td>${esc(v)}</td>`;}).join('')+'</tr>').join('')+'</tbody></table>';
-  }catch(e){document.getElementById('logMsg').textContent=e.message;}
-}
 loadLibrary();
-loadLog();
 </script>
 </body></html>"""
 
