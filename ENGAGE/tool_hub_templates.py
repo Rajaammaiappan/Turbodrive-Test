@@ -6,18 +6,18 @@ Flask app itself readable. No external CDN links are used anywhere
 
 BASE_CSS = """
 :root {
-  --bg: #0b0e14;
-  --surface: #12161f;
-  --surface2: #1a2030;
-  --surface3: #212940;
-  --border: #262f42;
+  --bg: #f4f7fb;
+  --surface: #ffffff;
+  --surface2: #eef3f8;
+  --surface3: #e3ebf3;
+  --border: #cbd5e1;
   --accent: #2f6fed;
   --accent2: #4f8bff;
   --green: #22c55e;
   --red: #ef4444;
   --amber: #f59e0b;
-  --text: #e7ecf5;
-  --muted: #8b96ac;
+  --text: #172033;
+  --muted: #5f6b7a;
   --mono: 'Consolas', monospace;
 }
 * { box-sizing: border-box; }
@@ -28,7 +28,7 @@ body {
 a { color: var(--accent2); }
 header {
   display:flex; align-items:center; gap:18px; padding:14px 26px;
-  background:linear-gradient(90deg, #0d1220, #121a2c);
+  background:linear-gradient(90deg, #ffffff, #edf4fb);
   border-bottom:1px solid var(--border); position:sticky; top:0; z-index:50;
 }
 .header-logo { display:flex; align-items:center; gap:8px; }
@@ -39,7 +39,7 @@ header {
 }
 .logo-rr-img { height:34px; width:auto; display:block; }
 .logo-alten {
-  color:#e7ecf5; font-weight:800; letter-spacing:2px; font-size:14px;
+  color:var(--text); font-weight:800; letter-spacing:2px; font-size:14px;
   border-left:1px solid var(--border); padding-left:10px;
 }
 .logo-alten-img {
@@ -251,6 +251,7 @@ var ACTIVE_CATEGORY = 'All';
 var DB_STATE = { tool_id:null, page:0, q:'' };
 
 document.addEventListener('DOMContentLoaded', function() {
+  loadTheme();
   document.getElementById('userName').value = CURRENT_USER;
   loadEverything();
   document.getElementById('userName').addEventListener('change', function(e){
@@ -516,6 +517,60 @@ function actionLabel(a) {
   return {open:'opened', guide:'viewed guide for', about:'viewed About for', dashboard:'viewed dashboard for'}[a] || a;
 }
 
+var THEME_PRESETS = {
+  slate: {accent:'#d97706', accent2:'#f59e0b', bg:'#f4f7fb', surface:'#ffffff', surface2:'#eef3f8', surface3:'#e3ebf3', border:'#cbd5e1', text:'#172033', muted:'#5f6b7a'},
+  white: {accent:'#2563eb', accent2:'#3b82f6', bg:'#ffffff', surface:'#ffffff', surface2:'#f1f5f9', surface3:'#e2e8f0', border:'#cbd5e1', text:'#172033', muted:'#64748b'},
+  ice: {accent:'#0284c7', accent2:'#38bdf8', bg:'#eff8ff', surface:'#ffffff', surface2:'#e0f2fe', surface3:'#bae6fd', border:'#bae6fd', text:'#082f49', muted:'#52748a'},
+  solar: {accent:'#ea580c', accent2:'#fb923c', bg:'#fff7ed', surface:'#ffffff', surface2:'#ffedd5', surface3:'#fed7aa', border:'#fdba74', text:'#431407', muted:'#9a6048'},
+  fresh: {accent:'#059669', accent2:'#10b981', bg:'#f0fdf4', surface:'#ffffff', surface2:'#dcfce7', surface3:'#bbf7d0', border:'#a7f3d0', text:'#064e3b', muted:'#4f806f'},
+  gulf: {accent:'#d97706', accent2:'#fb923c', bg:'#fffbeb', surface:'#ffffff', surface2:'#fef3c7', surface3:'#fde68a', border:'#fcd34d', text:'#451a03', muted:'#8a6a35'},
+  corporate: {accent:'#0284c7', accent2:'#38bdf8', bg:'#f0f9ff', surface:'#ffffff', surface2:'#e0f2fe', surface3:'#bae6fd', border:'#bae6fd', text:'#082f49', muted:'#52748a'},
+  emerald: {accent:'#059669', accent2:'#34d399', bg:'#f0fdf4', surface:'#ffffff', surface2:'#dcfce7', surface3:'#bbf7d0', border:'#a7f3d0', text:'#064e3b', muted:'#4f806f'},
+  sunburst: {accent:'#ea580c', accent2:'#fb923c', bg:'#fff7ed', surface:'#ffffff', surface2:'#ffedd5', surface3:'#fed7aa', border:'#fdba74', text:'#431407', muted:'#9a6048'},
+  dark: {accent:'#2f6fed', accent2:'#4f8bff', bg:'#0b0e14', surface:'#12161f', surface2:'#1a2030', surface3:'#212940', border:'#262f42', text:'#e7ecf5', muted:'#8b96ac'}
+};
+
+function setThemeColors(theme, save) {
+  var root = document.documentElement;
+  Object.keys(theme).forEach(function(key){ root.style.setProperty('--' + key, theme[key]); });
+  ['themeAccent','themeAccent2','themeBg','themeSurface'].forEach(function(id, index){
+    var input = document.getElementById(id);
+    if (input) input.value = [theme.accent, theme.accent2, theme.bg, theme.surface][index];
+  });
+  if (save) localStorage.setItem('engage_theme', JSON.stringify(theme));
+}
+
+function applyThemePreset(name) {
+  var preset = THEME_PRESETS[name];
+  if (!preset) return;
+  setThemeColors(preset, true);
+  document.querySelectorAll('.theme-choice').forEach(function(button){
+    button.classList.toggle('selected', button.getAttribute('data-preset') === name || button.getAttribute('data-mode') === name);
+  });
+}
+
+function updateCustomTheme() {
+  var current = JSON.parse(localStorage.getItem('engage_theme') || '{}');
+  current.accent = document.getElementById('themeAccent').value;
+  current.accent2 = document.getElementById('themeAccent2').value;
+  current.bg = document.getElementById('themeBg').value;
+  current.surface = document.getElementById('themeSurface').value;
+  setThemeColors(current, true);
+  document.querySelectorAll('.theme-choice').forEach(function(button){ button.classList.remove('selected'); });
+}
+
+function toggleThemePanel() { document.getElementById('themePanel').classList.toggle('open'); }
+function resetTheme() { applyThemePreset('slate'); }
+function loadTheme() {
+  var saved = localStorage.getItem('engage_theme');
+  if (saved) {
+    try { setThemeColors(JSON.parse(saved), false); } catch (e) { applyThemePreset('slate'); }
+  } else { applyThemePreset('slate'); }
+  ['themeAccent','themeAccent2','themeBg','themeSurface'].forEach(function(id){
+    document.getElementById(id).addEventListener('input', updateCustomTheme);
+  });
+}
+
 function renderNotifications() {
   var since = new Date(); since.setDate(since.getDate()-30);
   var recentlyUpdated = ALL_TOOLS.filter(function(t){
@@ -546,6 +601,36 @@ PAGE_DASHBOARD = """<!DOCTYPE html>
   display:none; position:absolute; right:0; top:42px; width:320px; max-height:400px;
   overflow-y:auto; background:var(--surface); border:1px solid var(--border);
   border-radius:10px; padding:12px; box-shadow:0 10px 30px rgba(0,0,0,.5); z-index:100;
+}
+.theme-float-btn {
+  position:fixed; right:22px; bottom:22px; z-index:180; padding:12px 18px;
+  border:2px solid var(--amber); border-radius:24px; background:var(--surface);
+  color:var(--text); font-weight:700; cursor:pointer; box-shadow:0 8px 24px rgba(15,23,42,.18);
+}
+.theme-float-btn:hover { background:var(--surface2); }
+.theme-panel {
+  display:none; position:fixed; right:22px; bottom:78px; z-index:190; width:310px;
+  max-height:calc(100vh - 100px); overflow-y:auto; padding:16px;
+  background:var(--surface); border:1px solid var(--border); border-radius:12px;
+  box-shadow:0 16px 40px rgba(15,23,42,.25);
+}
+.theme-panel.open { display:block; }
+.theme-panel h2 { margin:0 0 14px; font-size:15px; }
+.theme-group { margin-top:16px; }
+.theme-group h3 { margin:0 0 9px; font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.4px; }
+.theme-presets, .theme-modes { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.theme-choice { min-height:48px; padding:7px 6px; border:1px solid var(--border); border-radius:8px;
+  background:var(--surface2); color:var(--text); font-size:11px; font-weight:700; cursor:pointer; }
+.theme-choice:hover, .theme-choice.selected { border-color:var(--amber); }
+.theme-dots { display:flex; justify-content:center; gap:4px; margin-bottom:4px; }
+.theme-dot { width:10px; height:10px; border-radius:50%; border:1px solid var(--border); }
+.theme-color-row { display:flex; align-items:center; justify-content:space-between; gap:8px; margin:10px 0; font-size:12px; font-weight:600; }
+.theme-color-row input[type=color] { width:34px; height:26px; padding:1px; border:1px solid var(--border); background:var(--surface2); cursor:pointer; }
+.theme-reset { width:100%; margin-top:12px; padding:8px; border:1px solid var(--border); border-radius:7px;
+  background:var(--surface2); color:var(--text); cursor:pointer; }
+@media (max-width:600px) {
+  .theme-float-btn { right:12px; bottom:12px; }
+  .theme-panel { right:12px; bottom:64px; width:calc(100vw - 24px); }
 }
 </style>
 </head>
@@ -607,6 +692,47 @@ PAGE_DASHBOARD = """<!DOCTYPE html>
   </div>
 </main>
 <footer>&copy; 2026 Alten-Rolls-Royce. All rights reserved. Confidential &ndash; Internal Use Only.</footer>
+
+<button class="theme-float-btn" onclick="toggleThemePanel()">&#127912; Theme &amp; Colors</button>
+<aside class="theme-panel" id="themePanel" aria-label="Theme and Colors">
+  <h2>&#127912; Theme Customizer <button class="close-x" onclick="toggleThemePanel()">&times;</button></h2>
+  <div class="theme-group">
+    <h3>Quick Color Presets</h3>
+    <div class="theme-presets">
+      <button class="theme-choice" data-preset="gulf" onclick="applyThemePreset('gulf')"><span class="theme-dots"><i class="theme-dot" style="background:#f59e0b"></i><i class="theme-dot" style="background:#fb923c"></i></span>Golden Brand</button>
+      <button class="theme-choice" data-preset="corporate" onclick="applyThemePreset('corporate')"><span class="theme-dots"><i class="theme-dot" style="background:#0284c7"></i><i class="theme-dot" style="background:#38bdf8"></i></span>Corporate Blue</button>
+      <button class="theme-choice" data-preset="emerald" onclick="applyThemePreset('emerald')"><span class="theme-dots"><i class="theme-dot" style="background:#059669"></i><i class="theme-dot" style="background:#34d399"></i></span>Eco Emerald</button>
+      <button class="theme-choice" data-preset="sunburst" onclick="applyThemePreset('sunburst')"><span class="theme-dots"><i class="theme-dot" style="background:#ea580c"></i><i class="theme-dot" style="background:#fb923c"></i></span>Sunburst</button>
+    </div>
+  </div>
+  <div class="theme-group">
+    <h3>Light Theme Combinations</h3>
+    <div class="theme-presets">
+      <button class="theme-choice" data-preset="slate" onclick="applyThemePreset('slate')"><span class="theme-dots"><i class="theme-dot" style="background:#f59e0b"></i><i class="theme-dot" style="background:#f8fafc"></i></span>Clean Slate Gold</button>
+      <button class="theme-choice" data-preset="ice" onclick="applyThemePreset('ice')"><span class="theme-dots"><i class="theme-dot" style="background:#0284c7"></i><i class="theme-dot" style="background:#f8fafc"></i></span>Ice Blue Tech</button>
+      <button class="theme-choice" data-preset="solar" onclick="applyThemePreset('solar')"><span class="theme-dots"><i class="theme-dot" style="background:#ea580c"></i><i class="theme-dot" style="background:#fff7ed"></i></span>Warm Solar Light</button>
+      <button class="theme-choice" data-preset="fresh" onclick="applyThemePreset('fresh')"><span class="theme-dots"><i class="theme-dot" style="background:#059669"></i><i class="theme-dot" style="background:#f0fdf4"></i></span>Emerald Fresh Light</button>
+    </div>
+  </div>
+  <div class="theme-group">
+    <h3>Custom Brand Colors</h3>
+    <label class="theme-color-row">Primary Accent Color <input type="color" id="themeAccent"></label>
+    <label class="theme-color-row">Secondary Highlight <input type="color" id="themeAccent2"></label>
+    <label class="theme-color-row">Page Background <input type="color" id="themeBg"></label>
+    <label class="theme-color-row">Card / Section Background <input type="color" id="themeSurface"></label>
+  </div>
+  <div class="theme-group">
+    <h3>Page Background Mode</h3>
+    <div class="theme-modes">
+      <button class="theme-choice" data-mode="slate" onclick="applyThemePreset('slate')">Slate</button>
+      <button class="theme-choice" data-mode="white" onclick="applyThemePreset('white')">Pure White</button>
+      <button class="theme-choice" data-mode="solar" onclick="applyThemePreset('solar')">Warm Solar</button>
+      <button class="theme-choice" data-mode="ice" onclick="applyThemePreset('ice')">Ice Blue</button>
+      <button class="theme-choice" data-mode="dark" onclick="applyThemePreset('dark')">Dark Mode</button>
+    </div>
+  </div>
+  <button class="theme-reset" onclick="resetTheme()">Reset to Default</button>
+</aside>
 
 <!-- About modal -->
 <div class="modal-overlay" id="aboutOverlay">
