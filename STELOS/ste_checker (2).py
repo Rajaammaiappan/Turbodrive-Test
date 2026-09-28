@@ -340,6 +340,26 @@ def is_self_reference(word, alts_list):
     wl = word.strip().lower()
     return len(alts_list) == 1 and alts_list[0].strip().lower() == wl
 
+# Months and ordinal suffixes cause false positives: "May" (month) is not the
+# modal verb "may", and "6th" tokenizes to the fragment "th".
+MONTHS = set('january february march april may june july august september '
+             'october november december'.split())
+ORDINAL_SUFFIX = {'st', 'nd', 'rd', 'th'}
+
+def word_is_approved_form(word, alts_list):
+    """True when the word already IS one of the approved alternatives
+    (case-insensitive), so flagging it would just tell the author to replace a
+    word with the same word - e.g. "related" when the alternative is RELATED,
+    which is the correct STE past-participle form (Rule 3.3)."""
+    wl = word.strip().lower()
+    return any(wl == a.strip().lower() for a in alts_list)
+
+def _pos_is_verb(pos):
+    return bool(pos) and pos.strip().lower().split('/')[0].lstrip('.').startswith('v')
+
+def alts_have_verb(alts_pos):
+    return any(_pos_is_verb(p) for p in alts_pos)
+
 # ---------------------------------------------------------------- rule engine
 BRITISH = {
  'colour':'color','colours':'colors','behaviour':'behavior','behaviours':'behaviors',
@@ -585,6 +605,13 @@ def check_text(text, mode, strict, extra_allowed=None):
                     continue
                 if wl in ALWAYS_OK:
                     continue
+                # fix - ordinal fragments ("6th" -> "th") are not words
+                if wl in ORDINAL_SUFFIX:
+                    continue
+                # fix - a capitalized month is a date, not the modal/verb sense
+                # (e.g. "May 2026" is not the word "may")
+                if wl in MONTHS and w[:1].isupper():
+                    continue
                 na = lookup_not_approved(wl)
                 if na:
                     alts_list = [a['alt'] for a in na.get('alts', []) if a.get('alt')]
@@ -593,26 +620,46 @@ def check_text(text, mode, strict, extra_allowed=None):
                         alts_list = [na['alt']]
                     if alts_list and is_self_reference(na['word'], alts_list):
                         continue
+                    # fix - the word already IS the approved alternative
+                    # (e.g. "related" when the alternative is RELATED); flagging
+                    # it would suggest replacing a word with the same word.
+                    if alts_list and word_is_approved_form(w, alts_list):
+                        continue
+                    # item 7 - part-of-speech aware: if the not-approved word is a
+                    # verb but every alternative is a different part of speech
+                    # (noun/adjective), a word-for-word swap breaks grammar
+                    # ("investigate" -> "investigation"). Treat it as a reword,
+                    # not a drop-in replacement, so we do not pre-fill a bad fix.
+                    pos_mismatch = (_pos_is_verb(na.get('pos', '')) and alts_list
+                                    and not alts_have_verb(alts_pos))
                     disp = ' / '.join(alts_list) if alts_list else '(rewrite - no direct alternative)'
                     # item 9 - detailed guidance with the approved alternative's
-                    # usage and the governing rule reference, instead of a bare
-                    # "not approved" label.
-                    if alts_list:
+                    # usage and the governing rule reference.
+                    if pos_mismatch:
+                        rule_ref, has_fix, prefill = '9.1', False, ''
+                        guidance = ('Not approved as a verb. The approved term is %s (%s) - '
+                                    'reword the sentence rather than swapping the word '
+                                    '(Rules 3.7 / 9.1).'
+                                    % (disp, pos_label(alts_pos[0]) or 'different part of speech'))
+                    elif alts_list:
+                        rule_ref, has_fix = '1.1', True
+                        prefill = default_replacement(alts_list[0])
                         guidance = ('Not approved in STE. Use %s instead (Rule 1.1 - use only '
                                     'approved words).' % disp)
                     else:
+                        rule_ref, has_fix, prefill = '9.1', False, ''
                         guidance = ('Not approved in STE and has no direct replacement - '
                                     'reword the sentence (Rule 9.1).')
                     e = flagged_words.setdefault(na['word'].lower(),
                         {'word': na['word'], 'alt': disp, 'alts': alts_list, 'kind': 'dict',
                          'pos': na.get('pos', ''), 'pos_display': pos_label(na.get('pos', '')),
-                         'alts_pos': alts_pos, 'rule': '1.1', 'guidance': guidance,
-                         'count': 0, 'has_alt': bool(alts_list),
-                         'replacement': default_replacement(alts_list[0]) if alts_list else '',
-                         'paras': set()})
+                         'alts_pos': alts_pos, 'rule': rule_ref, 'guidance': guidance,
+                         'reword': pos_mismatch,
+                         'count': 0, 'has_alt': has_fix,
+                         'replacement': prefill, 'paras': set()})
                     e['count'] += 1
                     e['paras'].add(para_i)
-                    rule_counts['1.1'] = rule_counts.get('1.1', 0) + 1
+                    rule_counts[rule_ref] = rule_counts.get(rule_ref, 0) + 1
                 elif (strict and not is_approved(wl) and not w[0].isupper()
                       and not in_allowed(wl, extra_allowed)):
                     # item 9 - clearer guidance for words that are simply not in
@@ -1069,12 +1116,22 @@ def word_suggestion(w, strict, extra_allowed):
         return BRITISH[wl]
     if wl in ALWAYS_OK or in_allowed(wl, extra_allowed):
         return None
+    if wl in ORDINAL_SUFFIX:
+        return None
+    if wl in MONTHS and w[:1].isupper():
+        return None
     na = lookup_not_approved(wl)
     if na:
-        alts = [a['alt'] for a in na.get('alts', []) if a.get('alt')] or \
-               ([na['alt']] if na.get('alt') else [])
+        alts = [a['alt'] for a in na.get('alts', []) if a.get('alt')]
+        alts_pos = [a.get('pos', '') for a in na.get('alts', []) if a.get('alt')]
+        if not alts and na.get('alt'):
+            alts = [na['alt']]
         if alts and is_self_reference(na['word'], alts):
             return None
+        if alts and word_is_approved_form(w, alts):
+            return None
+        if _pos_is_verb(na.get('pos', '')) and alts and not alts_have_verb(alts_pos):
+            return 'reword - approved term is %s' % ' / '.join(alts)
         return ' / '.join(alts) if alts else 'rewrite'
     if strict and not is_approved(wl) and not w[0].isupper():
         return 'verify: technical term or reword'
@@ -1667,6 +1724,8 @@ details.guide>summary{cursor:pointer;color:var(--accent);font-weight:600;font-si
 .extag{display:inline-block;font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;margin-right:6px;font-family:system-ui}
 .extag.good{background:#bbf7d0;color:#166534}.extag.bad{background:#fecaca;color:#991b1b}
 .guidance{font-size:11.5px;color:var(--muted);margin-top:3px;line-height:1.45}
+.rewordtag{display:inline-block;background:#fef3c7;color:#92400e;font-size:11px;font-weight:700;
+border-radius:6px;padding:3px 9px}
 .posbadge{display:inline-block;background:#e0e7ff;color:#3730a3;font-size:10px;font-weight:700;
 border-radius:4px;padding:1px 6px;font-family:system-ui}
 .libcat{margin-bottom:10px}.libcat h5{font-size:12px;color:var(--muted);text-transform:uppercase;
@@ -1945,6 +2004,10 @@ function render(d){
        leftbox='';
        lastcell=`<td class="techcell"><label><input type="checkbox" class="techchk" data-word="${esc(f.word)}">
                   &#43; Add as tech word</label></td>`;
+     } else if(f.reword || !f.has_alt){
+       // verb->noun or no-direct-alternative: rewording, not a word swap
+       leftbox='';
+       lastcell=`<td class="repcell"><span class="rewordtag">Reword needed</span></td>`;
      } else {
        leftbox=`<input type="checkbox" class="rowchk" data-i="${i}" ${f.replacement?'checked':''}>`;
        const multi=(f.alts&&f.alts.length>1);
