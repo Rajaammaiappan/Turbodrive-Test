@@ -170,10 +170,10 @@ CURRENT_MACHINE = os.environ.get('COMPUTERNAME') or os.environ.get('HOSTNAME') o
 
 # ---- pilot / library-building mode --------------------------------------------
 # While the library is being built by a small group of Authors and CAs, the tool
-# must not be used to produce final documents. With STE_PILOT_MODE=1 (default)
+# must not be used to produce final documents. With STE_PILOT_MODE=1
 # the "apply replacements" and "annotated document" outputs are switched off and
-# the screen says so. Set STE_PILOT_MODE=0 to switch the outputs back on.
-PILOT_MODE = os.environ.get('STE_PILOT_MODE', '1').strip().lower() not in ('0', 'false', 'no', 'off')
+# the screen says so. Default is OFF (outputs enabled); set STE_PILOT_MODE=1 for pilot mode.
+PILOT_MODE = os.environ.get('STE_PILOT_MODE', '0').strip().lower() not in ('0', 'false', 'no', 'off')
 PILOT_MSG = ('Pilot mode: STELOS is being used to build the word library. Corrected and annotated '
              'documents are switched off - do not use results as final output.')
 
@@ -440,115 +440,6 @@ def remove_terms(words):
             for wl, frm in removed:
                 log_term_event('remove', wl, frm, '')
         return d, [r[0] for r in removed]
-
-# ---- shared Lesson Learned / Writing Guidance rules (editable CSV, separate
-# from the STE100 dictionary above - this is the Rolls-Royce house style /
-# writing-guidelines rule set, not ASD-STE100) ----
-WG_FILE = os.environ.get('WG_RULES_FILE', os.path.join(HERE, 'writing_guidelines.csv'))
-WG_LOCK = threading.Lock()
-WG_FIELDS = ['Category', 'Incorrect', 'Correct', 'Reason']
-
-def load_writing_guidelines():
-    """Read the shared Lesson Learned / Writing Guidance rules fresh from disk
-    (CSV, editable in Excel) so anyone's additions show up immediately."""
-    rules = []
-    try:
-        with open(WG_FILE, 'r', encoding='utf-8-sig', newline='') as fh:
-            for row in csv.DictReader(fh):
-                incorrect = (row.get('Incorrect') or '').strip()
-                if not incorrect:
-                    continue
-                rules.append({
-                    'category': (row.get('Category') or '').strip() or 'General',
-                    'incorrect': incorrect,
-                    'correct': (row.get('Correct') or '').strip(),
-                    'reason': (row.get('Reason') or '').strip(),
-                })
-    except (FileNotFoundError, OSError):
-        pass
-    return rules
-
-def add_writing_guideline(category, incorrect, correct, reason, by):
-    """Append a new rule to the shared CSV (atomic write) so the whole team's
-    tool picks it up on their next check - this is how the list is meant to
-    grow over time as new Lessons Learned / Writing Guidance items come in."""
-    incorrect = (incorrect or '').strip()
-    if not incorrect:
-        return load_writing_guidelines()
-    with WG_LOCK:
-        rows = []
-        try:
-            with open(WG_FILE, 'r', encoding='utf-8-sig', newline='') as fh:
-                rows = list(csv.DictReader(fh))
-        except (FileNotFoundError, OSError):
-            pass
-        rows.append({'Category': category or 'General', 'Incorrect': incorrect,
-                      'Correct': correct or '', 'Reason': reason or ('Added by %s' % by)})
-        tmp = WG_FILE + '.tmp'
-        with open(tmp, 'w', encoding='utf-8', newline='') as fh:
-            w = csv.DictWriter(fh, fieldnames=WG_FIELDS)
-            w.writeheader()
-            w.writerows(rows)
-        os.replace(tmp, WG_FILE)
-        return load_writing_guidelines()
-
-# ---- shared Lessons Learned library (editable CSV) - past issues logged as
-# ID/Type/Keywords/KeyLearning. These are reference notes, not find/replace
-# rules: if a document mentions a lesson's keyword, the tool surfaces the
-# related past learning so the author can check it applies. ----
-LL_FILE = os.environ.get('LL_LOG_FILE', os.path.join(HERE, 'lessons_learned.csv'))
-LL_LOCK = threading.Lock()
-LL_FIELDS = ['ID', 'Type', 'Keywords', 'KeyLearning']
-
-def load_lessons_learned():
-    """Read the shared Lessons Learned log fresh from disk (CSV, editable in
-    Excel) so anyone's additions show up immediately."""
-    lessons = []
-    try:
-        with open(LL_FILE, 'r', encoding='utf-8-sig', newline='') as fh:
-            for row in csv.DictReader(fh):
-                keywords = [k.strip() for k in (row.get('Keywords') or '').split(',') if k.strip()]
-                if not keywords:
-                    continue
-                lessons.append({
-                    'id': (row.get('ID') or '').strip() or '(no id)',
-                    'type': (row.get('Type') or '').strip(),
-                    'keywords': keywords,
-                    'key_learning': (row.get('KeyLearning') or '').strip(),
-                })
-    except (FileNotFoundError, OSError):
-        pass
-    return lessons
-
-def add_lesson_learned(lesson_id, lesson_type, keywords, key_learning):
-    """Append a new lesson to the shared CSV (atomic write) so it is
-    surfaced for everyone from their next check onward."""
-    keywords = (keywords or '').strip()
-    key_learning = (key_learning or '').strip()
-    if not keywords or not key_learning:
-        return load_lessons_learned()
-    with LL_LOCK:
-        rows = []
-        try:
-            with open(LL_FILE, 'r', encoding='utf-8-sig', newline='') as fh:
-                rows = list(csv.DictReader(fh))
-        except (FileNotFoundError, OSError):
-            pass
-        if lesson_id and lesson_id.strip():
-            auto_id = lesson_id.strip()
-        else:
-            nums = [int(m.group(1)) for r in rows
-                    for m in [re.match(r'LL(\d+)$', (r.get('ID') or '').strip())] if m]
-            auto_id = 'LL%04d' % (max(nums) + 1 if nums else 1)
-        rows.append({'ID': auto_id, 'Type': lesson_type or 'General',
-                      'Keywords': keywords, 'KeyLearning': key_learning})
-        tmp = LL_FILE + '.tmp'
-        with open(tmp, 'w', encoding='utf-8', newline='') as fh:
-            w = csv.DictWriter(fh, fieldnames=LL_FIELDS)
-            w.writeheader()
-            w.writerows(rows)
-        os.replace(tmp, LL_FILE)
-        return load_lessons_learned()
 
 # ---------------------------------------------------------------- word logic
 def deinflect(w):
@@ -1039,73 +930,6 @@ def check_text(text, mode, strict, extra_allowed=None):
             'rule_findings': rule_findings, 'coverage': coverage,
             'context_cleared': context_cleared,
             'highlighted': build_highlight(text, flagged_words, strict, extra_allowed, mode)}
-
-def check_writing_guidance(text):
-    """Check text against the shared Lesson Learned / Writing Guidance rules
-    (writing_guidelines.csv) - a separate, house-style rule set (RR writing
-    guidelines / lessons learnt), independent from the ASD-STE100 dictionary."""
-    rules = load_writing_guidelines()
-    if not rules:
-        return []
-    paras = split_sentences(text)
-    paragraphs_text = {i: t for i, t, _ in paras}
-    flagged = {}
-    for para_i, para_text, _sents in paras:
-        for rule in rules:
-            key = rule['incorrect'].lower()
-            if not build_pattern(rule['incorrect']).search(para_text):
-                continue
-            e = flagged.setdefault(key, {
-                'word': rule['incorrect'], 'alt': rule['correct'] or '(see reason)',
-                'alts': [rule['correct']] if rule['correct'] else [],
-                'kind': 'wg', 'pos': rule['category'], 'count': 0,
-                'has_alt': bool(rule['correct']), 'replacement': rule['correct'],
-                'reason': rule['reason'], 'paras': set(),
-            })
-            hits = len(build_pattern(rule['incorrect']).findall(para_text))
-            e['count'] += hits
-            e['paras'].add(para_i)
-    out = sorted(flagged.values(), key=lambda x: (-x['count'], x['word'].lower()))
-    for f in out:
-        para_ids = sorted(f.pop('paras', set()))
-        f['occurrences'] = [{'para': i + 1, 'text': _para_snippet(paragraphs_text[i], f['word'])}
-                             for i in para_ids]
-    return out
-
-def check_lessons_learned(text):
-    """Scan text for keyword combinations from the shared Lessons Learned log
-    (lessons_learned.csv). These are reference notes, not find/replace rules:
-    a lesson is only surfaced when at least 2 of its keywords (or all of them,
-    if it only has 1) appear together in the SAME paragraph - a single
-    coincidental keyword match (shared topic, not a repeat of the mistake)
-    is not enough, to keep this from flooding every check with loose
-    topic overlaps."""
-    lessons = load_lessons_learned()
-    if not lessons:
-        return []
-    paras = split_sentences(text)
-    paragraphs_text = {i: t for i, t, _ in paras}
-    flagged = {}
-    for para_i, para_text, _sents in paras:
-        for lesson in lessons:
-            hits = [kw for kw in lesson['keywords'] if build_pattern(kw).search(para_text)]
-            threshold = min(2, len(lesson['keywords']))
-            if len(hits) < threshold:
-                continue
-            e = flagged.setdefault(lesson['id'], {
-                'word': lesson['id'], 'alt': lesson['key_learning'],
-                'alts': [], 'kind': 'll', 'pos': lesson['type'], 'count': 0,
-                'has_alt': False, 'replacement': '', 'matched_keyword': hits[0],
-                'reason': lesson['key_learning'], 'paras': set(),
-            })
-            e['count'] += 1
-            e['paras'].add((para_i, hits[0]))
-    out = sorted(flagged.values(), key=lambda x: (-x['count'], x['word']))
-    for f in out:
-        para_hits = sorted(f.pop('paras', set()))
-        f['occurrences'] = [{'para': i + 1, 'text': _para_snippet(paragraphs_text[i], kw)}
-                             for i, kw in para_hits]
-    return out
 
 def build_highlight(text, flagged_words, strict, extra_allowed=None, mode='procedural'):
     extra_allowed = extra_allowed or set()
@@ -1641,7 +1465,6 @@ def annotate_docx_com(src, dst, strict, extra):
 
     text = extract_text_from(src, '.docx')
     result = check_text(text, 'procedural', strict, extra)
-    wg = check_writing_guidance(text)
 
     terms, seen = [], set()
     for f in result['flagged']:
@@ -1649,14 +1472,6 @@ def annotate_docx_com(src, dst, strict, extra):
             continue
         seen.add(f['word'].lower())
         terms.append((f['word'], 'STE: %s -> %s' % (f['word'], f['alt'])))
-    for f in wg:
-        if f['word'].lower() in seen:
-            continue
-        seen.add(f['word'].lower())
-        note = 'Writing Guidance: %s -> %s' % (f['word'], f['alt'])
-        if f.get('reason'):
-            note += ' (%s)' % f['reason'][:150]
-        terms.append((f['word'], note))
 
     pythoncom.CoInitialize()
     word = None
@@ -1797,8 +1612,6 @@ def check():
         result['token'] = token
         result['library'] = library
         result['user'] = CURRENT_USER
-        result['wg_flagged'] = check_writing_guidance(text)
-        result['ll_flagged'] = check_lessons_learned(text)
         doc_name = UPLOADS[token]['filename'] if token in UPLOADS else 'pasted text'
         s = result['summary']
         log_usage('check', documents=doc_name, mode=mode, words=s['words'],
@@ -2064,48 +1877,6 @@ def harvest():
                   words=len(all_words), unapproved=len(counts))
         return jsonify({'rows': rows, 'total_unknown': len(counts), 'documents': docs,
                         'words': len(all_words)})
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/wg_rules', methods=['GET'])
-def wg_rules():
-    return jsonify({'rules': load_writing_guidelines(), 'user': CURRENT_USER})
-
-@app.route('/add_wg_rule', methods=['POST'])
-def add_wg_rule():
-    """Add a new Lesson Learned / Writing Guidance rule to the shared CSV so
-    the whole team's tool picks it up - this is how the standard grows."""
-    try:
-        data = request.get_json(force=True)
-        incorrect = (data.get('incorrect') or '').strip()
-        if not incorrect:
-            return jsonify({'error': 'Enter the incorrect form/word to flag.'}), 400
-        rules = add_writing_guideline(data.get('category', ''), incorrect,
-                                       data.get('correct', ''), data.get('reason', ''),
-                                       CURRENT_USER)
-        return jsonify({'ok': True, 'rules': rules, 'user': CURRENT_USER})
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
-
-@app.route('/lessons', methods=['GET'])
-def lessons():
-    return jsonify({'lessons': load_lessons_learned(), 'user': CURRENT_USER})
-
-@app.route('/add_lesson', methods=['POST'])
-def add_lesson():
-    """Add a new Lesson Learned entry to the shared CSV so it is surfaced
-    for everyone from their next check onward - this is how the log grows."""
-    try:
-        data = request.get_json(force=True)
-        keywords = (data.get('keywords') or '').strip()
-        key_learning = (data.get('key_learning') or '').strip()
-        if not keywords or not key_learning:
-            return jsonify({'error': 'Enter at least one keyword and the key learning text.'}), 400
-        lessons = add_lesson_learned(data.get('id', ''), data.get('type', ''),
-                                      keywords, key_learning)
-        return jsonify({'ok': True, 'lessons': lessons, 'user': CURRENT_USER})
     except Exception as e:
         traceback.print_exc()
         return jsonify({'error': str(e)}), 500
@@ -2379,54 +2150,6 @@ a.qlink{display:inline-block;margin-left:4px;width:16px;height:16px;line-height:
       cue words in <code>context_rules.json</code> can be corrected.</p>
       <div id="ctxList"></div></div>
 
-    <div class="card"><h2>3B &middot; Lesson Learned / Writing Guidance</h2>
-      <p class="note">Rolls-Royce house-style rules (uppercase/lowercase, spacing, punctuation, abbreviations,
-      spellings...) - independent of the ASD-STE100 dictionary above. This list is a shared, editable CSV
-      (<code>writing_guidelines.csv</code>) that anyone on the team can keep growing as new lessons come in;
-      add one below and everyone's next check picks it up.</p>
-      <table><thead><tr>
-        <th class="chk"><input type="checkbox" id="wgAllChk" onclick="toggleAllWg(this)"></th>
-        <th>Incorrect form</th><th>Category</th><th>Count</th><th>Correct form</th><th>Replace with</th>
-      </tr></thead><tbody id="wgBody"></tbody></table>
-      <div class="row">
-        <button class="go" id="wgApplyBtn" onclick="applyWgRepl()">&#10003; Apply ticked replacements &amp; download copy</button>
-        <span id="wgApplyMsg"></span>
-      </div>
-      <div class="lib">
-        <h4>Add a new Lesson Learned / Writing Guidance rule</h4>
-        <div class="row">
-          <input type="text" id="wgNewCategory" placeholder="Category (e.g. Punctuation)" style="min-width:170px">
-          <input type="text" id="wgNewIncorrect" placeholder="Incorrect form (required)" style="min-width:170px">
-          <input type="text" id="wgNewCorrect" placeholder="Correct form" style="min-width:170px">
-          <input type="text" id="wgNewReason" placeholder="Reason" style="min-width:220px;flex:1">
-          <button class="tech" onclick="addWgRule()">&#43; Add rule</button>
-        </div>
-        <span id="wgAddMsg"></span>
-      </div>
-    </div>
-
-    <div class="card"><h2>3C &middot; Related Lessons Learned</h2>
-      <p class="note">Reference notes, not text fixes: a lesson is only shown when at least 2 of its keywords (or its
-      one keyword, for narrow single-keyword lessons) appear together in the same paragraph - a single coincidental
-      word match doesn't count, so this tries to catch the same mistake recurring rather than any shared topic.
-      Backed by a shared, editable CSV (<code>lessons_learned.csv</code>) - log a new one below and everyone's next
-      check will surface it.</p>
-      <div id="llList"></div>
-      <div class="lib">
-        <h4>Log a new Lesson Learned</h4>
-        <div class="row">
-          <input type="text" id="llNewId" placeholder="ID (optional, e.g. LL0020)" style="min-width:150px">
-          <input type="text" id="llNewType" placeholder="Type (e.g. Process compliance)" style="min-width:170px">
-          <input type="text" id="llNewKeywords" placeholder="Keywords, comma-separated (required)" style="min-width:220px;flex:1">
-        </div>
-        <div class="row">
-          <textarea id="llNewLearning" placeholder="Key Learning (required)" style="min-height:50px;flex:1"></textarea>
-          <button class="tech" onclick="addLesson()">&#43; Add lesson</button>
-        </div>
-        <span id="llAddMsg"></span>
-      </div>
-    </div>
-
     <div class="card"><h2>4 &middot; Rule findings (Part 1 writing rules)</h2>
       <p class="note">Each finding shows the ASD-STE100 rule number. Errors break a rule outright;
       warnings and advisories need a quick check.</p>
@@ -2622,153 +2345,6 @@ function render(d){
       return `<div class="covitem ${cls}"><b>${esc(r.num)}</b> ${esc(r.title)}
               <span class="covtag">${tag}</span></div>`;}).join('')}</div></div>`).join('');
   document.getElementById('doc').innerHTML=d.highlighted;
-  renderWg(d.wg_flagged||[]);
-  renderLL(d.ll_flagged||[]);
-}
-
-function renderLL(list){
-  const box=document.getElementById('llList');
-  if(!list || list.length===0){
-    box.innerHTML='<p class="note">No related Lessons Learned found for this text.</p>';
-    return;
-  }
-  box.innerHTML=list.map((f,i)=>{
-    const occ=f.occurrences||[];
-    const toggle = occ.length
-      ? `<button type="button" class="paratoggle" onclick="toggleParasLL(${i},this)">&#9656; ${occ.length} mention${occ.length>1?'s':''}</button>`
-      : '';
-    const paraRows = occ.length ? `<div id="llparas-${i}" class="hidden paralist" style="margin-top:8px">${occ.map(o=>
-        `<div class="paraitem"><b>Para ${o.para}:</b> ${esc(o.text)}</div>`).join('')}
-      </div>` : '';
-    return `<div class="issue" style="border-left-color:var(--accent2);background:#eff6ff">
-      <span class="rulebadge">${esc(f.word)}</span>
-      <span class="sevtag advisory">${esc(f.pos)}</span>
-      ${toggle}
-      <div style="margin-top:6px">${esc(f.alt)}</div>
-      ${paraRows}
-    </div>`;
-  }).join('');
-}
-
-function toggleParasLL(i, btn){
-  const row=document.getElementById('llparas-'+i);
-  if(!row) return;
-  const nowOpen=row.classList.toggle('hidden')===false;
-  if(btn) btn.innerHTML=btn.innerHTML.replace(nowOpen?'▸':'▾', nowOpen?'▾':'▸');
-}
-
-async function addLesson(){
-  const msg=document.getElementById('llAddMsg');msg.className='';msg.textContent='';
-  const keywords=document.getElementById('llNewKeywords').value.trim();
-  const keyLearning=document.getElementById('llNewLearning').value.trim();
-  if(!keywords || !keyLearning){msg.className='err';msg.textContent='Enter keywords and the key learning text.';return;}
-  try{
-    const r=await fetch('/add_lesson',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        id:document.getElementById('llNewId').value.trim(),
-        type:document.getElementById('llNewType').value.trim(),
-        keywords, key_learning:keyLearning
-      })});
-    const d=await r.json();
-    if(!r.ok){msg.className='err';msg.textContent=d.error||'Error';return;}
-    msg.className='ok-msg';msg.textContent='Lesson added to the shared log. Re-checking...';
-    document.getElementById('llNewId').value='';
-    document.getElementById('llNewType').value='';
-    document.getElementById('llNewKeywords').value='';
-    document.getElementById('llNewLearning').value='';
-    if(TOKEN) run();
-  }catch(e){msg.className='err';msg.textContent=e.message;}
-}
-
-function renderWg(list){
-  document.getElementById('wgApplyMsg').textContent='';
-  const wb=document.getElementById('wgBody');
-  if(!list || list.length===0){
-    wb.innerHTML='<tr><td colspan="6" style="color:var(--green)">No Writing Guidance issues found. &#10003;</td></tr>';
-    return;
-  }
-  wb.innerHTML=list.map((f,i)=>{
-    const leftbox=`<input type="checkbox" class="wgrowchk" data-i="${i}" ${f.replacement?'checked':''}>`;
-    const lastcell=`<td class="repcell"><input class="wgrep" data-i="${i}"
-       value="${esc(f.replacement)}" placeholder="type replacement..."></td>`;
-    const occ=f.occurrences||[];
-    const wordCell = occ.length
-      ? `<button type="button" class="paratoggle" onclick="toggleParasWg(${i},this)">&#9656; ${occ.length} para${occ.length>1?'s':''}</button> ${esc(f.word)}`
-      : esc(f.word);
-    const paraRows = occ.length ? `<tr id="wgparas-${i}" class="hidden paralistrow"><td></td>
-      <td colspan="5"><div class="paralist">${occ.map(o=>
-        `<div class="paraitem"><label class="paraitemchk"><input type="checkbox" class="wgparachk" data-i="${i}" data-para="${o.para-1}" checked
-            onchange="this.closest('.paraitem').classList.toggle('unchecked', !this.checked)"></label><b>Para ${o.para}:</b> ${escMark(o.text, f.word)}</div>`).join('')}
-      </div></td></tr>` : '';
-    return `<tr title="${esc(f.reason||'')}">
-      <td class="chk">${leftbox}</td>
-      <td class="w">${wordCell}</td><td>${esc(f.pos)}</td><td>${f.count}</td>
-      <td style="color:var(--green);font-family:var(--mono)">${esc(f.alt)}</td>
-      ${lastcell}</tr>${paraRows}`;
-  }).join('');
-}
-
-function toggleAllWg(cb){document.querySelectorAll('.wgrowchk').forEach(c=>c.checked=cb.checked);}
-function toggleParasWg(i, btn){
-  const row=document.getElementById('wgparas-'+i);
-  if(!row) return;
-  const nowOpen=row.classList.toggle('hidden')===false;
-  if(btn) btn.innerHTML=btn.innerHTML.replace(nowOpen?'▸':'▾', nowOpen?'▾':'▸');
-}
-
-async function applyWgRepl(){
-  const msg=document.getElementById('wgApplyMsg');msg.className='';msg.textContent='';
-  if(!TOKEN){msg.className='err';msg.textContent='Run a check first.';return;}
-  const reps=[];
-  document.querySelectorAll('.wgrowchk').forEach(chk=>{
-    if(chk.checked){
-      const i=chk.dataset.i;const f=(LAST.wg_flagged||[])[i];
-      const rep=document.querySelector('.wgrep[data-i="'+i+'"]').value.trim();
-      if(!rep) return;
-      const entry={find:f.word,replace:rep};
-      const occChecks=[...document.querySelectorAll('.wgparachk[data-i="'+i+'"]')];
-      if(occChecks.length){
-        const chosen=occChecks.filter(c=>c.checked).map(c=>parseInt(c.dataset.para,10));
-        if(chosen.length<occChecks.length) entry.paras=chosen;
-      }
-      reps.push(entry);
-    }
-  });
-  if(reps.length===0){msg.className='err';msg.textContent='Tick at least one rule that has a replacement.';return;}
-  const btn=document.getElementById('wgApplyBtn');btn.disabled=true;btn.textContent='Working...';
-  try{
-    const r=await fetch('/apply',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({token:TOKEN,replacements:reps})});
-    if(!r.ok){const d=await r.json();msg.className='err';msg.textContent=d.error||'Error';return;}
-    const n=r.headers.get('X-STE-Replacements');const name=r.headers.get('X-STE-Outfile')||'corrected';
-    const blob=await r.blob();const a=document.createElement('a');
-    a.href=URL.createObjectURL(blob);a.download=name;a.click();
-    msg.className='ok-msg';msg.textContent='Done - '+n+' replacement(s) written to a copy: '+name;
-  }catch(e){msg.className='err';msg.textContent=e.message;}
-  finally{btn.disabled=false;btn.innerHTML='&#10003; Apply ticked replacements &amp; download copy';}
-}
-
-async function addWgRule(){
-  const msg=document.getElementById('wgAddMsg');msg.className='';msg.textContent='';
-  const incorrect=document.getElementById('wgNewIncorrect').value.trim();
-  if(!incorrect){msg.className='err';msg.textContent='Enter the incorrect form.';return;}
-  try{
-    const r=await fetch('/add_wg_rule',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        category:document.getElementById('wgNewCategory').value.trim(),
-        incorrect,
-        correct:document.getElementById('wgNewCorrect').value.trim(),
-        reason:document.getElementById('wgNewReason').value.trim()
-      })});
-    const d=await r.json();
-    if(!r.ok){msg.className='err';msg.textContent=d.error||'Error';return;}
-    msg.className='ok-msg';msg.textContent='Rule added to the shared list. Re-checking...';
-    document.getElementById('wgNewCategory').value='';
-    document.getElementById('wgNewIncorrect').value='';
-    document.getElementById('wgNewCorrect').value='';
-    document.getElementById('wgNewReason').value='';
-    if(TOKEN) run();
-  }catch(e){msg.className='err';msg.textContent=e.message;}
 }
 
 function toggleAll(cb){document.querySelectorAll('.rowchk').forEach(c=>c.checked=cb.checked);}
@@ -2912,7 +2488,7 @@ async function loadPos(){
 const PILOT={{ 'true' if pilot_mode else 'false' }};
 function applyPilot(){
   if(!PILOT) return;
-  [['applyBtn','Apply replacements'],['wgApplyBtn','Apply replacements'],['annBtn','Annotated document']].forEach(([id,label])=>{
+  [['applyBtn','Apply replacements'],['annBtn','Annotated document']].forEach(([id,label])=>{
     const b=document.getElementById(id);if(!b)return;
     b.disabled=true;b.title='Switched off in pilot mode';b.innerHTML=label+' (off - pilot mode)';});
 }
