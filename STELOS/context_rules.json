@@ -1,0 +1,59 @@
+{
+  "cues": {
+    "verb_before": [
+      "to",
+      "will",
+      "can",
+      "must",
+      "shall",
+      "should",
+      "may",
+      "might",
+      "could",
+      "would",
+      "not",
+      "do",
+      "does",
+      "did",
+      "then",
+      "and then"
+    ],
+    "noun_before": [
+      "the",
+      "a",
+      "an",
+      "this",
+      "that",
+      "these",
+      "those",
+      "each",
+      "every",
+      "any",
+      "no",
+      "some",
+      "its",
+      "their",
+      "your",
+      "our",
+      "his",
+      "her",
+      "my",
+      "of",
+      "another"
+    ],
+    "adj_before": [
+      "is",
+      "are",
+      "was",
+      "were",
+      "be",
+      "been",
+      "very",
+      "too",
+      "more",
+      "most"
+    ]
+  },
+  "rules": [],
+  "help": "rules: add {\"id\":\"C1\",\"word\":\"set\",\"prev\":[\"the\",\"a\"],\"next\":[],\"note\":\"noun\"} to stop flagging a word when the word before (prev) or after (next) is in the list. Leave a list empty to ignore it."
+}

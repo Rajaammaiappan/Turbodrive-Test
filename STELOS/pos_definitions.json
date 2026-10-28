@@ -1,0 +1,78 @@
+{
+  "status": "Draft - based on ASD-STE100 Issue 9. To be reviewed by the Linguistic Team.",
+  "intro": "Parts of Speech (POS) are the word classes of English: noun, verb, adjective and so on. STE approves each word for ONE part of speech (Rule 1.2), so you must know the part of speech to use a word correctly. The position of a word in the sentence shows its part of speech. Example: \"Test\" is an approved noun but not an approved verb.",
+  "entries": [
+    {
+      "abbr": "n",
+      "name": "Noun",
+      "definition": "A word that names a thing, a place, a person or an idea.",
+      "ste_tip": "Usually follows \"the\", \"a\" or \"an\". A noun is not a verb: write \"Do a test of the system\", not \"Test the system\" (Rule 1.2, 3.7).",
+      "ste": "Do the leak test of the system.",
+      "non_ste": "Test the system for leaks."
+    },
+    {
+      "abbr": "v",
+      "name": "Verb",
+      "definition": "A word that shows an action or a state.",
+      "ste_tip": "Use an approved verb to show an action, not a noun (Rule 3.7). In a step, start with the verb: \"Remove the bolt.\"",
+      "ste": "Clean the inner surface of the container.",
+      "non_ste": "Perform cleaning of the inner surface."
+    },
+    {
+      "abbr": "adj",
+      "name": "Adjective",
+      "definition": "A word that tells you more about a noun (what kind, which one).",
+      "ste_tip": "Comes before a noun or after \"is/are\". \"Dim\" is an approved adjective but not an approved verb.",
+      "ste": "A dim light comes on.",
+      "non_ste": "Dim the lights."
+    },
+    {
+      "abbr": "adv",
+      "name": "Adverb",
+      "definition": "A word that tells you more about a verb, an adjective or another adverb (how, when, where).",
+      "ste_tip": "Use the approved adverb in the dictionary. Do not use an adverb to replace a precise value.",
+      "ste": "Turn the knob slowly.",
+      "non_ste": ""
+    },
+    {
+      "abbr": "prep",
+      "name": "Preposition",
+      "definition": "A word that links a noun or pronoun to another word and shows place, time or direction.",
+      "ste_tip": "Approved prepositions are limited. Do not use phrasal verbs (verb + preposition) unless they are in the dictionary (Rule 9.3).",
+      "ste": "Put the cover on the unit.",
+      "non_ste": ""
+    },
+    {
+      "abbr": "conj",
+      "name": "Conjunction",
+      "definition": "A word that joins words, groups of words or sentences (and, or, but, if).",
+      "ste_tip": "Use only the approved conjunctions. Do not join two long ideas in one sentence - make two sentences.",
+      "ste": "Open the door and remove the cover.",
+      "non_ste": ""
+    },
+    {
+      "abbr": "art",
+      "name": "Article",
+      "definition": "A word that comes before a noun (a, an, the).",
+      "ste_tip": "Use an article to make the noun clear. Use \"the\" for a specific item.",
+      "ste": "Install the new seal.",
+      "non_ste": ""
+    },
+    {
+      "abbr": "pro",
+      "name": "Pronoun",
+      "definition": "A word used in place of a noun (it, they, this).",
+      "ste_tip": "Make sure it is clear which noun the pronoun replaces. If it is not clear, repeat the noun.",
+      "ste": "",
+      "non_ste": ""
+    },
+    {
+      "abbr": "tn / tv",
+      "name": "Technical noun / technical verb",
+      "definition": "A noun or verb for a product, a process or a subject field that is not in the dictionary. Written by the author, not approved by the dictionary.",
+      "ste_tip": "Allowed under Rules 1.5 and 1.6 if it follows the category rules. In STELOS, add it to the shared library under a category.",
+      "ste": "",
+      "non_ste": ""
+    }
+  ]
+}
