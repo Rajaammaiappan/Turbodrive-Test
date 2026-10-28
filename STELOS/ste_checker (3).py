@@ -808,6 +808,10 @@ def check_text(text, mode, strict, extra_allowed=None):
                         if len(context_cleared) < 300:
                             context_cleared.append({'word': w, 'reason': why, 'context': ctx})
                         continue
+                    # a word the team added to the shared library (or typed in the
+                    # approved-terms box) is accepted, even if STE lists it as not approved
+                    if in_allowed(wl, extra_allowed):
+                        continue
                     alts_list = [a['alt'] for a in na.get('alts', []) if a.get('alt')]
                     alts_pos = [a.get('pos', '') for a in na.get('alts', []) if a.get('alt')]
                     if not alts_list and na.get('alt'):
@@ -2283,7 +2287,7 @@ function render(d){
        leftbox='';
        lastcell=`<td class="repcell"><span class="rewordtag">Reword needed</span></td>`;
      } else {
-       leftbox=`<input type="checkbox" class="rowchk" data-i="${i}" ${f.replacement?'checked':''}>`;
+       leftbox=`<input type="checkbox" class="rowchk" data-i="${i}" ${f.replacement?'checked':''} onchange="syncParas(${i},this.checked)">`;
        const multi=(f.alts&&f.alts.length>1);
        const sel = multi
          ? `<select class="repsel" data-i="${i}" onchange="onSel(${i})">
@@ -2299,8 +2303,8 @@ function render(d){
        : esc(f.word);
      const paraRows = occ.length ? `<tr id="paras-${i}" class="hidden paralistrow"><td></td>
        <td colspan="5"><div class="paralist">${occ.map(o=>
-         `<div class="paraitem"><label class="paraitemchk"><input type="checkbox" class="parachk" data-i="${i}" data-para="${o.para-1}" checked
-             onchange="this.closest('.paraitem').classList.toggle('unchecked', !this.checked)"></label><b>Para ${o.para}:</b> ${escMark(o.text, f.word)}</div>`).join('')}
+         `<div class="paraitem${f.replacement?'':' unchecked'}"><label class="paraitemchk"><input type="checkbox" class="parachk" data-i="${i}" data-para="${o.para-1}" ${f.replacement?'checked':''}
+             onchange="onParaTick(${i},this)"></label><b>Para ${o.para}:</b> ${escMark(o.text, f.word)}</div>`).join('')}
        </div></td></tr>` : '';
      const posCell = f.pos_display ? `<span class="posbadge">${esc(f.pos_display)}</span>` : '<span class="note" style="margin:0">&mdash;</span>';
      const useCell = `<div style="color:var(--green);font-family:var(--mono)">${esc(f.alt)}</div>`
@@ -2347,13 +2351,25 @@ function render(d){
   document.getElementById('doc').innerHTML=d.highlighted;
 }
 
-function toggleAll(cb){document.querySelectorAll('.rowchk').forEach(c=>c.checked=cb.checked);}
+function syncParas(i, on){
+  // main word box -> all paragraph boxes under it follow
+  document.querySelectorAll('.parachk[data-i="'+i+'"]').forEach(c=>{
+    c.checked=on; c.closest('.paraitem').classList.toggle('unchecked', !on);});
+}
+function onParaTick(i, cb){
+  cb.closest('.paraitem').classList.toggle('unchecked', !cb.checked);
+  // paragraph box -> main word box is ticked while at least one paragraph is ticked
+  const any=[...document.querySelectorAll('.parachk[data-i="'+i+'"]')].some(c=>c.checked);
+  const main=document.querySelector('.rowchk[data-i="'+i+'"]');
+  if(main) main.checked=any;
+}
+function toggleAll(cb){document.querySelectorAll('.rowchk').forEach(c=>{c.checked=cb.checked;syncParas(c.dataset.i,cb.checked);});}
 function onSel(i){
   const sel=document.querySelector('.repsel[data-i="'+i+'"]');
   const inp=document.querySelector('.rep[data-i="'+i+'"]');
   if(sel&&inp) inp.value=sel.value;
   const chk=document.querySelector('.rowchk[data-i="'+i+'"]');
-  if(chk) chk.checked=true;
+  if(chk){chk.checked=true;syncParas(i,true);}
 }
 
 let LIB={};
